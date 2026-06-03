@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 import fakeredis.aioredis
 import pytest
 
+from api.constants import FieldName
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.runtime_state import get_runtime_store
@@ -101,6 +102,11 @@ async def test_roundtrip_close_sets_order_pnl(memory_engine):
     stats = closed_trade_stats(store.orders)
     assert stats.winning == 1  # bought ~100, sold ~110 → a winning closed trade
     assert stats.realized_pnl > 0
+
+    # The round-trip close is also recorded in closed_trades (populated by the
+    # canonical fill path, not only the replay helper) with the same realized PnL.
+    assert len(store.closed_trades) == 1
+    assert store.closed_trades[0][FieldName.PNL] == pytest.approx(stats.realized_pnl)
 
 
 async def test_sell_without_position_records_no_order(memory_engine):
