@@ -6,14 +6,14 @@
  * strings; value helpers return formatted display strings or computed numbers.
  */
 
+import { SENTIMENT_TEXT } from '@/lib/design/sentiment'
+
 // ---------------------------------------------------------------------------
 // CSS class helpers — Trading / Positions
 // ---------------------------------------------------------------------------
 
 export function pnlColorClass(value: number): string {
-  return value >= 0
-    ? 'text-emerald-600 dark:text-emerald-400'
-    : 'text-rose-600 dark:text-rose-400'
+  return value >= 0 ? SENTIMENT_TEXT.positive : SENTIMENT_TEXT.negative
 }
 
 export function tradeSideClass(side: string | null): string {
@@ -190,4 +190,19 @@ export function agentTierFromStatus(status: string): 'active' | 'challenger' | '
 export function performancePnlColorClass(pnl: number | null): string {
   if (pnl == null) return 'text-slate-900 dark:text-slate-100'
   return pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'
+}
+
+// ---------------------------------------------------------------------------
+// CSS class helpers — review-status badge (shared primitive)
+// ---------------------------------------------------------------------------
+
+/**
+ * Badge classes for a proposal review status: approved = success, rejected =
+ * danger, anything else (pending/null) = warning. One definition shared by the
+ * proposals queue and the learning console.
+ */
+export function proposalStatusClass(status: string | null | undefined): string {
+  if (status === 'approved') return 'border-emerald-400/30 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300'
+  if (status === 'rejected') return 'border-rose-400/30 bg-rose-400/10 text-rose-700 dark:text-rose-300'
+  return 'border-amber-400/30 bg-amber-400/10 text-amber-700 dark:text-amber-300'
 }
