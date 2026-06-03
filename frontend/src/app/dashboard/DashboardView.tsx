@@ -380,7 +380,11 @@ export function DashboardView({ section }: { section: Section }) {
     const dailyPnlNumeric = orders.reduce((sum, order) => sum + (toFiniteNumber(order?.pnl) ?? 0), 0)
     const closedTrades = orders.filter((order) => isClosedTrade(order) && toFiniteNumber(order?.pnl) != null)
     const wins = closedTrades.filter((order) => (toFiniteNumber(order?.pnl) ?? 0) > 0).length
-    const winRate = closedTrades.length > 0 ? (wins / closedTrades.length) * 100 : null
+    const losses = closedTrades.filter((order) => (toFiniteNumber(order?.pnl) ?? 0) < 0).length
+    // Win rate excludes scratch trades (pnl == 0) from the denominator so the UI
+    // matches the backend canonical definition: winning / (winning + losing).
+    const decidedTrades = wins + losses
+    const winRate = decidedTrades > 0 ? (wins / decidedTrades) * 100 : null
     const activePositions = positions.filter((position) => position?.side === 'long' || position?.side === 'short').length
     const dailyChangeFromMetric = getMetric(systemMetrics, 'daily_change_pct')
     const dailyChangeFromDashboard = toFiniteNumber((dashboardData as Record<string, unknown> | null)?.['daily_change_pct'])
@@ -411,10 +415,14 @@ export function DashboardView({ section }: { section: Section }) {
   const fallbackPerformanceSummary = useMemo(() => {
     if (closedTradePnls.length === 0) return null
     const total = closedTradePnls.reduce((sum, pnl) => sum + pnl, 0)
-    const wins = closedTradePnls.filter((pnl) => pnl > 0)
+    const wins = closedTradePnls.filter((pnl) => pnl > 0).length
+    const losses = closedTradePnls.filter((pnl) => pnl < 0).length
+    // Exclude scratch trades (pnl == 0) from the win-rate denominator to match
+    // the backend canonical definition: winning / (winning + losing).
+    const decided = wins + losses
     return {
       total_pnl: total,
-      win_rate: wins.length / closedTradePnls.length,
+      win_rate: decided > 0 ? wins / decided : 0,
       best_trade: Math.max(...closedTradePnls),
       worst_trade: Math.min(...closedTradePnls),
     }
