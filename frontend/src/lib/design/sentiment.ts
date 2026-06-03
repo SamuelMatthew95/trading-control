@@ -33,16 +33,29 @@ export function sentimentOf(value: number | null | undefined): Sentiment {
 }
 
 /**
- * Canonical text colour per sentiment — resolved to semantic Tone design
- * tokens (`--success`/`--danger` etc. defined once in src/styles/globals.css
- * and flipped for dark mode there). Every directional text colour in the app
- * resolves through this map, so the palette and light/dark parity live in a
- * single place — no per-usage `dark:` pairs.
+ * Tone — the full semantic palette the UI maps state onto. `Sentiment` is the
+ * directional subset (positive→success, negative→danger). Status and health
+ * vocabularies resolve to a Tone; a Tone resolves to a design token here. The
+ * tokens are defined once in src/styles/globals.css and flipped for dark mode
+ * there, so the palette and light/dark parity live in a single place — no
+ * per-usage `dark:` pairs.
  */
-export const SENTIMENT_TEXT: Record<Sentiment, string> = {
-  positive: 'text-success',
-  negative: 'text-danger',
+export type Tone = 'success' | 'danger' | 'warning' | 'neutral' | 'info'
+
+/** Canonical text colour per Tone — the single source of truth. */
+export const TONE_TEXT: Record<Tone, string> = {
+  success: 'text-success',
+  danger: 'text-danger',
+  warning: 'text-warning',
   neutral: 'text-muted-foreground',
+  info: 'text-info',
+}
+
+/** Directional text colour — the directional subset of {@link TONE_TEXT}. */
+export const SENTIMENT_TEXT: Record<Sentiment, string> = {
+  positive: TONE_TEXT.success,
+  negative: TONE_TEXT.danger,
+  neutral: TONE_TEXT.neutral,
 }
 
 /** Convenience composer: signed value → canonical sentiment text colour. */
