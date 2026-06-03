@@ -19,10 +19,11 @@ from api.constants import (
     AGENT_REFLECTION,
     AGENT_SIGNAL,
     AGENT_STRATEGY_PROPOSER,
+    DEFAULT_PAPER_CASH,
     FieldName,
     LogType,
 )
-from api.services.metrics_calc import win_rate_from_counts
+from api.services.metrics_calc import closed_trade_stats, win_rate_from_counts
 from api.services.notification_summary import compute_notification_summary
 
 DEFAULT_AGENTS: dict[str, dict[str, Any]] = {
@@ -462,10 +463,20 @@ class InMemoryStore:
         now = time.time()
         notifications = list(self.notifications[-100:])
         notification_summary = compute_notification_summary(notifications)
+        # Realized PnL as a % of starting paper capital, so the dashboard's
+        # "Daily Change %" tile shows a value instead of "--" (the backend emits
+        # no equity-base system metric). Mirrors the "Daily P&L" tile, which
+        # sums realized order PnL.
+        realized_pnl = closed_trade_stats(self.orders).realized_pnl
+        daily_change_pct = (
+            round(realized_pnl / DEFAULT_PAPER_CASH * 100.0, 4) if DEFAULT_PAPER_CASH else 0.0
+        )
 
         return {
             FieldName.ORDERS: list(reversed(self.orders[-50:])),
             FieldName.POSITIONS: self.normalized_open_positions(),
+            FieldName.DAILY_PNL: round(realized_pnl, 2),
+            FieldName.DAILY_CHANGE_PCT: daily_change_pct,
             FieldName.AGENT_LOGS: list(reversed(self.agent_logs[-50:])),
             FieldName.LEARNING_EVENTS: list(reversed(self.grade_history[-20:])),
             FieldName.PROPOSALS: [
