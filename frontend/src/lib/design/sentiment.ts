@@ -60,6 +60,15 @@ export const TONE_DOT: Record<Tone, string> = {
   info: 'bg-info',
 }
 
+/** Canonical badge/chip classes per Tone — translucent fill + matching text. */
+export const TONE_BADGE: Record<Tone, string> = {
+  success: 'bg-success/10 text-success',
+  danger: 'bg-danger/10 text-danger',
+  warning: 'bg-warning/10 text-warning',
+  neutral: 'bg-muted-foreground/10 text-muted-foreground',
+  info: 'bg-info/10 text-info',
+}
+
 /** Directional text colour — the directional subset of {@link TONE_TEXT}. */
 export const SENTIMENT_TEXT: Record<Sentiment, string> = {
   positive: TONE_TEXT.success,
