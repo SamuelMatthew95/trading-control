@@ -33,13 +33,16 @@ export function sentimentOf(value: number | null | undefined): Sentiment {
 }
 
 /**
- * Canonical text colour per sentiment — the single source of truth. Every
- * directional text colour in the app resolves through this map.
+ * Canonical text colour per sentiment — resolved to semantic Tone design
+ * tokens (`--success`/`--danger` etc. defined once in src/styles/globals.css
+ * and flipped for dark mode there). Every directional text colour in the app
+ * resolves through this map, so the palette and light/dark parity live in a
+ * single place — no per-usage `dark:` pairs.
  */
 export const SENTIMENT_TEXT: Record<Sentiment, string> = {
-  positive: 'text-emerald-600 dark:text-emerald-400',
-  negative: 'text-rose-600 dark:text-rose-400',
-  neutral: 'text-slate-500 dark:text-slate-400',
+  positive: 'text-success',
+  negative: 'text-danger',
+  neutral: 'text-muted-foreground',
 }
 
 /** Convenience composer: signed value → canonical sentiment text colour. */
