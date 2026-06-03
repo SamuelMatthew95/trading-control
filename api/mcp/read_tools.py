@@ -522,7 +522,9 @@ async def diagnose_positions_data() -> dict[str, Any]:
         b_qty = _abs_qty(broker_open.get(symbol, {}))
         s_qty = _abs_qty(store_open.get(symbol, {}))
         if abs(b_qty - s_qty) > 1e-6:
-            mismatches.append({"symbol": symbol, "broker_qty": b_qty, "store_qty": s_qty})
+            mismatches.append(
+                {FieldName.SYMBOL: symbol, FieldName.BROKER_QTY: b_qty, FieldName.STORE_QTY: s_qty}
+            )
 
     stale_store_only = sorted(set(store_open) - set(broker_open))
     missing_in_store = sorted(set(broker_open) - set(store_open))
@@ -531,13 +533,13 @@ async def diagnose_positions_data() -> dict[str, Any]:
     ok = not (mismatches or stale_store_only or missing_in_store or flat_in_raw_store)
     return _wrap(
         {
-            "ok": ok,
-            "broker_open_count": len(broker_open),
-            "store_open_count": len(store_open),
-            "mismatches": mismatches,
-            "stale_store_only": stale_store_only,
-            "missing_in_store": missing_in_store,
-            "flat_in_raw_store": flat_in_raw_store,
+            FieldName.OK: ok,
+            FieldName.BROKER_OPEN_COUNT: len(broker_open),
+            FieldName.STORE_OPEN_COUNT: len(store_open),
+            FieldName.MISMATCHES: mismatches,
+            FieldName.STALE_STORE_ONLY: stale_store_only,
+            FieldName.MISSING_IN_STORE: missing_in_store,
+            FieldName.FLAT_IN_RAW_STORE: flat_in_raw_store,
         },
         source="redis",
         degraded=not ok,
@@ -554,7 +556,10 @@ async def diagnose_trade_feed_data(limit: int = 500) -> dict[str, Any]:
     redis_store = get_redis_store()
     if redis_store is None:
         return _wrap(
-            {"window": 0}, source="in_memory", degraded=True, reason="redis_store_unavailable"
+            {FieldName.WINDOW: 0},
+            source="in_memory",
+            degraded=True,
+            reason="redis_store_unavailable",
         )
     decisions = await redis_store.list_decisions(limit=limit)
     broker = await _scan_broker_positions()
@@ -579,12 +584,12 @@ async def diagnose_trade_feed_data(limit: int = 500) -> dict[str, Any]:
     ok = untagged_phantom_sells == 0
     return _wrap(
         {
-            "ok": ok,
-            "window": len(decisions),
-            "action_distribution": distribution,
-            "held_long_symbols": sorted(held_long),
-            "downgraded_sells": downgraded_sells,
-            "untagged_phantom_sells": untagged_phantom_sells,
+            FieldName.OK: ok,
+            FieldName.WINDOW: len(decisions),
+            FieldName.ACTION_DISTRIBUTION: distribution,
+            FieldName.HELD_LONG_SYMBOLS: sorted(held_long),
+            FieldName.DOWNGRADED_SELLS: downgraded_sells,
+            FieldName.UNTAGGED_PHANTOM_SELLS: untagged_phantom_sells,
         },
         source="redis",
         degraded=not ok,
@@ -607,16 +612,15 @@ def diagnose_metrics_data() -> dict[str, Any]:
     )
     return _wrap(
         {
-            "ok": True,
-            "total_orders": len(orders),
-            "winning_trades": stats.winning,
-            "losing_trades": stats.losing,
-            "closed_trades": stats.closed,
-            "open_trades_excluded": opens,
-            "scratch_trades_excluded": scratches,
-            "realized_pnl": stats.realized_pnl,
-            "win_rate": round(stats.win_rate, 4),
-            "win_rate_formula": "winning / (winning + losing)",
+            FieldName.OK: True,
+            FieldName.TOTAL_ORDERS: len(orders),
+            FieldName.WINNING_TRADES: stats.winning,
+            FieldName.LOSING_TRADES: stats.losing,
+            FieldName.CLOSED_TRADES: stats.closed,
+            FieldName.OPEN_TRADES_EXCLUDED: opens,
+            FieldName.SCRATCH_TRADES_EXCLUDED: scratches,
+            FieldName.REALIZED_PNL: stats.realized_pnl,
+            FieldName.WIN_RATE: round(stats.win_rate, 4),
         },
         source="in_memory",
     )
@@ -636,9 +640,9 @@ async def diagnose_dashboard_consistency_data() -> dict[str, Any]:
     equity_consistent = (not store.equity_curve) or abs(equity_realized - realized) <= 1e-6
 
     issues: list[str] = []
-    if not positions["data"]["ok"]:
+    if not positions[FieldName.DATA][FieldName.OK]:
         issues.append("position_mismatch")
-    if not trade_feed["data"]["ok"]:
+    if not trade_feed[FieldName.DATA][FieldName.OK]:
         issues.append("phantom_sells_in_feed")
     if not equity_consistent:
         issues.append("equity_curve_diverges_from_realized_pnl")
@@ -646,12 +650,12 @@ async def diagnose_dashboard_consistency_data() -> dict[str, Any]:
     overall_ok = not issues
     return _wrap(
         {
-            "ok": overall_ok,
-            "issues": issues,
-            "positions": positions["data"],
-            "trade_feed": trade_feed["data"],
-            "metrics": metrics["data"],
-            "equity_consistent": equity_consistent,
+            FieldName.OK: overall_ok,
+            FieldName.ISSUES: issues,
+            FieldName.POSITIONS: positions[FieldName.DATA],
+            FieldName.TRADE_FEED: trade_feed[FieldName.DATA],
+            FieldName.METRICS: metrics[FieldName.DATA],
+            FieldName.EQUITY_CONSISTENT: equity_consistent,
         },
         source="redis",
         degraded=not overall_ok,
