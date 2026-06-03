@@ -6,7 +6,7 @@
  * strings; value helpers return formatted display strings or computed numbers.
  */
 
-import { SENTIMENT_TEXT } from '@/lib/design/sentiment'
+import { SENTIMENT_TEXT, sentimentTextClass } from '@/lib/design/sentiment'
 
 // ---------------------------------------------------------------------------
 // CSS class helpers — Trading / Positions
@@ -17,7 +17,7 @@ export function pnlColorClass(value: number): string {
 }
 
 export function tradeSideClass(side: string | null): string {
-  return side === 'buy' ? 'text-emerald-500' : 'text-rose-500'
+  return side === 'buy' ? SENTIMENT_TEXT.positive : SENTIMENT_TEXT.negative
 }
 
 export function strategyStatusClass(status: string | null): string {
@@ -171,10 +171,8 @@ export function apiHealthBadgeClass(value: string): string {
 }
 
 export function priceChangeTextClass(change: number | null, hasData: boolean): string {
-  if (change == null || !hasData) return 'text-slate-500'
-  if (change > 0) return 'text-emerald-500'
-  if (change < 0) return 'text-rose-500'
-  return 'text-slate-400'
+  if (change == null || !hasData) return SENTIMENT_TEXT.neutral
+  return sentimentTextClass(change)
 }
 
 // ---------------------------------------------------------------------------
@@ -189,7 +187,7 @@ export function agentTierFromStatus(status: string): 'active' | 'challenger' | '
 
 export function performancePnlColorClass(pnl: number | null): string {
   if (pnl == null) return 'text-slate-900 dark:text-slate-100'
-  return pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'
+  return pnl >= 0 ? SENTIMENT_TEXT.positive : SENTIMENT_TEXT.negative
 }
 
 // ---------------------------------------------------------------------------
