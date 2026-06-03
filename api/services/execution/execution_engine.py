@@ -1058,6 +1058,21 @@ class ExecutionEngine(BaseStreamConsumer):
                 FieldName.FILLED_AT: ctx.filled_at.isoformat(),
             }
         )
+        # A round-trip close is a completed trade — record it so the dashboard's
+        # closed-trades panel reflects real activity in memory mode.
+        if ctx.is_round_trip_close:
+            store.add_closed_trade(
+                {
+                    FieldName.SYMBOL: ctx.symbol,
+                    FieldName.SIDE: ctx.side,
+                    FieldName.QTY: ctx.qty,
+                    FieldName.ENTRY_PRICE: ctx.entry_price,
+                    FieldName.EXIT_PRICE: ctx.fill_price,
+                    FieldName.PNL: ctx.realized_pnl,
+                    FieldName.PNL_PERCENT: ctx.pnl_percent,
+                    FieldName.FILLED_AT: ctx.filled_at.isoformat(),
+                }
+            )
         # PaperBroker (Redis) is the position source of truth — mirror its
         # authoritative post-fill state instead of recomputing it locally.
         broker_position = await self.broker.get_position(ctx.symbol)
