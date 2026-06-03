@@ -73,20 +73,20 @@ describe('tradeSideClass', () => {
 })
 
 describe('strategyStatusClass', () => {
-  it('returns emerald for approved', () => {
-    expect(strategyStatusClass('approved')).toContain('emerald')
+  it('returns the success token for approved', () => {
+    expect(strategyStatusClass('approved')).toContain('success')
   })
-  it('returns rose for rejected', () => {
-    expect(strategyStatusClass('rejected')).toContain('rose')
+  it('returns the danger token for rejected', () => {
+    expect(strategyStatusClass('rejected')).toContain('danger')
   })
-  it('returns amber for pending', () => {
-    expect(strategyStatusClass('pending')).toContain('amber')
+  it('returns the warning token for pending', () => {
+    expect(strategyStatusClass('pending')).toContain('warning')
   })
-  it('returns amber for null (treated as pending)', () => {
-    expect(strategyStatusClass(null)).toContain('amber')
+  it('returns the warning token for null (treated as pending)', () => {
+    expect(strategyStatusClass(null)).toContain('warning')
   })
-  it('returns amber for unknown status', () => {
-    expect(strategyStatusClass('draft')).toContain('amber')
+  it('returns the warning token for unknown status', () => {
+    expect(strategyStatusClass('draft')).toContain('warning')
   })
 })
 
@@ -291,20 +291,20 @@ describe('streamEventBadgeClass', () => {
 })
 
 describe('systemStatusBadgeClass', () => {
-  it('returns emerald for trading', () => {
-    expect(systemStatusBadgeClass('trading')).toContain('emerald')
+  it('returns the success token for trading', () => {
+    expect(systemStatusBadgeClass('trading')).toContain('success')
   })
-  it('returns amber for booting', () => {
-    expect(systemStatusBadgeClass('booting')).toContain('amber')
+  it('returns the warning token for booting', () => {
+    expect(systemStatusBadgeClass('booting')).toContain('warning')
   })
-  it('returns rose for error', () => {
-    expect(systemStatusBadgeClass('error')).toContain('rose')
+  it('returns the danger token for error', () => {
+    expect(systemStatusBadgeClass('error')).toContain('danger')
   })
-  it('returns slate for unknown status', () => {
-    expect(systemStatusBadgeClass('offline')).toContain('slate')
+  it('returns the muted token for unknown status', () => {
+    expect(systemStatusBadgeClass('offline')).toContain('muted')
   })
-  it('returns slate for empty string', () => {
-    expect(systemStatusBadgeClass('')).toContain('slate')
+  it('returns the muted token for empty string', () => {
+    expect(systemStatusBadgeClass('')).toContain('muted')
   })
 })
 
