@@ -22,9 +22,10 @@ import {
   agentDisplayName,
   canonicalAgentKey,
 } from '@/constants/agents'
+import type { AgentStatus } from '@/types/dashboard'
 
-/** Status vocabulary shared with DashboardView's `AgentSummary`. */
-export type PipelineAgentStatus = 'Live' | 'Stale' | 'Error' | 'Idle'
+/** Canonical agent display status — `AgentStatus` is the single definition. */
+export type PipelineAgentStatus = AgentStatus
 
 /** Structural subset of `AgentSummary` this module needs. */
 export interface PipelineAgentLike {
