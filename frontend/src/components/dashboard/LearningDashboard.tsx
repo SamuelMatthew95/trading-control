@@ -286,7 +286,7 @@ function TradeDetailModal({
         <div className="mb-4 grid grid-cols-2 gap-3 text-xs font-mono">
           <div>
             <p className="text-slate-500">P&L</p>
-            <p className={`font-bold ${pnlColorClass(trade.pnl ?? 0)}`}>
+            <p className={`font-bold ${pnlColorClass(Number(trade.pnl) || 0)}`}>
               {fmtUSD(trade.pnl)}
             </p>
           </div>
