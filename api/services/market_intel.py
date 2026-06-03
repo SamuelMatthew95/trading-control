@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import math
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -293,12 +294,20 @@ async def _fetch_bars(
     """Recent close-price series for ``symbol`` + ``peers`` in one Alpaca call."""
     symbols = [symbol, *peers]
     path = "/v1beta3/crypto/us/bars" if _is_crypto(symbol) else "/v2/stocks/bars"
+    # Bars are HISTORICAL: without an explicit `start` Alpaca returns the OLDEST
+    # bars (ascending) — useless for a current-correlation estimate, which is
+    # why the tool returned {} on every decision. Request a recent window
+    # (newest-first) so we actually get the latest bars, mirroring the
+    # start/end the SignalGenerator's SDK bootstrap already passes.
+    start = (datetime.now(timezone.utc) - timedelta(minutes=_CORRELATION_BARS * 4)).isoformat()
     resp = await client.get(
         path,
         params={
             "symbols": ",".join(symbols),
             FieldName.TIMEFRAME: _CORRELATION_TIMEFRAME,
             FieldName.LIMIT: _CORRELATION_BARS,
+            "start": start,
+            "sort": "desc",
         },
     )
     resp.raise_for_status()
