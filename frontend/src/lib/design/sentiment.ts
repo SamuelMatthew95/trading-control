@@ -40,7 +40,7 @@ export function sentimentOf(value: number | null | undefined): Sentiment {
  * there, so the palette and light/dark parity live in a single place — no
  * per-usage `dark:` pairs.
  */
-export type Tone = 'success' | 'danger' | 'warning' | 'neutral' | 'info'
+export type Tone = 'success' | 'danger' | 'warning' | 'neutral'
 
 /** Canonical text colour per Tone — the single source of truth. */
 export const TONE_TEXT: Record<Tone, string> = {
@@ -48,7 +48,6 @@ export const TONE_TEXT: Record<Tone, string> = {
   danger: 'text-danger',
   warning: 'text-warning',
   neutral: 'text-muted-foreground',
-  info: 'text-info',
 }
 
 /** Canonical status-dot background per Tone. */
@@ -57,7 +56,6 @@ export const TONE_DOT: Record<Tone, string> = {
   danger: 'bg-danger',
   warning: 'bg-warning',
   neutral: 'bg-muted-foreground',
-  info: 'bg-info',
 }
 
 /** Canonical badge/chip classes per Tone — translucent fill + matching text. */
@@ -66,7 +64,6 @@ export const TONE_BADGE: Record<Tone, string> = {
   danger: 'bg-danger/10 text-danger',
   warning: 'bg-warning/10 text-warning',
   neutral: 'bg-muted-foreground/10 text-muted-foreground',
-  info: 'bg-info/10 text-info',
 }
 
 /** Directional text colour — the directional subset of {@link TONE_TEXT}. */
