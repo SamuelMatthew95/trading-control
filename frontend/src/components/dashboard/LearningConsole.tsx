@@ -88,7 +88,11 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
   const closedTrades = tradeFeed.filter((trade) => trade.pnl != null)
   const totalPnl = performanceSummary?.total_pnl ?? closedTrades.reduce((sum, trade) => sum + (toFiniteNumber(trade.pnl) ?? 0), 0)
   const wins = closedTrades.filter((trade) => (toFiniteNumber(trade.pnl) ?? 0) > 0).length
-  const winRate = performanceSummary?.win_rate ?? (closedTrades.length > 0 ? wins / closedTrades.length : null)
+  const losses = closedTrades.filter((trade) => (toFiniteNumber(trade.pnl) ?? 0) < 0).length
+  // Fallback win rate excludes scratch trades (pnl == 0) from the denominator to
+  // match the backend canonical definition: winning / (winning + losing).
+  const decidedTrades = wins + losses
+  const winRate = performanceSummary?.win_rate ?? (decidedTrades > 0 ? wins / decidedTrades : null)
   const avgGradeScore = gradedTrades.length > 0
     ? gradedTrades.reduce((sum, trade) => sum + (toFiniteNumber(trade.grade_score) ?? 0), 0) / gradedTrades.length
     : null
