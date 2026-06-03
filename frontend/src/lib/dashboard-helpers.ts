@@ -6,7 +6,7 @@
  * strings; value helpers return formatted display strings or computed numbers.
  */
 
-import { SENTIMENT_TEXT, TONE_DOT, TONE_TEXT, sentimentTextClass } from '@/lib/design/sentiment'
+import { SENTIMENT_TEXT, TONE_BADGE, TONE_DOT, TONE_TEXT, sentimentTextClass } from '@/lib/design/sentiment'
 
 // ---------------------------------------------------------------------------
 // CSS class helpers — Trading / Positions
@@ -34,15 +34,15 @@ export function confColorClass(conf: number | null): string {
 }
 
 export function actionBadgeClass(action: string): string {
-  if (action === 'BUY') return 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-  if (action === 'SELL') return 'bg-rose-500/15 text-rose-500'
-  return 'bg-slate-500/10 text-slate-500'
+  if (action === 'BUY') return TONE_BADGE.success
+  if (action === 'SELL') return TONE_BADGE.danger
+  return TONE_BADGE.neutral
 }
 
 export function positionSideBadgeClass(side: string): string {
-  if (side === 'LONG') return 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-  if (side === 'SHORT') return 'bg-rose-500/15 text-rose-500'
-  return 'bg-slate-500/10 text-slate-500'
+  if (side === 'LONG') return TONE_BADGE.success
+  if (side === 'SHORT') return TONE_BADGE.danger
+  return TONE_BADGE.neutral
 }
 
 // ---------------------------------------------------------------------------
@@ -165,9 +165,9 @@ export function pipelineStatusTextClass(status: string): string {
 }
 
 export function apiHealthBadgeClass(value: string): string {
-  if (value === 'ok') return 'bg-emerald-500/10 text-emerald-500'
-  if (value === 'error') return 'bg-rose-500/10 text-rose-500'
-  return 'bg-slate-500/10 text-slate-500'
+  if (value === 'ok') return TONE_BADGE.success
+  if (value === 'error') return TONE_BADGE.danger
+  return TONE_BADGE.neutral
 }
 
 export function priceChangeTextClass(change: number | null, hasData: boolean): string {
