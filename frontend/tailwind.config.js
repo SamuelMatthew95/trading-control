@@ -33,7 +33,6 @@ const config = {
         success: 'hsl(var(--success) / <alpha-value>)',
         danger: 'hsl(var(--danger) / <alpha-value>)',
         warning: 'hsl(var(--warning) / <alpha-value>)',
-        info: 'hsl(var(--info) / <alpha-value>)',
       },
       borderRadius: {
         lg: '0.75rem',
