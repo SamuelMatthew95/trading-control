@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { cardClass, sectionTitleClass } from '@/lib/dashboard-styles'
 import { extractToolInvocations, summarizeToolOutputs } from '@/lib/decision-tools'
 import { formatTimestamp } from '@/lib/formatters'
+import { EmptyState } from '@/components/ui/empty-state'
 import type { DecisionStats } from '@/hooks/useRestPoll'
 
 // A decision is a rule-based fallback (not real model reasoning) when the agent
@@ -19,13 +20,7 @@ function isFallbackDecision(d: Record<string, unknown>): boolean {
 }
 
 function EmptyDecisions() {
-  return (
-    <div className="flex h-28 items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/30">
-      <p className="text-xs font-sans font-medium text-slate-400 dark:text-slate-600">
-        No buy/sell decisions yet
-      </p>
-    </div>
-  )
+  return <EmptyState message="No buy/sell decisions yet" />
 }
 
 export function RecentDecisionsPanel({
