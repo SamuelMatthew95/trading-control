@@ -13,6 +13,7 @@ Each file covers one subsystem. When a bug is found and fixed, add it to the rig
 | [lm-studio.md](lm-studio.md) | LM Studio / LM Link local inference: startup, timeout, fallback, secrets |
 | [backtest.md](backtest.md) | Strategy-comparison harness: eligibility gates, NO SIGNALS vs 0.00, verdict honesty |
 | [signal-generation.md](signal-generation.md) | Live SignalGenerator trigger: volatility-normalized vs fixed-% thresholds, idle-bot / "no signals" |
+| [market-intel.md](market-intel.md) | Reasoning perception tools (order-book / news / correlation): Alpaca request shape, success:false degradation |
 | [tailscale.md](tailscale.md) | tailscaled proxy noise: SOCKS5 vs HTTP-CONNECT port split, peerAPI "unknown peer" diagnosis |
 | [agents.md](agents.md) | Agent fleet lifecycle: supervision, crash detection/restart, RiskGuardian monitoring |
 | [cognitive.md](cognitive.md) | Cognitive brain (`cognitive/`): event-stream loop, deterministic decision engine, learning/observations, proposal→backtest→challenger→PR evolution |
