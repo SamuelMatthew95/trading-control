@@ -6,7 +6,7 @@
  * strings; value helpers return formatted display strings or computed numbers.
  */
 
-import { SENTIMENT_TEXT, TONE_TEXT, sentimentTextClass } from '@/lib/design/sentiment'
+import { SENTIMENT_TEXT, TONE_DOT, TONE_TEXT, sentimentTextClass } from '@/lib/design/sentiment'
 
 // ---------------------------------------------------------------------------
 // CSS class helpers — Trading / Positions
@@ -50,9 +50,9 @@ export function positionSideBadgeClass(side: string): string {
 // ---------------------------------------------------------------------------
 
 export function activityDotClass(indicator: string): string {
-  if (indicator === 'live') return 'animate-pulse bg-emerald-500'
-  if (indicator === 'waiting') return 'bg-amber-400'
-  return 'bg-slate-400'
+  if (indicator === 'live') return `animate-pulse ${TONE_DOT.success}`
+  if (indicator === 'waiting') return TONE_DOT.warning
+  return TONE_DOT.neutral
 }
 
 export function activityLabel(indicator: string): string {
@@ -84,10 +84,10 @@ export function agentCardBorderClass(status: string): string {
 }
 
 export function agentCardDotClass(status: string): string {
-  if (status === 'Live') return 'animate-pulse bg-emerald-500'
-  if (status === 'Stale') return 'bg-amber-400'
-  if (status === 'Error') return 'bg-rose-500'
-  return 'bg-slate-300 dark:bg-slate-600'
+  if (status === 'Live') return `animate-pulse ${TONE_DOT.success}`
+  if (status === 'Stale') return TONE_DOT.warning
+  if (status === 'Error') return TONE_DOT.danger
+  return TONE_DOT.neutral
 }
 
 export function agentCardTextClass(status: string): string {
