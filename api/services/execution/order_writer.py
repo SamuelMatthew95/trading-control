@@ -145,8 +145,18 @@ async def upsert_position_db(
     side: str,
     qty: float,
     fill_price: float,
+    avg_cost: float | None = None,
 ) -> None:
-    """INSERT a new position or UPDATE the existing one with signed-qty math."""
+    """INSERT a new position or UPDATE the existing one with signed-qty math.
+
+    ``avg_cost`` is the PaperBroker's authoritative post-fill entry price (the
+    single source of truth for positions). When provided, the row's
+    entry_price/avg_cost are set from it so the DB cannot drift from the
+    broker's weighted average on an add-to-position — the prior UPDATE left
+    entry_price stale, the same bug fixed on the in-memory path. When omitted
+    (legacy / test callers) entry price is the fill price on INSERT and is left
+    untouched on UPDATE.
+    """
     existing = await session.execute(
         text(
             "SELECT id, side, qty FROM positions "
@@ -156,6 +166,7 @@ async def upsert_position_db(
     )
     row = existing.mappings().first()
     signed_qty = qty if side in {OrderSide.BUY, PositionSide.LONG} else (-1 * qty)
+    effective_avg = avg_cost if avg_cost is not None else fill_price
 
     if row is None:
         pos_qty = abs(signed_qty)
@@ -179,7 +190,7 @@ async def upsert_position_db(
                 "symbol": symbol,
                 "side": pos_side,
                 "qty": pos_qty,
-                "entry_price": fill_price,
+                "entry_price": effective_avg,
                 FieldName.CURRENT_PRICE: fill_price,
                 "market_value": market_value,
                 "strategy_id": strategy_id,
@@ -201,22 +212,43 @@ async def upsert_position_db(
         else (PositionSide.LONG if new_qty > 0 else PositionSide.SHORT)
     )
     new_abs_qty = abs(new_qty)
-    await session.execute(
-        text(
-            # Keep old (qty/current_price) and new (quantity/last_price/market_value)
-            # column names in sync so MetricsAggregator ORM queries return real values.
-            "UPDATE positions SET side = :side, qty = :qty, quantity = :qty,"
-            " current_price = :current_price, last_price = :current_price,"
-            " market_value = :market_value WHERE id = :position_id"
-        ),
-        {
-            "side": next_side,
-            "qty": new_abs_qty,
-            FieldName.CURRENT_PRICE: fill_price,
-            "market_value": round(new_abs_qty * fill_price, 8),
-            FieldName.POSITION_ID: row[FieldName.ID],
-        },
-    )
+    market_value = round(new_abs_qty * fill_price, 8)
+    # Keep old (qty/current_price) and new (quantity/last_price/market_value)
+    # column names in sync so MetricsAggregator ORM queries return real values.
+    if avg_cost is not None:
+        # Mirror the broker's authoritative weighted-average entry so the DB
+        # cannot drift from the source of truth on an add-to-position.
+        await session.execute(
+            text(
+                "UPDATE positions SET side = :side, qty = :qty, quantity = :qty,"
+                " entry_price = :avg_cost, avg_cost = :avg_cost,"
+                " current_price = :current_price, last_price = :current_price,"
+                " market_value = :market_value WHERE id = :position_id"
+            ),
+            {
+                "side": next_side,
+                "qty": new_abs_qty,
+                "avg_cost": avg_cost,
+                FieldName.CURRENT_PRICE: fill_price,
+                "market_value": market_value,
+                FieldName.POSITION_ID: row[FieldName.ID],
+            },
+        )
+    else:
+        await session.execute(
+            text(
+                "UPDATE positions SET side = :side, qty = :qty, quantity = :qty,"
+                " current_price = :current_price, last_price = :current_price,"
+                " market_value = :market_value WHERE id = :position_id"
+            ),
+            {
+                "side": next_side,
+                "qty": new_abs_qty,
+                FieldName.CURRENT_PRICE: fill_price,
+                "market_value": market_value,
+                FieldName.POSITION_ID: row[FieldName.ID],
+            },
+        )
 
 
 async def insert_audit_log(session, *, event_type: str, payload: dict[str, Any]) -> None:
