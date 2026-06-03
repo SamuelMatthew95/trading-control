@@ -19,6 +19,10 @@
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
     --ring: 243.4 75.4% 58.6%;
+    --success: 160 84% 39%;
+    --danger: 347 77% 50%;
+    --warning: 32 95% 44%;
+    --info: 200 98% 39%;
     --radius: 0.75rem;
   }
 
@@ -38,6 +42,10 @@
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
     --ring: 243.4 75.4% 58.6%;
+    --success: 158 64% 52%;
+    --danger: 351 95% 71%;
+    --warning: 43 96% 56%;
+    --info: 198 93% 60%;
   }
 
   * {
