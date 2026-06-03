@@ -140,19 +140,19 @@ describe('positionSideBadgeClass', () => {
 })
 
 describe('activityDotClass', () => {
-  it('includes animate-pulse and emerald for live', () => {
+  it('includes animate-pulse and the success token for live', () => {
     const cls = activityDotClass('live')
     expect(cls).toContain('animate-pulse')
-    expect(cls).toContain('emerald')
+    expect(cls).toContain('bg-success')
   })
-  it('returns amber for waiting', () => {
-    expect(activityDotClass('waiting')).toContain('amber')
+  it('returns the warning token for waiting', () => {
+    expect(activityDotClass('waiting')).toBe('bg-warning')
   })
-  it('returns slate for offline', () => {
-    expect(activityDotClass('offline')).toContain('slate')
+  it('returns the muted token for offline', () => {
+    expect(activityDotClass('offline')).toBe('bg-muted-foreground')
   })
-  it('returns slate for any unrecognised value', () => {
-    expect(activityDotClass('unknown')).toContain('slate')
+  it('returns the muted token for any unrecognised value', () => {
+    expect(activityDotClass('unknown')).toBe('bg-muted-foreground')
   })
 })
 
@@ -211,22 +211,22 @@ describe('agentCardBorderClass', () => {
 })
 
 describe('agentCardDotClass', () => {
-  it('includes animate-pulse and emerald for Live', () => {
+  it('includes animate-pulse and the success token for Live', () => {
     const cls = agentCardDotClass('Live')
     expect(cls).toContain('animate-pulse')
-    expect(cls).toContain('emerald')
+    expect(cls).toContain('bg-success')
   })
-  it('returns amber for Stale', () => {
-    expect(agentCardDotClass('Stale')).toContain('amber')
+  it('returns the warning token for Stale', () => {
+    expect(agentCardDotClass('Stale')).toBe('bg-warning')
   })
-  it('returns rose for Error', () => {
-    expect(agentCardDotClass('Error')).toContain('rose')
+  it('returns the danger token for Error', () => {
+    expect(agentCardDotClass('Error')).toBe('bg-danger')
   })
-  it('returns slate for Idle', () => {
-    expect(agentCardDotClass('Idle')).toContain('slate')
+  it('returns the muted token for Idle', () => {
+    expect(agentCardDotClass('Idle')).toBe('bg-muted-foreground')
   })
-  it('returns slate for unknown status', () => {
-    expect(agentCardDotClass('unknown')).toContain('slate')
+  it('returns the muted token for unknown status', () => {
+    expect(agentCardDotClass('unknown')).toBe('bg-muted-foreground')
   })
 })
 
