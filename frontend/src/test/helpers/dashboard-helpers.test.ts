@@ -110,32 +110,32 @@ describe('confColorClass', () => {
 })
 
 describe('actionBadgeClass', () => {
-  it('returns emerald for BUY', () => {
-    expect(actionBadgeClass('BUY')).toContain('emerald')
+  it('returns the success token for BUY', () => {
+    expect(actionBadgeClass('BUY')).toContain('success')
   })
-  it('returns rose for SELL', () => {
-    expect(actionBadgeClass('SELL')).toContain('rose')
+  it('returns the danger token for SELL', () => {
+    expect(actionBadgeClass('SELL')).toContain('danger')
   })
-  it('returns slate for HOLD', () => {
-    expect(actionBadgeClass('HOLD')).toContain('slate')
+  it('returns the muted token for HOLD', () => {
+    expect(actionBadgeClass('HOLD')).toContain('muted')
   })
-  it('returns slate for empty string', () => {
-    expect(actionBadgeClass('')).toContain('slate')
+  it('returns the muted token for empty string', () => {
+    expect(actionBadgeClass('')).toContain('muted')
   })
 })
 
 describe('positionSideBadgeClass', () => {
-  it('returns emerald for LONG', () => {
-    expect(positionSideBadgeClass('LONG')).toContain('emerald')
+  it('returns the success token for LONG', () => {
+    expect(positionSideBadgeClass('LONG')).toContain('success')
   })
-  it('returns rose for SHORT', () => {
-    expect(positionSideBadgeClass('SHORT')).toContain('rose')
+  it('returns the danger token for SHORT', () => {
+    expect(positionSideBadgeClass('SHORT')).toContain('danger')
   })
-  it('returns slate for empty string', () => {
-    expect(positionSideBadgeClass('')).toContain('slate')
+  it('returns the muted token for empty string', () => {
+    expect(positionSideBadgeClass('')).toContain('muted')
   })
-  it('returns slate for unrecognised value', () => {
-    expect(positionSideBadgeClass('FLAT')).toContain('slate')
+  it('returns the muted token for unrecognised value', () => {
+    expect(positionSideBadgeClass('FLAT')).toContain('muted')
   })
 })
 
@@ -366,15 +366,15 @@ describe('pipelineStatusTextClass', () => {
 })
 
 describe('apiHealthBadgeClass', () => {
-  it('returns emerald for ok', () => {
-    expect(apiHealthBadgeClass('ok')).toContain('emerald')
+  it('returns the success token for ok', () => {
+    expect(apiHealthBadgeClass('ok')).toContain('success')
   })
-  it('returns rose for error', () => {
-    expect(apiHealthBadgeClass('error')).toContain('rose')
+  it('returns the danger token for error', () => {
+    expect(apiHealthBadgeClass('error')).toContain('danger')
   })
-  it('returns slate for unknown values', () => {
-    expect(apiHealthBadgeClass('pending')).toContain('slate')
-    expect(apiHealthBadgeClass('')).toContain('slate')
+  it('returns the muted token for unknown values', () => {
+    expect(apiHealthBadgeClass('pending')).toContain('muted')
+    expect(apiHealthBadgeClass('')).toContain('muted')
   })
 })
 
