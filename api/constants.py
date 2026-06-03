@@ -377,6 +377,7 @@ class FieldName(StrEnum):
     CURRENT_WEIGHTS = "current_weights"
     CUTOFF = "cutoff"
     DAILY_CALLS = "daily_calls"
+    DAILY_CHANGE_PCT = "daily_change_pct"
     DAILY_PNL = "daily_pnl"
     DATA = "data"
     DATABASE = "database"
