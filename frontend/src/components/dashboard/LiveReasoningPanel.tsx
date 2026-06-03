@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { API_ENDPOINTS, apiFetch } from '@/lib/apiClient'
 import { LEARNING_REFRESH_MS } from '@/lib/grade-colors'
 import { cardClass, sectionTitleClass, mutedClass } from '@/lib/dashboard-styles'
+import { sentimentTextClass } from '@/lib/design/sentiment'
 import { cn } from '@/lib/utils'
 
 // Mirrors api/services/dashboard/prompt_os.py response models.
@@ -68,12 +69,6 @@ const LLM_INDICATOR: Record<LlmStatus, { label: string; text: string; dot: strin
   unknown: { label: 'awaiting LLM', text: 'text-slate-400', dot: 'bg-slate-400', pulse: false },
 }
 
-function alphaClass(alpha: number): string {
-  if (alpha > 0.001) return 'text-emerald-600 dark:text-emerald-400'
-  if (alpha < -0.001) return 'text-rose-600 dark:text-rose-400'
-  return 'text-slate-500 dark:text-slate-400'
-}
-
 function ToolChip({ tool }: { tool: ToolView }) {
   return (
     <span
@@ -81,7 +76,7 @@ function ToolChip({ tool }: { tool: ToolView }) {
       title={`${tool.phase} · α ${tool.alpha_score.toFixed(2)} · ${tool.latency_ms.toFixed(0)}ms · ${tool.call_count} calls`}
     >
       <span className="font-mono text-[11px] text-slate-700 dark:text-slate-200">{tool.name}</span>
-      <span className={cn('font-mono text-[10px] tabular-nums', alphaClass(tool.alpha_score))}>
+      <span className={cn('font-mono text-[10px] tabular-nums', sentimentTextClass(tool.alpha_score))}>
         α{tool.alpha_score >= 0 ? '+' : ''}
         {tool.alpha_score.toFixed(2)}
       </span>
