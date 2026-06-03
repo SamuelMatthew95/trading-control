@@ -91,24 +91,21 @@ describe('strategyStatusClass', () => {
 })
 
 describe('confColorClass', () => {
-  it('returns slate for null', () => {
-    expect(confColorClass(null)).toContain('slate')
+  it('returns the muted token for null', () => {
+    expect(confColorClass(null)).toBe('text-muted-foreground')
   })
-  it('returns emerald for confidence > 0.8', () => {
-    expect(confColorClass(0.9)).toContain('emerald')
-    expect(confColorClass(0.81)).toContain('emerald')
+  it('returns the success token for confidence > 0.8', () => {
+    expect(confColorClass(0.9)).toBe('text-success')
+    expect(confColorClass(0.81)).toBe('text-success')
   })
-  it('returns emerald for exactly 0.81 (boundary)', () => {
-    expect(confColorClass(0.81)).toContain('emerald')
+  it('returns the warning token for confidence in [0.5, 0.8]', () => {
+    expect(confColorClass(0.5)).toBe('text-warning')
+    expect(confColorClass(0.8)).toBe('text-warning')
+    expect(confColorClass(0.65)).toBe('text-warning')
   })
-  it('returns amber for confidence in [0.5, 0.8]', () => {
-    expect(confColorClass(0.5)).toContain('amber')
-    expect(confColorClass(0.8)).toContain('amber')
-    expect(confColorClass(0.65)).toContain('amber')
-  })
-  it('returns slate for confidence below 0.5', () => {
-    expect(confColorClass(0.49)).toContain('slate')
-    expect(confColorClass(0)).toContain('slate')
+  it('returns the muted token for confidence below 0.5', () => {
+    expect(confColorClass(0.49)).toBe('text-muted-foreground')
+    expect(confColorClass(0)).toBe('text-muted-foreground')
   })
 })
 
@@ -234,20 +231,20 @@ describe('agentCardDotClass', () => {
 })
 
 describe('agentCardTextClass', () => {
-  it('returns emerald for Live', () => {
-    expect(agentCardTextClass('Live')).toContain('emerald')
+  it('returns the success token for Live', () => {
+    expect(agentCardTextClass('Live')).toBe('text-success')
   })
-  it('returns amber for Stale', () => {
-    expect(agentCardTextClass('Stale')).toContain('amber')
+  it('returns the warning token for Stale', () => {
+    expect(agentCardTextClass('Stale')).toBe('text-warning')
   })
-  it('returns rose for Error', () => {
-    expect(agentCardTextClass('Error')).toContain('rose')
+  it('returns the danger token for Error', () => {
+    expect(agentCardTextClass('Error')).toBe('text-danger')
   })
-  it('returns slate for Idle', () => {
-    expect(agentCardTextClass('Idle')).toContain('slate')
+  it('returns the muted token for Idle', () => {
+    expect(agentCardTextClass('Idle')).toBe('text-muted-foreground')
   })
-  it('returns slate for unknown status', () => {
-    expect(agentCardTextClass('unknown')).toContain('slate')
+  it('returns the muted token for unknown status', () => {
+    expect(agentCardTextClass('unknown')).toBe('text-muted-foreground')
   })
 })
 
@@ -356,15 +353,15 @@ describe('agentStatusDotClass', () => {
 })
 
 describe('pipelineStatusTextClass', () => {
-  it('returns emerald for Healthy', () => {
-    expect(pipelineStatusTextClass('Healthy')).toContain('emerald')
+  it('returns the success token for Healthy', () => {
+    expect(pipelineStatusTextClass('Healthy')).toBe('text-success')
   })
-  it('returns amber for Degraded', () => {
-    expect(pipelineStatusTextClass('Degraded')).toContain('amber')
+  it('returns the warning token for Degraded', () => {
+    expect(pipelineStatusTextClass('Degraded')).toBe('text-warning')
   })
-  it('returns rose for Stalled or unknown', () => {
-    expect(pipelineStatusTextClass('Stalled')).toContain('rose')
-    expect(pipelineStatusTextClass('unknown')).toContain('rose')
+  it('returns the danger token for Stalled or unknown', () => {
+    expect(pipelineStatusTextClass('Stalled')).toBe('text-danger')
+    expect(pipelineStatusTextClass('unknown')).toBe('text-danger')
   })
 })
 
