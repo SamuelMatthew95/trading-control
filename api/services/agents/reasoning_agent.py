@@ -54,6 +54,7 @@ from api.constants import (
     TOOL_STREAM_CONFLUENCE,
     AgentAction,
     FieldName,
+    PositionSide,
     ToolPhase,
 )
 from api.database import AsyncSessionFactory
@@ -76,6 +77,7 @@ from api.services.agents.vector_helpers import (
     embed_text,
     search_vector_memory,
 )
+from api.services.execution.brokers.paper import PaperBroker
 from api.services.llm_router import active_model_label, call_llm_with_system
 from api.services.market_intel import (
     compute_cross_asset_correlation,
@@ -115,6 +117,10 @@ class ReasoningAgent(BaseStreamConsumer):
             agent_state=agent_state,
         )
         self.redis = redis_client
+        # PaperBroker is the position source of truth the ExecutionEngine uses
+        # for its SELL reject; the agent reads the same source so it never
+        # recommends (or advertises in the feed) selling a symbol we don't hold.
+        self.broker = PaperBroker(redis_client)
         # Set by _call_llm to the provider:model actually used (incl. fallback);
         # consumed by process() to stamp model_used. None means "use configured
         # default". Safe as instance state: process() runs one event at a time.
@@ -424,6 +430,9 @@ class ReasoningAgent(BaseStreamConsumer):
                 FieldName.TRACE_ID: trace_id,
                 FieldName.PRIMARY_EDGE: summary.get(FieldName.PRIMARY_EDGE, ""),
                 FieldName.RISK_FACTORS: summary.get(FieldName.RISK_FACTORS, []),
+                # Why an action was downgraded (e.g. SELL→HOLD with no open long),
+                # so the feed shows the reason instead of a silently-vanished SELL.
+                FieldName.DOWNGRADE_REASON: str(summary.get(FieldName.DOWNGRADE_REASON) or ""),
                 FieldName.MODEL_USED: summary.get(FieldName.MODEL_USED, ""),
                 # LLM cost of this decision (incl. self-critique). Travels with
                 # the trade so the learning loop can compute per-model net ROI.
@@ -531,6 +540,7 @@ class ReasoningAgent(BaseStreamConsumer):
             FieldName.REASONING_SUMMARY: edge,
             FieldName.LLM_SUCCEEDED: not is_fallback,
             FieldName.TOOLS_USED: tools_used or [],
+            FieldName.DOWNGRADE_REASON: str(summary.get(FieldName.DOWNGRADE_REASON) or ""),
         }
 
     @staticmethod
@@ -720,6 +730,11 @@ class ReasoningAgent(BaseStreamConsumer):
         # paying for its fetch (closing the loop), and each records telemetry so
         # the grade loop can attribute realized PnL back to it.
         symbol = data.get(FieldName.SYMBOL)
+        # Portfolio awareness: current open-long qty from the PaperBroker (the
+        # same source the ExecutionEngine rejects against). Feeds the SELL guard
+        # in _apply_risk_hierarchy so a SELL for a flat symbol becomes HOLD
+        # instead of polluting the feed with an order that can never execute.
+        context[FieldName.OPEN_POSITION_QTY] = await self._open_long_qty(symbol)
         if symbol:
             await self._gather_market_intel(symbol, context)
 
@@ -764,6 +779,31 @@ class ReasoningAgent(BaseStreamConsumer):
             signal_type=context[FieldName.RISK_STATE][FieldName.SIGNAL_TYPE],
         )
         return context
+
+    async def _open_long_qty(self, symbol: str | None) -> float:
+        """Open LONG quantity for *symbol* per the PaperBroker (0.0 if flat/unknown).
+
+        Best-effort and robust to a non-dict broker reply: portfolio awareness
+        must never break a decision. Long-only — a flat / short / absent position
+        returns 0.0, which the SELL guard reads as "nothing to sell".
+        """
+        if not symbol:
+            return 0.0
+        try:
+            position = await self.broker.get_position(symbol)
+        except Exception:
+            log_structured(
+                "warning", "reasoning_position_fetch_failed", symbol=symbol, exc_info=True
+            )
+            return 0.0
+        if not isinstance(position, dict):
+            return 0.0
+        side = str(position.get(FieldName.SIDE) or "").lower()
+        try:
+            qty = float(position.get(FieldName.QTY) or 0.0)
+        except (TypeError, ValueError):
+            qty = 0.0
+        return qty if (side == PositionSide.LONG and qty > 0) else 0.0
 
     @staticmethod
     def _tool_enabled(name: str) -> bool:
@@ -1184,6 +1224,20 @@ class ReasoningAgent(BaseStreamConsumer):
         safe_decision = dict(decision)
         risk_factors = list(safe_decision.get(FieldName.RISK_FACTORS) or [])
         action = str(safe_decision.get(FieldName.ACTION, AgentAction.HOLD)).lower()
+
+        # 0) Position validity — never recommend selling a symbol we don't hold.
+        # Long-only: a SELL only makes sense to close an open long, so when flat
+        # we downgrade to HOLD (tagged with a reason) instead of advertising a
+        # SELL in the feed that the ExecutionEngine would reject. The engine
+        # still enforces the same rule as a backstop (reject_unmatched_sell).
+        open_long_qty = float(context.get(FieldName.OPEN_POSITION_QTY) or 0.0)
+        if action == AgentAction.SELL and open_long_qty <= 0:
+            safe_decision[FieldName.ACTION] = AgentAction.HOLD
+            safe_decision[FieldName.DOWNGRADE_REASON] = "sell_without_open_long"
+            if "NO_OPEN_POSITION" not in risk_factors:
+                risk_factors.append("NO_OPEN_POSITION")
+            safe_decision[FieldName.RISK_FACTORS] = risk_factors
+            return safe_decision
 
         # 1) Capital preservation hard stop.
         drawdown = float(context.get(FieldName.RISK_STATE, {}).get(FieldName.DRAWDOWN) or 0.0)
