@@ -21,9 +21,9 @@ export function tradeSideClass(side: string | null): string {
 }
 
 export function strategyStatusClass(status: string | null): string {
-  if (status === 'approved') return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-400'
-  if (status === 'rejected') return 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-400'
-  return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400'
+  if (status === 'approved') return TONE_BADGE.success
+  if (status === 'rejected') return TONE_BADGE.danger
+  return TONE_BADGE.warning
 }
 
 export function confColorClass(conf: number | null): string {
@@ -131,10 +131,10 @@ export function streamEventBadgeClass(stream: string | null | undefined): string
 }
 
 export function systemStatusBadgeClass(status: string): string {
-  if (status === 'trading') return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300'
-  if (status === 'booting') return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300'
-  if (status === 'error') return 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-300'
-  return 'border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300'
+  if (status === 'trading') return TONE_BADGE.success
+  if (status === 'booting') return TONE_BADGE.warning
+  if (status === 'error') return TONE_BADGE.danger
+  return TONE_BADGE.neutral
 }
 
 // ---------------------------------------------------------------------------
@@ -200,7 +200,7 @@ export function performancePnlColorClass(pnl: number | null): string {
  * proposals queue and the learning console.
  */
 export function proposalStatusClass(status: string | null | undefined): string {
-  if (status === 'approved') return 'border-emerald-400/30 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300'
-  if (status === 'rejected') return 'border-rose-400/30 bg-rose-400/10 text-rose-700 dark:text-rose-300'
-  return 'border-amber-400/30 bg-amber-400/10 text-amber-700 dark:text-amber-300'
+  if (status === 'approved') return TONE_BADGE.success
+  if (status === 'rejected') return TONE_BADGE.danger
+  return TONE_BADGE.warning
 }
