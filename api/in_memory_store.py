@@ -21,10 +21,7 @@ from api.constants import (
     AGENT_STRATEGY_PROPOSER,
     FieldName,
     LogType,
-    OrderSide,
-    PositionSide,
 )
-from api.services.execution.position_math import compute_realized_pnl
 from api.services.metrics_calc import win_rate_from_counts
 from api.services.notification_summary import compute_notification_summary
 
@@ -353,7 +350,29 @@ class InMemoryStore:
             self.orders = self.orders[-500:]
         return payload
 
+    def add_closed_trade(self, trade: dict[str, Any]) -> dict[str, Any]:
+        """Append one completed round-trip (realized PnL) to closed_trades.
+
+        Written by the canonical fill path on a round-trip close so the
+        dashboard's closed-trades panel reflects real activity in memory mode
+        (previously only the test-only replay helper populated this list, so it
+        was always empty in production).
+        """
+        payload = dict(trade)
+        payload.setdefault(FieldName.TIMESTAMP, time.time())
+        self.closed_trades.append(payload)
+        if len(self.closed_trades) > 500:
+            self.closed_trades = self.closed_trades[-500:]
+        return payload
+
     def upsert_position(self, symbol: str, position: dict[str, Any]) -> None:
+        """Merge-update one position row (generic seed / partial update).
+
+        RETAINED (not dead): the production fill path uses
+        ``mirror_broker_position`` (an authoritative full replace from the
+        PaperBroker, the source of truth); this merge-setter is kept for tests
+        that seed arbitrary position state and for any partial-field update.
+        """
         existing = self.positions.get(symbol, {})
         self.positions[symbol] = {**existing, **position}
 
@@ -488,137 +507,6 @@ class InMemoryStore:
                 self.decisions or self.orders or self.positions or self.notifications
             ),
         }
-
-    def apply_decision(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Replay an advisory decision INTO the ledger (dedup + open/close + PnL).
-
-        This is a decision-REPLAY / test helper, not the production fill path:
-        the live engine records fills via ``ExecutionEngine._record_fill_to_store``
-        (broker-mirrored positions). Realized PnL here uses the same canonical
-        ``compute_realized_pnl`` so the two can never diverge numerically. The
-        reasoning stream uses ``record_decision`` (advisory only, no portfolio
-        mutation); only this method mutates positions/PnL from a decision.
-        """
-        decision_key = self._decision_key(payload)
-        if decision_key in self.applied_decision_keys:
-            return {
-                FieldName.ID: payload.get(FieldName.ID)
-                or payload.get(FieldName.TRACE_ID)
-                or decision_key,
-                FieldName.DEDUPLICATED: True,
-            }
-        self.applied_decision_keys.add(decision_key)
-        action = str(payload.get(FieldName.ACTION, "hold")).upper()
-        symbol = str(payload.get(FieldName.SYMBOL) or "").strip()
-        price = self._safe_float(payload.get(FieldName.PRICE)) or 0.0
-        explicit_quantity = self._safe_float(payload.get(FieldName.QTY))
-        event = {
-            FieldName.ID: payload.get(FieldName.ID)
-            or payload.get(FieldName.TRACE_ID)
-            or f"mem-dec-{len(self.decisions) + 1}",
-            FieldName.TRACE_ID: payload.get(FieldName.TRACE_ID),
-            "timestamp": payload.get(FieldName.TIMESTAMP) or datetime.now(timezone.utc).isoformat(),
-            FieldName.SYMBOL: symbol,
-            FieldName.ACTION: action,
-            FieldName.PRICE: price,
-            FieldName.QTY: explicit_quantity or 0.0,
-            FieldName.CONFIDENCE: self._safe_float(payload.get(FieldName.CONFIDENCE)),
-            FieldName.AGENT: payload.get(FieldName.AGENT) or "reasoning_agent",
-            FieldName.REASON: payload.get(LogType.REASONING_SUMMARY)
-            or payload.get(FieldName.REASON),
-        }
-        self.decisions.append(event)
-        if len(self.decisions) > 500:
-            self.decisions = self.decisions[-500:]
-        if action not in {"BUY", "SELL"} or not symbol or price <= 0:
-            return event
-        pos = self.positions.get(
-            symbol, {FieldName.SYMBOL: symbol, FieldName.QTY: 0.0, FieldName.AVG_ENTRY_PRICE: 0.0}
-        )
-        pos_qty = self._safe_float(pos.get(FieldName.QTY)) or 0.0
-        avg = self._safe_float(pos.get(FieldName.AVG_ENTRY_PRICE)) or price
-        if action == "BUY":
-            quantity = explicit_quantity
-            if (quantity is None or quantity <= 0) and price > 0:
-                quantity = DEFAULT_TRADE_NOTIONAL / price
-            if quantity is None or quantity <= 0:
-                return event
-            event[FieldName.QTY] = quantity
-            new_qty = pos_qty + quantity
-            new_avg = ((avg * pos_qty) + (price * quantity)) / new_qty if new_qty > 0 else price
-            pos.update(
-                {
-                    FieldName.SIDE: "long",
-                    FieldName.QTY: new_qty,
-                    FieldName.AVG_ENTRY_PRICE: new_avg,
-                    FieldName.UNREALIZED_PNL: 0.0,
-                    FieldName.PRICE: price,
-                }
-            )
-            self.positions[symbol] = pos
-        else:
-            if explicit_quantity is None or explicit_quantity <= 0:
-                sell_qty = pos_qty
-            else:
-                sell_qty = min(pos_qty, explicit_quantity)
-            event[FieldName.QTY] = sell_qty
-            if sell_qty <= 0:
-                return event
-            # Canonical realized-PnL math (shared with the execution fill path)
-            # so this replay helper can never compute PnL differently from prod.
-            realized = compute_realized_pnl(
-                {
-                    FieldName.SIDE: PositionSide.LONG,
-                    FieldName.ENTRY_PRICE: avg,
-                    FieldName.QTY: pos_qty,
-                },
-                OrderSide.SELL,
-                sell_qty,
-                price,
-            )
-            remaining = max(pos_qty - sell_qty, 0.0)
-            self.closed_trades.append(
-                {
-                    FieldName.SYMBOL: symbol,
-                    "entry_price": avg,
-                    "exit_price": price,
-                    FieldName.QTY: sell_qty,
-                    FieldName.PNL: realized,
-                    FieldName.TIMESTAMP: event[FieldName.TIMESTAMP],
-                }
-            )
-            self.orders.append(
-                {
-                    FieldName.SYMBOL: symbol,
-                    FieldName.PNL: realized,
-                    "status": "closed",
-                    FieldName.CREATED_AT: event[FieldName.TIMESTAMP],
-                }
-            )
-            if remaining <= POSITION_EPSILON:
-                self.positions.pop(symbol, None)
-            else:
-                pos.update(
-                    {
-                        FieldName.QTY: remaining,
-                        FieldName.AVG_ENTRY_PRICE: avg,
-                        FieldName.PRICE: price,
-                    }
-                )
-                self.positions[symbol] = pos
-        paired = self.paired_pnl_payload()[FieldName.SUMMARY]
-        self.equity_curve.append(
-            {
-                FieldName.TIMESTAMP: event[FieldName.TIMESTAMP],
-                FieldName.VALUE: paired[FieldName.TOTAL_PNL],
-                FieldName.REALIZED_PNL: paired[FieldName.REALIZED_PNL],
-                FieldName.UNREALIZED_PNL: paired[FieldName.UNREALIZED_PNL],
-                FieldName.TOTAL_PNL: paired[FieldName.TOTAL_PNL],
-            }
-        )
-        if len(self.equity_curve) > 1000:
-            self.equity_curve = self.equity_curve[-1000:]
-        return event
 
     def record_decision(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Record advisory decision without mutating portfolio/PNL state.
