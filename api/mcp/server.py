@@ -7,6 +7,10 @@ from datetime import datetime, timezone
 from fastmcp import FastMCP
 
 from api.mcp.read_tools import (
+    diagnose_dashboard_consistency_data,
+    diagnose_metrics_data,
+    diagnose_positions_data,
+    diagnose_trade_feed_data,
     get_agent_grades_data,
     get_agent_heartbeats_data,
     get_config_data,
@@ -526,6 +530,30 @@ async def get_positions() -> dict[str, object]:
 @mcp.tool
 def get_config() -> dict[str, object]:
     return get_config_data()
+
+
+@mcp.tool
+async def diagnose_positions() -> dict[str, object]:
+    """Reconcile dashboard store positions against the PaperBroker (source of truth)."""
+    return await diagnose_positions_data()
+
+
+@mcp.tool
+async def diagnose_trade_feed() -> dict[str, object]:
+    """Audit the advisory decision feed for phantom SELLs (unheld symbols)."""
+    return await diagnose_trade_feed_data()
+
+
+@mcp.tool
+def diagnose_metrics() -> dict[str, object]:
+    """Report canonical win-rate / realized-PnL from the order ledger."""
+    return diagnose_metrics_data()
+
+
+@mcp.tool
+async def diagnose_dashboard_consistency() -> dict[str, object]:
+    """One verdict: position mismatches, phantom sells, metric + equity consistency."""
+    return await diagnose_dashboard_consistency_data()
 
 
 @asynccontextmanager
