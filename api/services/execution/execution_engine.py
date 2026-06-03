@@ -372,6 +372,10 @@ class ExecutionEngine(BaseStreamConsumer):
                     qty=qty,
                     filled_at=filled_at,
                 )
+                # The PaperBroker (Redis) is the position source of truth; pass
+                # its authoritative post-fill entry so the DB row mirrors the
+                # broker's weighted-average cost instead of drifting on adds.
+                _db_broker_position = await self.broker.get_position(symbol)
                 await upsert_position_db(
                     session,
                     strategy_id=strategy_id,
@@ -379,6 +383,7 @@ class ExecutionEngine(BaseStreamConsumer):
                     side=side,
                     qty=qty,
                     fill_price=fill_price,
+                    avg_cost=float(_db_broker_position.get(FieldName.ENTRY_PRICE) or fill_price),
                 )
                 await insert_audit_log(
                     session,
