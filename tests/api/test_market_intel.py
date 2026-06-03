@@ -127,3 +127,45 @@ async def test_correlation_ranks_most_correlated_peer(monkeypatch):
     assert out[FieldName.MOST_CORRELATED] == "ETH/USD"
     assert out[FieldName.CORRELATIONS]["ETH/USD"] == pytest.approx(1.0)
     redis.set.assert_awaited_once()
+
+
+async def test_correlation_request_uses_recent_start_window(monkeypatch):
+    """Regression: the bars request must carry a recent `start` (newest-first).
+
+    Without `start`, Alpaca returns the OLDEST bars (ascending), so the tool
+    degraded to {} (success: false) on every decision even with valid keys.
+    """
+    from datetime import datetime, timezone  # noqa: PLC0415
+
+    monkeypatch.setattr(market_intel.settings, "ALPACA_API_KEY", "k")
+    captured: dict = {}
+    resp = MagicMock()
+    resp.json.return_value = {
+        "bars": {
+            "BTC/USD": [{"c": 100}, {"c": 101}, {"c": 102}, {"c": 103}],
+            "ETH/USD": [{"c": 50}, {"c": 50.5}, {"c": 51}, {"c": 51.5}],
+        }
+    }
+    resp.raise_for_status = MagicMock()
+
+    async def _get(path, params=None):
+        captured["params"] = params or {}
+        return resp
+
+    client = MagicMock()
+    client.get = _get
+
+    @asynccontextmanager
+    async def _cm():
+        yield client
+
+    redis = AsyncMock()
+    redis.get = AsyncMock(return_value=None)
+    with patch.object(market_intel, "_client", lambda: _cm()):
+        out = await compute_cross_asset_correlation("BTC/USD", redis)
+
+    assert "start" in captured["params"]  # a recent window is requested
+    assert captured["params"]["sort"] == "desc"  # newest bars first
+    start = datetime.fromisoformat(captured["params"]["start"])
+    assert (datetime.now(timezone.utc) - start).total_seconds() < 6 * 3600
+    assert out  # non-empty result when bars are present

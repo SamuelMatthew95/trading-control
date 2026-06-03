@@ -19,9 +19,11 @@ from api.constants import (
     AGENT_REFLECTION,
     AGENT_SIGNAL,
     AGENT_STRATEGY_PROPOSER,
+    DEFAULT_PAPER_CASH,
     FieldName,
     LogType,
 )
+from api.services.metrics_calc import closed_trade_stats, win_rate_from_counts
 from api.services.notification_summary import compute_notification_summary
 
 DEFAULT_AGENTS: dict[str, dict[str, Any]] = {
@@ -185,6 +187,62 @@ class InMemoryStore:
             if self._has_open_quantity(p)
         ]
 
+    def has_active_position(self, symbol: str) -> bool:
+        """Canonical 'do we hold this symbol?' — ``abs(qty) > 0``, side-agnostic.
+
+        Distinct from ``has_open_position`` (which is LONG-only, used for SELL
+        validation). This is the rule the active-position COUNT uses: a flat
+        position has qty 0, so its side is irrelevant.
+        """
+        pos = self.positions.get(symbol)
+        return pos is not None and self._has_open_quantity(pos)
+
+    def get_active_position_count(self) -> int:
+        """Canonical active-position count — ``abs(qty) > 0`` (side-agnostic).
+
+        Single source for the dashboard's "active positions" number so it can
+        never disagree with the length of the open-positions list.
+        """
+        return sum(1 for p in self.positions.values() if self._has_open_quantity(p))
+
+    def mirror_broker_position(
+        self, symbol: str, broker_position: dict[str, Any], *, strategy_id: str | None = None
+    ) -> None:
+        """Mirror the PaperBroker's authoritative position into the store.
+
+        The PaperBroker (Redis ``paper:positions``) is the single source of
+        truth for positions; the InMemoryStore is a read mirror for the
+        dashboard. A flat broker position (qty 0) removes the row. Called after
+        every in-memory fill and on startup hydration so the dashboard's
+        position / PnL view can never drift from what the execution engine
+        actually holds. (The old apply_signed_delta recomputed entry price
+        independently and diverged from the broker on add-to-position and after
+        a restart.)
+        """
+        qty = self._safe_float(broker_position.get(FieldName.QTY)) or 0.0
+        if abs(qty) <= POSITION_EPSILON:
+            self.positions.pop(symbol, None)
+            return
+        entry = self._safe_float(broker_position.get(FieldName.ENTRY_PRICE)) or 0.0
+        last = self._safe_float(broker_position.get(FieldName.CURRENT_PRICE)) or entry
+        side = str(broker_position.get(FieldName.SIDE) or "").lower()
+        mirrored: dict[str, Any] = {
+            FieldName.SYMBOL: symbol,
+            FieldName.SIDE: side,
+            FieldName.QTY: abs(qty),
+            FieldName.QUANTITY: abs(qty),
+            FieldName.ENTRY_PRICE: entry,
+            FieldName.AVG_COST: entry,
+            FieldName.AVG_ENTRY_PRICE: entry,
+            FieldName.LAST_PRICE: last,
+            FieldName.CURRENT_PRICE: last,
+            FieldName.UNREALIZED_PNL: 0.0,
+            FieldName.PNL: 0.0,
+        }
+        if strategy_id is not None:
+            mirrored[FieldName.STRATEGY_ID] = strategy_id
+        self.positions[symbol] = mirrored
+
     def upsert_agent(self, agent_id: str, data: dict[str, Any]) -> None:
         existing = self.agents.get(agent_id, {})
         self.agents[agent_id] = {**existing, **data}
@@ -293,7 +351,29 @@ class InMemoryStore:
             self.orders = self.orders[-500:]
         return payload
 
+    def add_closed_trade(self, trade: dict[str, Any]) -> dict[str, Any]:
+        """Append one completed round-trip (realized PnL) to closed_trades.
+
+        Written by the canonical fill path on a round-trip close so the
+        dashboard's closed-trades panel reflects real activity in memory mode
+        (previously only the test-only replay helper populated this list, so it
+        was always empty in production).
+        """
+        payload = dict(trade)
+        payload.setdefault(FieldName.TIMESTAMP, time.time())
+        self.closed_trades.append(payload)
+        if len(self.closed_trades) > 500:
+            self.closed_trades = self.closed_trades[-500:]
+        return payload
+
     def upsert_position(self, symbol: str, position: dict[str, Any]) -> None:
+        """Merge-update one position row (generic seed / partial update).
+
+        RETAINED (not dead): the production fill path uses
+        ``mirror_broker_position`` (an authoritative full replace from the
+        PaperBroker, the source of truth); this merge-setter is kept for tests
+        that seed arbitrary position state and for any partial-field update.
+        """
         existing = self.positions.get(symbol, {})
         self.positions[symbol] = {**existing, **position}
 
@@ -383,10 +463,20 @@ class InMemoryStore:
         now = time.time()
         notifications = list(self.notifications[-100:])
         notification_summary = compute_notification_summary(notifications)
+        # Realized PnL as a % of starting paper capital, so the dashboard's
+        # "Daily Change %" tile shows a value instead of "--" (the backend emits
+        # no equity-base system metric). Mirrors the "Daily P&L" tile, which
+        # sums realized order PnL.
+        realized_pnl = closed_trade_stats(self.orders).realized_pnl
+        daily_change_pct = (
+            round(realized_pnl / DEFAULT_PAPER_CASH * 100.0, 4) if DEFAULT_PAPER_CASH else 0.0
+        )
 
         return {
             FieldName.ORDERS: list(reversed(self.orders[-50:])),
             FieldName.POSITIONS: self.normalized_open_positions(),
+            FieldName.DAILY_PNL: round(realized_pnl, 2),
+            FieldName.DAILY_CHANGE_PCT: daily_change_pct,
             FieldName.AGENT_LOGS: list(reversed(self.agent_logs[-50:])),
             FieldName.LEARNING_EVENTS: list(reversed(self.grade_history[-20:])),
             FieldName.PROPOSALS: [
@@ -428,117 +518,6 @@ class InMemoryStore:
                 self.decisions or self.orders or self.positions or self.notifications
             ),
         }
-
-    def apply_decision(self, payload: dict[str, Any]) -> dict[str, Any]:
-        decision_key = self._decision_key(payload)
-        if decision_key in self.applied_decision_keys:
-            return {
-                FieldName.ID: payload.get(FieldName.ID)
-                or payload.get(FieldName.TRACE_ID)
-                or decision_key,
-                FieldName.DEDUPLICATED: True,
-            }
-        self.applied_decision_keys.add(decision_key)
-        action = str(payload.get(FieldName.ACTION, "hold")).upper()
-        symbol = str(payload.get(FieldName.SYMBOL) or "").strip()
-        price = self._safe_float(payload.get(FieldName.PRICE)) or 0.0
-        explicit_quantity = self._safe_float(payload.get(FieldName.QTY))
-        event = {
-            FieldName.ID: payload.get(FieldName.ID)
-            or payload.get(FieldName.TRACE_ID)
-            or f"mem-dec-{len(self.decisions) + 1}",
-            FieldName.TRACE_ID: payload.get(FieldName.TRACE_ID),
-            "timestamp": payload.get(FieldName.TIMESTAMP) or datetime.now(timezone.utc).isoformat(),
-            FieldName.SYMBOL: symbol,
-            FieldName.ACTION: action,
-            FieldName.PRICE: price,
-            FieldName.QTY: explicit_quantity or 0.0,
-            FieldName.CONFIDENCE: self._safe_float(payload.get(FieldName.CONFIDENCE)),
-            FieldName.AGENT: payload.get(FieldName.AGENT) or "reasoning_agent",
-            FieldName.REASON: payload.get(LogType.REASONING_SUMMARY)
-            or payload.get(FieldName.REASON),
-        }
-        self.decisions.append(event)
-        if len(self.decisions) > 500:
-            self.decisions = self.decisions[-500:]
-        if action not in {"BUY", "SELL"} or not symbol or price <= 0:
-            return event
-        pos = self.positions.get(
-            symbol, {FieldName.SYMBOL: symbol, FieldName.QTY: 0.0, FieldName.AVG_ENTRY_PRICE: 0.0}
-        )
-        pos_qty = self._safe_float(pos.get(FieldName.QTY)) or 0.0
-        avg = self._safe_float(pos.get(FieldName.AVG_ENTRY_PRICE)) or price
-        if action == "BUY":
-            quantity = explicit_quantity
-            if (quantity is None or quantity <= 0) and price > 0:
-                quantity = DEFAULT_TRADE_NOTIONAL / price
-            if quantity is None or quantity <= 0:
-                return event
-            event[FieldName.QTY] = quantity
-            new_qty = pos_qty + quantity
-            new_avg = ((avg * pos_qty) + (price * quantity)) / new_qty if new_qty > 0 else price
-            pos.update(
-                {
-                    FieldName.SIDE: "long",
-                    FieldName.QTY: new_qty,
-                    FieldName.AVG_ENTRY_PRICE: new_avg,
-                    FieldName.UNREALIZED_PNL: 0.0,
-                    FieldName.PRICE: price,
-                }
-            )
-            self.positions[symbol] = pos
-        else:
-            if explicit_quantity is None or explicit_quantity <= 0:
-                sell_qty = pos_qty
-            else:
-                sell_qty = min(pos_qty, explicit_quantity)
-            event[FieldName.QTY] = sell_qty
-            if sell_qty <= 0:
-                return event
-            realized = (price - avg) * sell_qty
-            remaining = max(pos_qty - sell_qty, 0.0)
-            self.closed_trades.append(
-                {
-                    FieldName.SYMBOL: symbol,
-                    "entry_price": avg,
-                    "exit_price": price,
-                    FieldName.QTY: sell_qty,
-                    FieldName.PNL: realized,
-                    FieldName.TIMESTAMP: event[FieldName.TIMESTAMP],
-                }
-            )
-            self.orders.append(
-                {
-                    FieldName.SYMBOL: symbol,
-                    FieldName.PNL: realized,
-                    "status": "closed",
-                    FieldName.CREATED_AT: event[FieldName.TIMESTAMP],
-                }
-            )
-            if remaining <= POSITION_EPSILON:
-                self.positions.pop(symbol, None)
-            else:
-                pos.update(
-                    {
-                        FieldName.QTY: remaining,
-                        FieldName.AVG_ENTRY_PRICE: avg,
-                        FieldName.PRICE: price,
-                    }
-                )
-                self.positions[symbol] = pos
-        paired = self.paired_pnl_payload()[FieldName.SUMMARY]
-        self.equity_curve.append(
-            {
-                FieldName.TIMESTAMP: event[FieldName.TIMESTAMP],
-                FieldName.VALUE: paired[FieldName.TOTAL_PNL],
-                FieldName.REALIZED_PNL: paired[FieldName.REALIZED_PNL],
-                FieldName.UNREALIZED_PNL: paired[FieldName.UNREALIZED_PNL],
-                FieldName.TOTAL_PNL: paired[FieldName.TOTAL_PNL],
-            }
-        )
-        if len(self.equity_curve) > 1000:
-            self.equity_curve = self.equity_curve[-1000:]
-        return event
 
     def record_decision(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Record advisory decision without mutating portfolio/PNL state.
@@ -629,17 +608,21 @@ class InMemoryStore:
         return entry
 
     def open_positions(self) -> list[dict[str, Any]]:
-        """Return in-memory open positions (long/short, non-zero qty), marked to market.
+        """Return in-memory open positions (``abs(qty) > 0``), marked to market.
 
-        Each row's unrealized_pnl/pnl is recomputed from avg_cost vs last_price
-        so every position read path agrees with the paired-PnL / equity-curve
-        figures instead of returning the stale value stored at fill time.
+        Uses the same canonical rule as normalized_open_positions /
+        get_active_position_count so the positions list and the active-position
+        count never disagree. Each row's unrealized_pnl/pnl is recomputed from
+        avg_cost vs last_price so every position read path agrees with the
+        paired-PnL / equity-curve figures instead of returning the stale value
+        stored at fill time.
         """
         rows: list[dict[str, Any]] = []
         for position in self.positions.values():
-            side = str(position.get(FieldName.SIDE, "")).lower()
-            qty = self._safe_float(position.get(FieldName.QTY))
-            if side not in {"long", "short"} or qty is None or abs(qty) <= 0:
+            # Canonical active rule: abs(qty) > 0 (side-agnostic), matching
+            # normalized_open_positions / get_active_position_count so the list
+            # and the count can never disagree.
+            if not self._has_open_quantity(position):
                 continue
             row = dict(position)
             computed = self._position_unrealized_pnl(row)
@@ -694,7 +677,7 @@ class InMemoryStore:
                 FieldName.CLOSED_TRADES: total_trades,
                 FieldName.WINNING_TRADES: winning_trades,
                 FieldName.WIN_RATE_PERCENT: round(
-                    (winning_trades / total_trades * 100.0) if total_trades else 0.0, 2
+                    win_rate_from_counts(winning_trades, losing_trades) * 100.0, 2
                 ),
                 FieldName.OPEN_POSITIONS: len(open_positions),
             },

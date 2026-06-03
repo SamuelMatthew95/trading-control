@@ -12,6 +12,7 @@ from api.constants import (
     AGENT_STALE_THRESHOLD_SECONDS,
     ALL_AGENT_NAMES,
     REDIS_AGENT_STATUS_KEY,
+    REDIS_KEY_PAPER_POSITION,
     STREAM_AGENT_GRADES,
     STREAM_AGENT_LOGS,
     STREAM_DECISIONS,
@@ -34,6 +35,7 @@ from api.constants import (
     STREAM_TRADE_COMPLETED,
     STREAM_TRADE_LIFECYCLE,
     STREAM_TRADE_PERFORMANCE,
+    FieldName,
 )
 from api.database import AsyncSessionFactory
 from api.redis_client import get_redis
@@ -41,6 +43,8 @@ from api.runtime_state import get_runtime_store, is_db_available
 from api.services.dashboard.learning import get_grade_history_payload
 from api.services.dashboard.system import get_prices_payload
 from api.services.llm_metrics import llm_metrics
+from api.services.metrics_calc import closed_trade_stats
+from api.services.redis_store import get_redis_store
 
 MCP_STREAMS: tuple[str, ...] = (
     STREAM_MARKET_TICKS,
@@ -467,6 +471,195 @@ async def get_positions_data() -> dict[str, Any]:
             degraded=True,
             reason="positions_db_query_failed",
         )
+
+
+_EPS = 1e-9
+
+
+async def _scan_broker_positions() -> dict[str, dict[str, Any]]:
+    """SCAN the PaperBroker's Redis positions — the execution source of truth."""
+    redis = await get_redis()
+    pattern = REDIS_KEY_PAPER_POSITION.format(symbol="*")
+    positions: dict[str, dict[str, Any]] = {}
+    cursor = 0
+    while True:
+        cursor, keys = await redis.scan(cursor, match=pattern, count=100)
+        for key in keys:
+            raw = await redis.get(key)
+            if not raw:
+                continue
+            try:
+                parsed = json.loads(raw)
+            except (TypeError, ValueError):
+                continue
+            symbol = str(parsed.get(FieldName.SYMBOL) or key.rsplit(":", 1)[-1])
+            positions[symbol] = parsed
+        if cursor == 0:
+            break
+    return positions
+
+
+def _abs_qty(position: dict[str, Any]) -> float:
+    try:
+        return abs(float(position.get(FieldName.QTY) or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+async def diagnose_positions_data() -> dict[str, Any]:
+    """Reconcile the dashboard's store positions against the PaperBroker (truth).
+
+    Flags: qty mismatches, store-only (stale) symbols, broker positions missing
+    from the store mirror, and any flat (qty 0) rows lingering in the raw store.
+    """
+    broker = await _scan_broker_positions()
+    broker_open = {s: p for s, p in broker.items() if _abs_qty(p) > _EPS}
+    store = get_runtime_store()
+    store_open = {str(p.get(FieldName.SYMBOL)): p for p in store.open_positions()}
+
+    mismatches = []
+    for symbol in sorted(set(broker_open) | set(store_open)):
+        b_qty = _abs_qty(broker_open.get(symbol, {}))
+        s_qty = _abs_qty(store_open.get(symbol, {}))
+        if abs(b_qty - s_qty) > 1e-6:
+            mismatches.append(
+                {FieldName.SYMBOL: symbol, FieldName.BROKER_QTY: b_qty, FieldName.STORE_QTY: s_qty}
+            )
+
+    stale_store_only = sorted(set(store_open) - set(broker_open))
+    missing_in_store = sorted(set(broker_open) - set(store_open))
+    flat_in_raw_store = sorted(s for s, p in store.positions.items() if _abs_qty(p) <= _EPS)
+
+    ok = not (mismatches or stale_store_only or missing_in_store or flat_in_raw_store)
+    return _wrap(
+        {
+            FieldName.OK: ok,
+            FieldName.BROKER_OPEN_COUNT: len(broker_open),
+            FieldName.STORE_OPEN_COUNT: len(store_open),
+            FieldName.MISMATCHES: mismatches,
+            FieldName.STALE_STORE_ONLY: stale_store_only,
+            FieldName.MISSING_IN_STORE: missing_in_store,
+            FieldName.FLAT_IN_RAW_STORE: flat_in_raw_store,
+        },
+        source="redis",
+        degraded=not ok,
+    )
+
+
+async def diagnose_trade_feed_data(limit: int = 500) -> dict[str, Any]:
+    """Audit the advisory decision feed against holdings.
+
+    A SELL for a symbol with no open long should appear as HOLD tagged
+    ``downgrade_reason=sell_without_open_long``. ``untagged_phantom_sells`` is
+    the bug indicator: a raw SELL still advertised for a symbol we don't hold.
+    """
+    redis_store = get_redis_store()
+    if redis_store is None:
+        return _wrap(
+            {FieldName.WINDOW: 0},
+            source="in_memory",
+            degraded=True,
+            reason="redis_store_unavailable",
+        )
+    decisions = await redis_store.list_decisions(limit=limit)
+    broker = await _scan_broker_positions()
+    held_long = {
+        s
+        for s, p in broker.items()
+        if str(p.get(FieldName.SIDE) or "").lower() == "long" and _abs_qty(p) > _EPS
+    }
+
+    distribution: dict[str, int] = {}
+    untagged_phantom_sells = 0
+    downgraded_sells = 0
+    for d in decisions:
+        action = str(d.get(FieldName.ACTION) or "").lower() or "(blank)"
+        distribution[action] = distribution.get(action, 0) + 1
+        symbol = str(d.get(FieldName.SYMBOL) or "")
+        if str(d.get(FieldName.DOWNGRADE_REASON) or "") == "sell_without_open_long":
+            downgraded_sells += 1
+        if action == "sell" and symbol not in held_long:
+            untagged_phantom_sells += 1
+
+    ok = untagged_phantom_sells == 0
+    return _wrap(
+        {
+            FieldName.OK: ok,
+            FieldName.WINDOW: len(decisions),
+            FieldName.ACTION_DISTRIBUTION: distribution,
+            FieldName.HELD_LONG_SYMBOLS: sorted(held_long),
+            FieldName.DOWNGRADED_SELLS: downgraded_sells,
+            FieldName.UNTAGGED_PHANTOM_SELLS: untagged_phantom_sells,
+        },
+        source="redis",
+        degraded=not ok,
+    )
+
+
+def diagnose_metrics_data() -> dict[str, Any]:
+    """Report the canonical realized-PnL / win-rate metrics from the order ledger.
+
+    win_rate = winning / (winning + losing); opens (pnl=None) and zero-PnL
+    scratches are excluded from the denominator.
+    """
+    orders = list(get_runtime_store().orders)
+    stats = closed_trade_stats(orders)
+    opens = sum(1 for o in orders if o.get(FieldName.PNL) in (None, ""))
+    scratches = sum(
+        1
+        for o in orders
+        if o.get(FieldName.PNL) not in (None, "") and float(o.get(FieldName.PNL) or 0.0) == 0.0
+    )
+    return _wrap(
+        {
+            FieldName.OK: True,
+            FieldName.TOTAL_ORDERS: len(orders),
+            FieldName.WINNING_TRADES: stats.winning,
+            FieldName.LOSING_TRADES: stats.losing,
+            FieldName.CLOSED_TRADES: stats.closed,
+            FieldName.OPEN_TRADES_EXCLUDED: opens,
+            FieldName.SCRATCH_TRADES_EXCLUDED: scratches,
+            FieldName.REALIZED_PNL: stats.realized_pnl,
+            FieldName.WIN_RATE: round(stats.win_rate, 4),
+        },
+        source="in_memory",
+    )
+
+
+async def diagnose_dashboard_consistency_data() -> dict[str, Any]:
+    """Aggregate the position / trade-feed / metric / equity checks into one verdict."""
+    positions = await diagnose_positions_data()
+    trade_feed = await diagnose_trade_feed_data()
+    metrics = diagnose_metrics_data()
+
+    store = get_runtime_store()
+    paired = store.paired_pnl_payload()[FieldName.SUMMARY]
+    last_equity = store.equity_curve[-1] if store.equity_curve else None
+    equity_realized = float(last_equity.get(FieldName.REALIZED_PNL)) if last_equity else 0.0
+    realized = float(paired.get(FieldName.REALIZED_PNL) or 0.0)
+    equity_consistent = (not store.equity_curve) or abs(equity_realized - realized) <= 1e-6
+
+    issues: list[str] = []
+    if not positions[FieldName.DATA][FieldName.OK]:
+        issues.append("position_mismatch")
+    if not trade_feed[FieldName.DATA][FieldName.OK]:
+        issues.append("phantom_sells_in_feed")
+    if not equity_consistent:
+        issues.append("equity_curve_diverges_from_realized_pnl")
+
+    overall_ok = not issues
+    return _wrap(
+        {
+            FieldName.OK: overall_ok,
+            FieldName.ISSUES: issues,
+            FieldName.POSITIONS: positions[FieldName.DATA],
+            FieldName.TRADE_FEED: trade_feed[FieldName.DATA],
+            FieldName.METRICS: metrics[FieldName.DATA],
+            FieldName.EQUITY_CONSISTENT: equity_consistent,
+        },
+        source="redis",
+        degraded=not overall_ok,
+    )
 
 
 def get_config_data() -> dict[str, Any]:

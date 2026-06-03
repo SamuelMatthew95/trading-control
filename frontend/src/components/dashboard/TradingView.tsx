@@ -478,7 +478,14 @@ export function TradingView({
         ? performanceSummary.win_rate * 100
         : winRateFromFeed(tradeFeed)
 
-    return { totalPnl, winRatePct, totalTrades, wins, fills: tradeFeed.length, activePositions: positions.length }
+    // Active = abs(qty) > 0 (backend canonical rule), not the raw array length,
+    // so a flat (qty 0) row never inflates the count. ORM uses `quantity`,
+    // paper-broker Redis state uses `qty` — try both, matching the table render.
+    const activePositions = positions.filter((pos) => {
+      const qty = toNum(getField(pos, 'quantity')) ?? toNum(getField(pos, 'qty')) ?? 0
+      return Math.abs(qty) > 0
+    }).length
+    return { totalPnl, winRatePct, totalTrades, wins, fills: tradeFeed.length, activePositions }
   }, [tradeFeed, positions, performanceSummary])
 
   const pnlSign =

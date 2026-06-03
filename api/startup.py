@@ -23,7 +23,7 @@ import httpx
 from fastapi import FastAPI
 
 from api.config import settings
-from api.constants import FieldName
+from api.constants import VALID_SYMBOLS, FieldName
 from api.database import engine, get_settings_info, init_database, test_database_connection
 from api.events.bus import EventBus, ensure_all_streams_ready
 from api.events.dlq import DLQManager
@@ -32,7 +32,12 @@ from api.mcp.server import mcp_lifespan_context
 from api.observability import log_structured
 from api.redis_client import close_redis, get_redis
 from api.routes.backtest import run_backtest_refresh_loop
-from api.runtime_state import set_db_available, set_runtime_store
+from api.runtime_state import (
+    get_runtime_store,
+    is_db_available,
+    set_db_available,
+    set_runtime_store,
+)
 from api.services.agent_state import AGENT_NAMES, AgentStateRegistry
 from api.services.agent_supervisor import AgentSupervisor
 from api.services.agents.pipeline_agents import (
@@ -199,6 +204,33 @@ async def _probe_lmstudio() -> None:
         )
 
 
+async def _hydrate_positions_from_broker(broker: PaperBroker) -> None:
+    """In memory mode, seed the InMemoryStore position mirror from the broker.
+
+    The PaperBroker (Redis) persists positions across restarts, but a fresh
+    InMemoryStore starts empty — so without this the dashboard would show no
+    positions after a redeploy until the next fill, and a SELL of a carried-over
+    long would look like it came from nowhere. Mirrors the broker (the single
+    source of truth) for every supported symbol on boot. Best effort: a Redis
+    hiccup on one symbol never blocks startup.
+    """
+    if is_db_available():
+        return
+    store = get_runtime_store()
+    hydrated = 0
+    for symbol in VALID_SYMBOLS:
+        try:
+            position = await broker.get_position(symbol)
+        except Exception:
+            log_structured("warning", "position_hydration_failed", symbol=symbol, exc_info=True)
+            continue
+        store.mirror_broker_position(symbol, position)
+        if store.has_active_position(symbol):
+            hydrated += 1
+    if hydrated:
+        log_structured("info", "positions_hydrated_from_broker", count=hydrated)
+
+
 def _build_agents(event_bus, dlq_manager, redis_client, agent_state, paper_broker) -> list:
     """Construct the full agent fleet (order matters only for logging)."""
     grade_agent = GradeAgent(event_bus, dlq_manager, agent_state=agent_state)
@@ -344,6 +376,10 @@ async def lifespan(app: FastAPI):
         app.state.agent_state = agent_state
 
         paper_broker = PaperBroker(redis_client)
+        # Seed the in-memory position mirror from the broker (the source of
+        # truth) so a restart in memory mode doesn't blank the dashboard's
+        # positions until the next fill.
+        await _hydrate_positions_from_broker(paper_broker)
         _start_background_tasks(app)
 
         agents = _build_agents(event_bus, dlq_manager, redis_client, agent_state, paper_broker)

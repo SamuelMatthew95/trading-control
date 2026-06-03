@@ -164,6 +164,7 @@ CLEAN_FILES: frozenset[str] = frozenset(
         "api/services/market_intel.py",
         "api/services/market_status.py",
         "api/services/metrics_aggregator.py",
+        "api/services/metrics_calc.py",
         "api/services/multi_agent_orchestrator.py",
         "api/services/notification_summary.py",
         "api/services/persistence_routing.py",

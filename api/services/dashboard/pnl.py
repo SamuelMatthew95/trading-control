@@ -6,31 +6,32 @@ from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
 from api.services.metrics_aggregator import MetricsAggregator
+from api.services.metrics_calc import closed_trade_stats
 
 
 def _in_memory_pnl_payload() -> dict[str, Any]:
-    """Compute dashboard PnL metrics directly from in-memory runtime state."""
+    """Compute dashboard PnL metrics directly from in-memory runtime state.
+
+    Realized PnL, win/loss counts, win rate, and best/worst all derive from the
+    canonical ``closed_trade_stats`` so this endpoint agrees with the paired-PnL
+    view and the metrics aggregator. Opening fills (pnl=None) never count toward
+    the win-rate denominator.
+    """
     store = get_runtime_store()
     orders = list(store.orders)
     open_positions = store.open_positions()
-    total_pnl = sum(float(order.get(FieldName.PNL) or 0.0) for order in orders)
-    wins = sum(1 for order in orders if float(order.get(FieldName.PNL) or 0.0) > 0)
-    losses = sum(1 for order in orders if float(order.get(FieldName.PNL) or 0.0) < 0)
+    stats = closed_trade_stats(orders)
     equity_curve = list(store.equity_curve[-200:])
 
     return {
         "pnl": orders[-100:],
-        FieldName.TOTAL_PNL: round(total_pnl, 2),
-        FieldName.WINNING_TRADES: wins,
-        FieldName.LOSING_TRADES: losses,
-        "win_rate": round((wins / len(orders)) if orders else 0.0, 4),
-        FieldName.ACTIVE_POSITIONS: len(open_positions),
-        FieldName.BEST_TRADE: round(
-            max((float(o.get(FieldName.PNL) or 0.0) for o in orders), default=0.0), 2
-        ),
-        FieldName.WORST_TRADE: round(
-            min((float(o.get(FieldName.PNL) or 0.0) for o in orders), default=0.0), 2
-        ),
+        FieldName.TOTAL_PNL: round(stats.realized_pnl, 2),
+        FieldName.WINNING_TRADES: stats.winning,
+        FieldName.LOSING_TRADES: stats.losing,
+        "win_rate": round(stats.win_rate, 4),
+        FieldName.ACTIVE_POSITIONS: store.get_active_position_count(),
+        FieldName.BEST_TRADE: round(stats.best, 2),
+        FieldName.WORST_TRADE: round(stats.worst, 2),
         FieldName.EQUITY_CURVE: equity_curve,
         FieldName.HAS_DATA: bool(orders or open_positions or equity_curve),
         "timestamp": datetime.now(timezone.utc).isoformat(),

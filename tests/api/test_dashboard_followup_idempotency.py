@@ -2,6 +2,7 @@ from api.in_memory_store import InMemoryStore
 from api.routes import dashboard_v2
 from api.runtime_state import set_db_available, set_runtime_store
 from api.services.redis_store import RedisStore, get_redis_store, set_redis_store
+from tests.helpers.ledger import apply_decision
 
 
 async def _with_redis_store(fake_redis):
@@ -12,11 +13,13 @@ async def _with_redis_store(fake_redis):
 
 
 def _seed(store: InMemoryStore) -> None:
-    store.apply_decision(
-        {"id": "d-1", "action": "buy", "symbol": "BTC/USD", "price": 80000.0, "trace_id": "t-1"}
+    apply_decision(
+        store,
+        {"id": "d-1", "action": "buy", "symbol": "BTC/USD", "price": 80000.0, "trace_id": "t-1"},
     )
-    store.apply_decision(
-        {"id": "d-2", "action": "sell", "symbol": "BTC/USD", "price": 81000.0, "trace_id": "t-2"}
+    apply_decision(
+        store,
+        {"id": "d-2", "action": "sell", "symbol": "BTC/USD", "price": 81000.0, "trace_id": "t-2"},
     )
 
 
@@ -29,9 +32,9 @@ def test_apply_decision_idempotent_duplicate_does_not_double_count() -> None:
         "price": 300.0,
         "trace_id": "trace-dup",
     }
-    store.apply_decision(payload)
+    apply_decision(store, payload)
     first = store.paired_pnl_payload()["summary"]
-    store.apply_decision(payload)
+    apply_decision(store, payload)
     second = store.paired_pnl_payload()["summary"]
     assert len(store.decisions) == 1
     assert len(store.equity_curve) == 1

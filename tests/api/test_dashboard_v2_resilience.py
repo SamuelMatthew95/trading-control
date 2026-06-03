@@ -16,6 +16,7 @@ from api.constants import LogType
 from api.in_memory_store import InMemoryStore
 from api.routes import dashboard_v2
 from api.runtime_state import set_db_available, set_runtime_store
+from tests.helpers.ledger import apply_decision
 
 
 class _ExplodingSession:
@@ -216,11 +217,13 @@ async def test_performance_trends_falls_back_to_runtime_store_when_query_fails(m
     """DB failure should return runtime store data, not empty zeros."""
     monkeypatch.setattr(trading_svc, "is_db_available", lambda: True)
     store = InMemoryStore()
-    store.apply_decision(
-        {"action": "buy", "symbol": "BTC/USD", "price": 80000.0, "qty": 0.1, "trace_id": "pt1"}
+    apply_decision(
+        store,
+        {"action": "buy", "symbol": "BTC/USD", "price": 80000.0, "qty": 0.1, "trace_id": "pt1"},
     )
-    store.apply_decision(
-        {"action": "sell", "symbol": "BTC/USD", "price": 81000.0, "qty": 0.1, "trace_id": "pt2"}
+    apply_decision(
+        store,
+        {"action": "sell", "symbol": "BTC/USD", "price": 81000.0, "qty": 0.1, "trace_id": "pt2"},
     )
     set_runtime_store(store)
     monkeypatch.setattr(trading_svc, "AsyncSessionFactory", _exploding_factory)
@@ -873,11 +876,13 @@ async def test_pnl_route_returns_real_data_after_buy_sell():
     """10A: /dashboard/pnl returns real data after BUY then SELL in memory mode."""
     set_db_available(False)
     store = InMemoryStore()
-    store.apply_decision(
-        {"action": "buy", "symbol": "BTC/USD", "price": 80000.0, "qty": 0.1, "trace_id": "t1"}
+    apply_decision(
+        store,
+        {"action": "buy", "symbol": "BTC/USD", "price": 80000.0, "qty": 0.1, "trace_id": "t1"},
     )
-    store.apply_decision(
-        {"action": "sell", "symbol": "BTC/USD", "price": 81000.0, "qty": 0.1, "trace_id": "t2"}
+    apply_decision(
+        store,
+        {"action": "sell", "symbol": "BTC/USD", "price": 81000.0, "qty": 0.1, "trace_id": "t2"},
     )
     set_runtime_store(store)
 
@@ -895,11 +900,13 @@ async def test_snapshot_returns_equity_curve_when_runtime_store_has_data():
     """10B: /dashboard/pnl equity_curve is non-empty when runtime store has BUY/SELL data."""
     set_db_available(False)
     store = InMemoryStore()
-    store.apply_decision(
-        {"action": "buy", "symbol": "BTC/USD", "price": 80000.0, "qty": 0.1, "trace_id": "t3"}
+    apply_decision(
+        store,
+        {"action": "buy", "symbol": "BTC/USD", "price": 80000.0, "qty": 0.1, "trace_id": "t3"},
     )
-    store.apply_decision(
-        {"action": "sell", "symbol": "BTC/USD", "price": 81000.0, "qty": 0.1, "trace_id": "t4"}
+    apply_decision(
+        store,
+        {"action": "sell", "symbol": "BTC/USD", "price": 81000.0, "qty": 0.1, "trace_id": "t4"},
     )
     set_runtime_store(store)
 
@@ -917,8 +924,9 @@ async def test_buy_only_creates_active_position_and_equity_point():
     """10C: BUY-only creates an active open position and an equity curve entry."""
     set_db_available(False)
     store = InMemoryStore()
-    store.apply_decision(
-        {"action": "buy", "symbol": "BTC/USD", "price": 80000.0, "qty": 0.1, "trace_id": "t5"}
+    apply_decision(
+        store,
+        {"action": "buy", "symbol": "BTC/USD", "price": 80000.0, "qty": 0.1, "trace_id": "t5"},
     )
     set_runtime_store(store)
 
