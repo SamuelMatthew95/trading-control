@@ -34,10 +34,10 @@ NEXT_PUBLIC_API_URL=http://localhost:8000  # dev
 The UI maps **state → Tone → design token → presentation**, so the colour palette
 and light/dark parity live in exactly one place. Never hardcode a semantic colour.
 
-- **Tone** (`src/lib/design/sentiment.ts`): `'success' | 'danger' | 'warning' | 'neutral' | 'info'`.
+- **Tone** (`src/lib/design/sentiment.ts`): `'success' | 'danger' | 'warning' | 'neutral'`.
   `Sentiment` (`positive|negative|neutral`) is the directional subset; `sentimentOf(value)` maps
   a signed number to it via the shared `SENTIMENT_EPSILON` dead-band (no magic numbers in callers).
-- **Tokens** (`tailwind.config.js` + `src/styles/globals.css`): `success`/`danger`/`warning`/`info`
+- **Tokens** (`tailwind.config.js` + `src/styles/globals.css`): `success`/`danger`/`warning`
   are CSS-var Tailwind colours (`hsl(var(--success))`) flipped light/dark **once** in `globals.css`.
   Use `text-success`, `bg-danger/10`, `border-warning/30` — no `dark:` pairs.
 - **Resolvers** (`src/lib/dashboard-helpers.ts`): `TONE_TEXT[tone]` / `SENTIMENT_TEXT[sentiment]`,
