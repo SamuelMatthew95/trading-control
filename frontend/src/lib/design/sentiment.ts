@@ -51,6 +51,15 @@ export const TONE_TEXT: Record<Tone, string> = {
   info: 'text-info',
 }
 
+/** Canonical status-dot background per Tone. */
+export const TONE_DOT: Record<Tone, string> = {
+  success: 'bg-success',
+  danger: 'bg-danger',
+  warning: 'bg-warning',
+  neutral: 'bg-muted-foreground',
+  info: 'bg-info',
+}
+
 /** Directional text colour — the directional subset of {@link TONE_TEXT}. */
 export const SENTIMENT_TEXT: Record<Sentiment, string> = {
   positive: TONE_TEXT.success,
