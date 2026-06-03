@@ -54,6 +54,31 @@ seeds the mirror on boot so a restart no longer blanks the dashboard.
 
 **Regression test:** `tests/agents/test_execution_position_ssot.py::test_store_position_mirrors_broker_after_add`
 
+## Closed-trades panel was always empty in production memory mode
+
+**Symptom:** The dashboard's closed-trades list stayed empty even after
+round-trips closed, while the paired-PnL view showed realized PnL.
+
+**Root cause:** `store.closed_trades` was written only by the test-only
+`apply_decision` replay helper; no production path appended to it, so in live
+memory mode it never populated. `paired_pnl_payload` derived closed trades from
+`orders` instead, so the two views disagreed.
+
+**Fix:** The canonical fill path (`ExecutionEngine._record_fill_to_store`) now
+calls `InMemoryStore.add_closed_trade` on every round-trip close. `apply_decision`
+was retired from the production store into `tests/helpers/ledger.py` (test-only).
+
+**Regression test:** `tests/agents/test_execution_position_ssot.py::test_roundtrip_close_sets_order_pnl`
+
+## Proving consistency live — MCP diagnostic tools
+
+When the dashboard looks wrong, run the in-app MCP tools (they reach the live
+Redis the standalone script can't): `diagnose_positions` (store vs PaperBroker),
+`diagnose_trade_feed` (phantom SELLs), `diagnose_metrics` (canonical win rate),
+`diagnose_dashboard_consistency` (one verdict). Each returns `ok` plus the
+specific mismatches. Source: `api/mcp/read_tools.py`; tests:
+`tests/api/test_mcp_diagnostics.py`.
+
 ## Phantom SELLs in the decision feed never produced PnL
 
 **Symptom:** The System page feed showed "SELL AAPL / SELL BTC/USD" but the
