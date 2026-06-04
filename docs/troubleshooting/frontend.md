@@ -400,3 +400,24 @@ a top-of-view error banner driven by `systemFeedError` /
 (renders all Command Center sections, six headline metrics incl. Daily PnL,
 compact health indicators, and decision-feed entries on the empty + populated
 states).
+
+---
+
+## Command Center card on /dashboard/system stretched to a half-empty panel
+
+**Symptom:** On the System page, the top-left "Command Center" card (the KPI
+strip: Net PnL / Daily PnL / Open Exposure / …) showed a large empty band of
+card below its single row of metrics — the table looked stranded at the top.
+
+**Root cause:** The card sits in a two-column CSS grid
+(`xl:grid-cols-[minmax(0,1fr)_360px]`) next to the taller Operator controls
+panel. Grid items default to `align-items: stretch`, so the short KPI card was
+stretched to match the controls panel's height, leaving its content pinned to
+the top with empty card beneath.
+
+**Fix:** Added `self-start` to the Command Center card in
+`SystemDashboard.tsx` so it sizes to its own content (the KPI row) instead of
+stretching to the neighbouring panel.
+
+**Regression test:** `frontend/src/test/components/system/SystemDashboard.test.tsx`
+(`sizes the Command Center card to its metrics instead of stretching it`)

@@ -417,7 +417,7 @@ type CodexState = {
   addAgentLog: (log: AgentLog) => void
   addRiskAlert: (alert: Record<string, unknown>) => void
   addNotification: (notification: unknown) => void
-  addProposal: (proposal: Omit<Proposal, 'id' | 'status'>) => void
+  addProposal: (proposal: Omit<Proposal, 'id' | 'status'> & { id?: string; status?: ProposalStatus }) => void
   updateProposalStatus: (id: string, status: ProposalStatus) => void
   addLearningEvent: (event: LearningEvent) => void
   addSystemMetric: (metric: SystemMetric) => void
@@ -602,12 +602,34 @@ export const useCodexStore = create<CodexState>((set) => ({
     }
     return { notifications: next }
   }),
-  addProposal: (proposal) => set((state) => ({
-    proposals: [
-      { ...proposal, id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, status: 'pending' as ProposalStatus },
-      ...state.proposals,
-    ].slice(0, 50)
-  })),
+  addProposal: (proposal) => set((state) => {
+    // Derive a STABLE id from the backend identifiers so repeated REST polls
+    // and WS broadcasts for the same proposal update it in place instead of
+    // piling up duplicates. The approve/reject PATCH endpoint matches on this
+    // id (the proposal's trace_id), so it MUST be the backend id — minting a
+    // random one here both duplicated rows every poll and 404'd every vote.
+    const stableId =
+      (proposal.id != null && proposal.id !== '' ? String(proposal.id) : '') ||
+      proposal.reflection_trace_id ||
+      (proposal.trace_id != null ? String(proposal.trace_id) : '') ||
+      `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const incomingStatus: ProposalStatus = proposal.status ?? 'pending'
+    const existingIndex = state.proposals.findIndex((p) => p.id === stableId)
+    if (existingIndex !== -1) {
+      const existing = state.proposals[existingIndex]
+      // Backend is the source of truth, but a later poll that still reports
+      // "pending" must not clobber an approve/reject the operator just made
+      // optimistically (the PATCH has already persisted it server-side).
+      const status: ProposalStatus =
+        incomingStatus === 'pending' && existing.status !== 'pending' ? existing.status : incomingStatus
+      const next = [...state.proposals]
+      next[existingIndex] = { ...existing, ...proposal, id: stableId, status }
+      return { proposals: next }
+    }
+    return {
+      proposals: [{ ...proposal, id: stableId, status: incomingStatus }, ...state.proposals].slice(0, 50),
+    }
+  }),
   updateProposalStatus: (id, status) => set((state) => ({
     proposals: state.proposals.map((p) => p.id === id ? { ...p, status } : p)
   })),

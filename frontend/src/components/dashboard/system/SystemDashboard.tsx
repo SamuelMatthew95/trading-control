@@ -584,7 +584,10 @@ export function SystemDashboard(props: SystemDashboardProps) {
         className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_360px]"
         aria-label="Command Center overview"
       >
-        <div className={PANEL_CLASS}>
+        {/* self-start: size this card to its single KPI row instead of letting
+            the grid stretch it to match the taller Operator Controls panel,
+            which left a large empty band of card below the metrics. */}
+        <div className={cn(PANEL_CLASS, "self-start")}>
           <div className={PANEL_HEADER_CLASS}>
             <div className="flex items-center justify-between gap-3">
               <div>

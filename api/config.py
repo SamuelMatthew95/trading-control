@@ -98,6 +98,11 @@ class Settings(BaseSettings):
 
     # Reflection / strategy
     HYPOTHESIS_MIN_CONFIDENCE: float = 0.7
+    # Proposal-creation guardrails (StrategyProposer): cap how many proposals
+    # may be emitted in a single UTC day, and dedup identical candidates within
+    # that day. Set to 0 to disable the cap. Keeps the review queue from being
+    # flooded with repeats when reflection runs frequently.
+    MAX_PROPOSALS_PER_DAY: int = 20
 
     # GitOps auto-PR — when a PARAMETER_CHANGE proposal is applied, open a real
     # PR that edits a CONFIG file (never raw code), version-controlled + human-
