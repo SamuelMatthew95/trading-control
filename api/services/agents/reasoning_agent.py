@@ -48,6 +48,7 @@ from api.constants import (
     TOOL_CORRELATION_CHECK,
     TOOL_FLAG_CONFLUENCE_LOADED,
     TOOL_GET_IC_WEIGHTS,
+    TOOL_MACRO_REGIME,
     TOOL_NEWS_SENTIMENT,
     TOOL_ORDER_BOOK_DEPTH,
     TOOL_QUERY_SIMILAR_TRADES,
@@ -81,6 +82,7 @@ from api.services.execution.brokers.paper import PaperBroker
 from api.services.llm_router import active_model_label, call_llm_with_system
 from api.services.market_intel import (
     compute_cross_asset_correlation,
+    fetch_macro_regime,
     fetch_news_sentiment,
     fetch_order_book_depth,
 )
@@ -828,7 +830,7 @@ class ReasoningAgent(BaseStreamConsumer):
             return None
 
     async def _gather_market_intel(self, symbol: str, context: dict[str, Any]) -> None:
-        """Invoke the live perception tools (order-book / news / correlation).
+        """Invoke the live perception tools (order-book / news / correlation / macro-regime).
 
         Each is best-effort and individually gated on its registry enabled flag.
         Results land in ``context`` (fed to the LLM prompt) and each invocation
@@ -847,6 +849,7 @@ class ReasoningAgent(BaseStreamConsumer):
                 FieldName.CORRELATION,
                 compute_cross_asset_correlation(symbol, self.redis),
             ),
+            (TOOL_MACRO_REGIME, FieldName.MACRO_REGIME, fetch_macro_regime(symbol, self.redis)),
         ]
         for tool_name, ctx_key, coro in intel:
             if not self._tool_enabled(tool_name):
@@ -1136,6 +1139,7 @@ class ReasoningAgent(BaseStreamConsumer):
                 FieldName.ORDER_BOOK: ctx.get(FieldName.ORDER_BOOK) or {},
                 FieldName.NEWS_SENTIMENT: ctx.get(FieldName.NEWS_SENTIMENT) or {},
                 FieldName.CORRELATION: ctx.get(FieldName.CORRELATION) or {},
+                FieldName.MACRO_REGIME: ctx.get(FieldName.MACRO_REGIME) or {},
                 FieldName.SYSTEM_DIRECTIVE: "CAPITAL_PRESERVATION_FIRST",
             },
             default=str,

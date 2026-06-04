@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from api.constants import FieldName
+from api.constants import FieldName, MacroRegime
 from api.services import market_intel
 from api.services.market_intel import (
     _is_crypto,
@@ -16,6 +16,7 @@ from api.services.market_intel import (
     _returns,
     _score_sentiment,
     compute_cross_asset_correlation,
+    fetch_macro_regime,
     fetch_news_sentiment,
     fetch_order_book_depth,
 )
@@ -169,3 +170,110 @@ async def test_correlation_request_uses_recent_start_window(monkeypatch):
     start = datetime.fromisoformat(captured["params"]["start"])
     assert (datetime.now(timezone.utc) - start).total_seconds() < 6 * 3600
     assert out  # non-empty result when bars are present
+
+
+async def test_correlation_falls_back_to_daily_bars_when_intraday_sparse(monkeypatch):
+    """Regression: when 1-min bars are too sparse (e.g. equities after hours), the
+    tool must retry with daily bars instead of degrading to {} every time."""
+    monkeypatch.setattr(market_intel.settings, "ALPACA_API_KEY", "k")
+    redis = AsyncMock()
+    redis.get = AsyncMock(return_value=None)
+
+    resp_intraday = MagicMock()  # too few bars → < _MIN_RETURNS returns
+    resp_intraday.json.return_value = {"bars": {"BTC/USD": [{"c": 100}]}}
+    resp_intraday.raise_for_status = MagicMock()
+
+    resp_daily = MagicMock()  # enough daily bars to compute a correlation
+    resp_daily.json.return_value = {
+        "bars": {
+            "BTC/USD": [{"c": 103}, {"c": 102}, {"c": 101}, {"c": 100}],
+            "ETH/USD": [{"c": 51.5}, {"c": 51}, {"c": 50.5}, {"c": 50}],
+        }
+    }
+    resp_daily.raise_for_status = MagicMock()
+
+    seen_timeframes: list = []
+
+    async def _get(path, params=None):
+        seen_timeframes.append((params or {}).get(FieldName.TIMEFRAME))
+        return resp_intraday if len(seen_timeframes) == 1 else resp_daily
+
+    client = MagicMock()
+    client.get = _get
+
+    @asynccontextmanager
+    async def _cm():
+        yield client
+
+    with patch.object(market_intel, "_client", lambda: _cm()):
+        out = await compute_cross_asset_correlation("BTC/USD", redis)
+
+    assert seen_timeframes == ["1Min", "1Day"]  # intraday first, daily fallback
+    assert out  # a correlation was produced from the daily bars
+    assert "ETH/USD" in out[FieldName.CORRELATIONS]
+
+
+# --- macro regime tool ------------------------------------------------------
+
+
+async def test_macro_regime_risk_on_when_benchmark_trends_up(monkeypatch):
+    monkeypatch.setattr(market_intel.settings, "ALPACA_API_KEY", "k")
+    redis = AsyncMock()
+    redis.get = AsyncMock(return_value=None)
+    # newest-first (sort=desc): 105 now vs 100 at window start → +5% → risk-on.
+    payload = {"bars": {"BTC/USD": [{"c": 105}, {"c": 103}, {"c": 100}]}}
+    with _fake_client(payload):
+        out = await fetch_macro_regime("BTC/USD", redis)
+    assert out[FieldName.REGIME] == MacroRegime.RISK_ON
+    assert out[FieldName.BENCHMARK] == "BTC/USD"  # crypto benchmark
+    assert out[FieldName.RETURN_PCT] == pytest.approx(5.0)
+    redis.set.assert_awaited_once()  # result cached
+
+
+async def test_macro_regime_risk_off_when_benchmark_trends_down(monkeypatch):
+    monkeypatch.setattr(market_intel.settings, "ALPACA_API_KEY", "k")
+    redis = AsyncMock()
+    redis.get = AsyncMock(return_value=None)
+    payload = {"bars": {"BTC/USD": [{"c": 95}, {"c": 97}, {"c": 100}]}}
+    with _fake_client(payload):
+        out = await fetch_macro_regime("BTC/USD", redis)
+    assert out[FieldName.REGIME] == MacroRegime.RISK_OFF
+    assert out[FieldName.RETURN_PCT] == pytest.approx(-5.0)
+
+
+async def test_macro_regime_neutral_within_band(monkeypatch):
+    monkeypatch.setattr(market_intel.settings, "ALPACA_API_KEY", "k")
+    redis = AsyncMock()
+    redis.get = AsyncMock(return_value=None)
+    payload = {"bars": {"BTC/USD": [{"c": 100.2}, {"c": 100.1}, {"c": 100.0}]}}
+    with _fake_client(payload):
+        out = await fetch_macro_regime("BTC/USD", redis)
+    assert out[FieldName.REGIME] == MacroRegime.NEUTRAL  # +0.2% is inside the band
+
+
+async def test_macro_regime_equity_symbol_uses_spy_benchmark(monkeypatch):
+    monkeypatch.setattr(market_intel.settings, "ALPACA_API_KEY", "k")
+    redis = AsyncMock()
+    redis.get = AsyncMock(return_value=None)
+    payload = {"bars": {"SPY": [{"c": 110}, {"c": 105}, {"c": 100}]}}
+    with _fake_client(payload):
+        out = await fetch_macro_regime("AAPL", redis)
+    assert out[FieldName.BENCHMARK] == "SPY"  # equities proxy off SPY, not AAPL
+    assert out[FieldName.REGIME] == MacroRegime.RISK_ON
+
+
+async def test_macro_regime_without_api_key_returns_empty(monkeypatch):
+    monkeypatch.setattr(market_intel.settings, "ALPACA_API_KEY", "")
+    redis = AsyncMock()
+    redis.get = AsyncMock(return_value=None)
+    assert await fetch_macro_regime("BTC/USD", redis) == {}
+
+
+async def test_macro_regime_uses_cache_when_present():
+    redis = AsyncMock()
+    redis.get = AsyncMock(
+        return_value='{"regime": "risk_on", "return_pct": 2.0, "benchmark": "BTC/USD"}'
+    )
+    out = await fetch_macro_regime("BTC/USD", redis)
+    assert out[FieldName.REGIME] == "risk_on"
+    redis.set.assert_not_called()  # cache hit — no fetch, no write

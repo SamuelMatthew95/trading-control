@@ -22,6 +22,9 @@ function routingBadgeClass(kind: ProposalRouting["kind"]): string {
     return "border-violet-400/30 bg-violet-400/10 text-violet-700 dark:text-violet-300";
   if (kind === "unknown")
     return "border-slate-300/40 bg-slate-400/10 text-slate-600 dark:text-slate-400";
+  if (kind === "review")
+    // operator promotion — nothing auto-applies; distinct from grey "unknown"
+    return "border-indigo-400/30 bg-indigo-400/10 text-indigo-700 dark:text-indigo-300";
   // control-plane / prompt / tool / mixed are all system-applied state changes
   return "border-teal-400/30 bg-teal-400/10 text-teal-700 dark:text-teal-300";
 }

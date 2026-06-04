@@ -422,6 +422,60 @@ stretching to the neighbouring panel.
 **Regression test:** `frontend/src/test/components/system/SystemDashboard.test.tsx`
 (`sizes the Command Center card to its metrics instead of stretching it`)
 
+## Challenger-promotion proposals rendered as "[object Object]" in the queue
+
+**Symptom:** When a shadow challenger beat its baseline and emitted a
+`challenger_promotion` proposal, the Proposal Queue's "Candidate Change" cell
+showed the literal text `[object Object]` instead of the human-readable reason,
+and the "On Approve" column fell through to the grey generic `Review` badge.
+
+**Root cause:** Two ingestion paths coerced the proposal `content` with
+`String(content)`: the live WS path (`useGlobalWebSocket.ts::_handleProposal`)
+and REST hydration (`useCodexStore.ts`). Challenger promotions carry `content`
+as a structured object (`{ strategy, shadow_edge, confidence, reason }`), so
+`String(obj)` produced `"[object Object]"`. The `challenger_promotion` type was
+also absent from the `ProposalType` union and from `proposal-routing.ts`, so it
+had no routing badge.
+
+**Fix:** New `frontend/src/lib/proposal-content.ts` — `coerceProposalContent()`
+prefers an object's `reason`, then a `strategy` summary, then a JSON dump (never
+`[object Object]`), and `proposalStrategyName()` extracts the strategy. Both
+ingestion paths now route `content` through it (and backfill `strategy_name`).
+Added `'challenger_promotion'` to the `ProposalType` union and a routing entry
+(`Promote challenger`, new `review` kind — operator action, nothing
+auto-applies; indigo badge in `ProposalsSection.tsx`).
+
+**Regression test:** `frontend/src/test/lib/proposal-content.test.ts`
+(`extracts reason from a structured challenger-promotion content object`,
+`JSON-dumps … (never [object Object])`) and
+`frontend/src/test/helpers/proposal-routing.test.ts`
+(`routes challenger_promotion to operator review`).
+
+## Reasoning-LLM degraded/down was not surfaced at the page level
+
+**Symptom:** When the reasoning LLM degraded or went down, the only signal was a
+small status dot inside the LLM Health panel (Overview) far down the page. An
+operator scanning any other section (Trading, Agents, Proposals…) had no
+indication the agent had dropped to fail-closed fallback, where new signals are
+rejected rather than traded.
+
+**Root cause:** No page-level indicator consumed `/llm/health`'s canonical
+`status` (`live`/`degraded`/`down`/`unknown`); the status lived only in
+`LLMHealthPanel`, whose poll + status union were declared locally and not
+reusable.
+
+**Fix:** Extracted the status vocabulary, types, and poll into a shared
+`frontend/src/lib/llm-health.ts` (`LLMStatus`, `LLMHealthData`, `useLlmHealth()`)
+— single source of truth per the design rules — and refactored `LLMHealthPanel`
+onto it. New `LLMDegradedBanner` (page-level, mounted in `DashboardView` beside
+the memory-mode banner) renders an amber `warn` banner when `degraded` and a red
+`err` "fallback mode" banner when `down`, noting whether cloud fallback is
+enabled; hidden while `live`/`unknown` so it never nags.
+
+**Regression test:** `frontend/src/test/components/LLMDegradedBanner.test.tsx`
+(warning when degraded, error/fallback when down, hidden when live/unknown/no
+data, notes cloud fallback when enabled).
+
 ## Overview shows "Active Positions: N" with no positions list anywhere on the page
 
 **Symptom:** The Overview ("main page") headline read `Active Positions: 1`, but

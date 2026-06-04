@@ -248,3 +248,77 @@ async def test_grade_carries_shadow_evidence(mock_bus, mock_dlq):
     assert "shadow_win_rate" in metrics
     assert "shadow_pnl" in metrics
     assert "beats_baseline_shadow" in metrics  # baseline engine present for A/B
+
+
+@pytest.mark.asyncio
+async def test_shadow_winner_emits_promotion_proposal_once(mock_bus, mock_dlq):
+    """A challenger beating baseline on enough SHADOW trades emits a single
+    human-approvable promotion proposal — no live fills required — and latches."""
+    from api.constants import CHALLENGER_MIN_SHADOW_TRADES
+
+    agent = ChallengerAgent(
+        mock_bus, mock_dlq, challenger_config={"strategy": "mean_reversion"}, max_fills=10_000
+    )
+    # Force a winning shadow verdict deterministically (independent of price path).
+    agent._shadow = MagicMock()
+    agent._shadow.metrics.trades = CHALLENGER_MIN_SHADOW_TRADES + 5
+    agent._baseline_shadow = MagicMock()
+    agent._shadow_summary = lambda: {
+        "shadow_trades": CHALLENGER_MIN_SHADOW_TRADES + 5,
+        "shadow_win_rate": 0.66,
+        "shadow_pnl": 120.0,
+        "baseline_shadow_pnl": 20.0,
+        "beats_baseline_shadow": True,
+    }
+    agent._backtest_verdict = lambda: ""
+
+    await agent._maybe_propose_shadow_promotion()
+    props = [c for c in mock_bus.publish.await_args_list if c.args[0] == STREAM_PROPOSALS]
+    assert len(props) == 1
+    payload = props[0].args[1]
+    assert payload["proposal_type"] == "challenger_promotion"
+    assert payload["requires_approval"] is True
+    assert payload["content"]["shadow_edge"] == pytest.approx(100.0)
+    assert payload["beats_baseline_shadow"] is True  # shadow report fields carried through
+
+    # Latched — a second pass must not publish again.
+    await agent._maybe_propose_shadow_promotion()
+    props = [c for c in mock_bus.publish.await_args_list if c.args[0] == STREAM_PROPOSALS]
+    assert len(props) == 1
+
+
+@pytest.mark.asyncio
+async def test_no_promotion_proposal_below_trade_threshold(mock_bus, mock_dlq):
+    """Below CHALLENGER_MIN_SHADOW_TRADES no proposal fires, even if winning."""
+    from api.constants import CHALLENGER_MIN_SHADOW_TRADES
+
+    agent = ChallengerAgent(
+        mock_bus, mock_dlq, challenger_config={"strategy": "mean_reversion"}, max_fills=10_000
+    )
+    agent._shadow = MagicMock()
+    agent._shadow.metrics.trades = CHALLENGER_MIN_SHADOW_TRADES - 1
+    agent._baseline_shadow = MagicMock()
+    agent._shadow_summary = lambda: {"beats_baseline_shadow": True}
+
+    await agent._maybe_propose_shadow_promotion()
+    assert not [c for c in mock_bus.publish.await_args_list if c.args[0] == STREAM_PROPOSALS]
+
+
+@pytest.mark.asyncio
+async def test_no_promotion_proposal_when_not_beating_baseline(mock_bus, mock_dlq):
+    """A challenger that does NOT beat baseline emits no promotion proposal."""
+    from api.constants import CHALLENGER_MIN_SHADOW_TRADES
+
+    agent = ChallengerAgent(
+        mock_bus, mock_dlq, challenger_config={"strategy": "mean_reversion"}, max_fills=10_000
+    )
+    agent._shadow = MagicMock()
+    agent._shadow.metrics.trades = CHALLENGER_MIN_SHADOW_TRADES + 5
+    agent._baseline_shadow = MagicMock()
+    agent._shadow_summary = lambda: {
+        "shadow_trades": CHALLENGER_MIN_SHADOW_TRADES + 5,
+        "beats_baseline_shadow": False,
+    }
+
+    await agent._maybe_propose_shadow_promotion()
+    assert not [c for c in mock_bus.publish.await_args_list if c.args[0] == STREAM_PROPOSALS]

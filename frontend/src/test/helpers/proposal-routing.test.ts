@@ -26,6 +26,13 @@ describe('proposalRouting', () => {
     expect(proposalRouting('new_agent').kind).toBe('mixed')
   })
 
+  it('routes challenger_promotion to operator review (nothing auto-applies)', () => {
+    const r = proposalRouting('challenger_promotion')
+    expect(r.kind).toBe('review')
+    expect(r.label).toBe('Promote challenger')
+    expect(proposalRouting('CHALLENGER_PROMOTION').kind).toBe('review')
+  })
+
   it('is case-insensitive and degrades to review for unknown/missing types', () => {
     expect(proposalRouting('PARAMETER_CHANGE').kind).toBe('config-pr')
     expect(proposalRouting('something_else').kind).toBe('unknown')

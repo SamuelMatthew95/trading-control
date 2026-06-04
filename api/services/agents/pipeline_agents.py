@@ -25,6 +25,7 @@ from api.constants import (
     AGENT_NOTIFICATION,
     AGENT_REFLECTION,
     AGENT_STRATEGY_PROPOSER,
+    CHALLENGER_MIN_SHADOW_TRADES,
     LLM_CALL_DELAY_MS,
     LLM_DELAY_ADJUSTMENT_STEP_MS,
     LLM_DELAY_MAX_MS,
@@ -2042,6 +2043,10 @@ class ChallengerAgent(MultiStreamAgent):
         # both fed the SAME live signals so we can A/B their real performance on
         # live data and propose promotion only when the challenger beats baseline.
         self._shadow, self._baseline_shadow = self._build_shadow_engines()
+        # Latch so a winning challenger emits its promotion proposal exactly once
+        # (the shadow path runs on every tick — without this it would flood the
+        # proposal queue). Reset implicitly by spawning a fresh challenger.
+        self._shadow_proposal_emitted = False
 
     def _build_shadow_engines(self):
         """Construct (own, baseline) ShadowTradeEngines from the configured strategy.
@@ -2089,6 +2094,9 @@ class ChallengerAgent(MultiStreamAgent):
         # same series the backtest harness measures — not the throttled signal stream.
         if stream == STREAM_MARKET_EVENTS:
             self._observe_shadow(data)
+            # Surface a winning challenger from SHADOW evidence — independent of
+            # live fills, which may never arrive when the pipeline is idle.
+            await self._maybe_propose_shadow_promotion()
             return
 
         if stream == STREAM_TRADE_PERFORMANCE:
@@ -2160,6 +2168,71 @@ class ChallengerAgent(MultiStreamAgent):
             summary["baseline_shadow_pnl"] = round(b.realized_pnl, 4)
             summary["beats_baseline_shadow"] = m.realized_pnl > b.realized_pnl
         return summary
+
+    async def _maybe_propose_shadow_promotion(self) -> None:
+        """Emit a human-approvable promotion proposal when this challenger beats
+        baseline on enough SHADOW evidence.
+
+        This is what makes "beats baseline" mean something: previously the verdict
+        was computed and displayed, then thrown away because grades/retirement were
+        gated on live ``trade_performance`` fills that never arrive while the
+        pipeline is idle. Here the winning verdict surfaces as a backtest-backed
+        proposal in the learning-loop queue (``requires_approval=True`` — a human
+        promotes, never the system). Latched to fire once per challenger.
+        """
+        if self._shadow_proposal_emitted or self._shadow is None or self._baseline_shadow is None:
+            return
+        if self._shadow.metrics.trades < CHALLENGER_MIN_SHADOW_TRADES:
+            return
+        summary = self._shadow_summary()
+        if not summary.get("beats_baseline_shadow"):
+            return
+
+        # Latch before publishing so a publish error cannot re-fire on the next tick.
+        self._shadow_proposal_emitted = True
+        strategy_name = str(self._config.get(FieldName.STRATEGY) or "")
+        edge = round(
+            float(summary.get("shadow_pnl") or 0.0)
+            - float(summary.get("baseline_shadow_pnl") or 0.0),
+            4,
+        )
+        win_rate = float(summary.get("shadow_win_rate") or 0.0)
+        trace_id = str(uuid.uuid4())
+        payload: dict[str, Any] = {
+            FieldName.MSG_ID: str(uuid.uuid4()),
+            FieldName.SOURCE: f"challenger-{self._challenger_id}",
+            FieldName.TYPE: "proposal",
+            # Descriptive type (not an auto-routed ProposalType) — it surfaces in
+            # the proposal queue for a human to approve; nothing auto-applies it.
+            FieldName.PROPOSAL_TYPE: "challenger_promotion",
+            FieldName.REQUIRES_APPROVAL: True,
+            FieldName.CHALLENGER_ID: self._challenger_id,
+            FieldName.INSTANCE_ID: self._instance_id,
+            FieldName.CONFIG: self._config,
+            FieldName.CONFIDENCE: win_rate,
+            FieldName.CONTENT: {
+                FieldName.STRATEGY: strategy_name,
+                "shadow_edge": edge,
+                FieldName.CONFIDENCE: win_rate,
+                FieldName.REASON: (
+                    f"Shadow challenger '{strategy_name}' beats baseline by {edge:+.2f} PnL "
+                    f"over {summary.get('shadow_trades')} shadow trades (win {win_rate:.0%})."
+                    f"{self._backtest_verdict()}"
+                ),
+            },
+            FieldName.TRACE_ID: trace_id,
+            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+        }
+        payload.update(summary)  # carry the shadow_* report fields for the dashboard
+        await self.bus.publish(STREAM_PROPOSALS, payload)
+        log_structured(
+            "info",
+            "challenger_shadow_promotion_proposed",
+            challenger_id=self._challenger_id,
+            strategy=strategy_name,
+            shadow_edge=edge,
+            shadow_trades=summary.get("shadow_trades"),
+        )
 
     async def _grade(self) -> None:
         """Compute a grade for this challenger window and publish results."""

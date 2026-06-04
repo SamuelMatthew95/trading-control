@@ -12,8 +12,9 @@ export interface ProposalRouting {
   /** Short badge label. */
   label: string
   /** Whether the change is config/state-driven and applied by the system
-   *  (auto-PR or control plane) vs. needing human code work (a GitHub issue). */
-  kind: 'config-pr' | 'control-plane' | 'prompt' | 'tool' | 'issue' | 'mixed' | 'unknown'
+   *  (auto-PR or control plane) vs. needing human code work (a GitHub issue)
+   *  vs. an operator-only promotion that nothing auto-applies (`review`). */
+  kind: 'config-pr' | 'control-plane' | 'prompt' | 'tool' | 'issue' | 'mixed' | 'review' | 'unknown'
   /** One-line explanation of the destination. */
   hint: string
 }
@@ -53,6 +54,11 @@ const ROUTING: Record<string, ProposalRouting> = {
     label: 'Challenger / issue',
     kind: 'mixed',
     hint: 'Spawns a shadow challenger if its strategy is known, else files an issue.',
+  },
+  challenger_promotion: {
+    label: 'Promote challenger',
+    kind: 'review',
+    hint: 'A shadow challenger beat its baseline on live data. Approve to promote it to a live candidate — operator action, nothing auto-applies.',
   },
   code_change: {
     label: 'GitHub issue',
