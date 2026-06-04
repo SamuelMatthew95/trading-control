@@ -51,6 +51,23 @@ export function getStr(obj: unknown, ...keys: string[]): string {
 }
 
 /**
+ * Canonical signed quantity for a loosely-typed position row.
+ *
+ * ORM positions carry `quantity`; paper-broker Redis state carries `qty`. This
+ * returns the first finite of the two (or 0 when neither is present), so every
+ * "is this position open" check uses the same rule and the Overview count can
+ * never disagree with the Open Positions table about which rows are active.
+ */
+export function positionQty(pos: unknown): number {
+  return toFiniteNum(getField(pos, 'quantity')) ?? toFiniteNum(getField(pos, 'qty')) ?? 0
+}
+
+/** A position is "active"/open when its absolute quantity is non-zero. */
+export function isActivePosition(pos: unknown): boolean {
+  return Math.abs(positionQty(pos)) > 0
+}
+
+/**
  * Parse any timestamp-like value to epoch milliseconds, or return null.
  *
  * Handles: Date objects, numeric ms, numeric seconds (via EPOCH_MS_THRESHOLD),
