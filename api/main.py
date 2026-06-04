@@ -26,11 +26,14 @@ from api.routes.cognitive import router as cognitive_router
 from api.routes.dashboard_v2 import router as dashboard_v2_router
 from api.routes.decisions import router as decisions_router
 from api.routes.dlq import router as dlq_router
+from api.routes.feedback import router as feedback_router
 from api.routes.health import router as health_router
 from api.routes.learning import router as learning_router
 from api.routes.llm_health import router as llm_health_router
 from api.routes.monitoring import router as monitoring_router
 from api.routes.notifications import router as notifications_router
+from api.routes.performance import router as performance_router
+from api.routes.positions import router as positions_router
 from api.routes.promotion import router as promotion_router
 from api.routes.system import router as system_router
 from api.routes.tools import router as tools_router
@@ -94,6 +97,16 @@ app.include_router(tools_router)
 app.include_router(tools_router, prefix="/api")
 app.include_router(promotion_router)
 app.include_router(promotion_router, prefix="/api")
+# Live positions + PnL (PaperBroker-sourced) and the analysis/feedback/
+# performance surfaces. Registered at both root and /api so they resolve
+# regardless of whether NEXT_PUBLIC_API_URL includes the "/api" prefix.
+app.include_router(positions_router)
+app.include_router(positions_router, prefix="/api")
+app.include_router(feedback_router)
+app.include_router(feedback_router, prefix="/api")
+# performance_router paths already embed the "/api" prefix (e.g.
+# "/api/statistics"), so register it once without an extra prefix.
+app.include_router(performance_router)
 app.include_router(ws_router)
 app.mount("/mcp", mcp_app)
 

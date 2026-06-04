@@ -128,3 +128,22 @@ that can execute; the engine reject remains as the backstop. Use
 `scripts/diagnose_live_regime.py` to quantify phantom SELLs against live Redis.
 
 **Regression test:** `tests/agents/test_reasoning_position_gate.py::test_sell_with_no_open_long_downgraded_to_hold`
+
+## Frontend now consumes /positions + /pnl directly (broker-truth)
+
+**Symptom:** "Session P&L" only summed closed-trade realized PnL — open-position
+unrealized PnL never showed, and positions came solely from the `/dashboard/state`
+snapshot.
+
+**Root cause:** `useCodexStore` hydrated positions only from `/dashboard/state`
+and had no consumer for the PaperBroker-backed `/positions` / `/pnl` endpoints.
+
+**Fix:** Added `fetchPositions()` (→ `GET /positions`, authoritative merge by
+symbol into `positions`) and `fetchPnl()` (→ `GET /pnl`, stored as `pnlSummary`
+with the realized/unrealized/total split) to `useCodexStore`. `useRestPoll` calls
+both on mount, on every poll, and after a WS reconnect. `TradingView` Session P&L
+prefers `pnlSummary.total_pnl` (realized + unrealized) so open-position
+mark-to-market is visible, falling back to the DB/trends aggregate then the
+trade-feed realized sum.
+
+**Regression test:** `frontend/src/test/store/positions-pnl.test.ts`

@@ -7,6 +7,8 @@ export interface CognitiveConfig {
   buy_threshold: number
   sell_threshold: number
   risk: Record<string, number>
+  // Present on live config versions: why this directive was promoted.
+  rationale?: string
 }
 
 export interface AgentSpec {
@@ -161,12 +163,9 @@ export interface CognitiveHealth {
 export interface CognitiveSnapshot {
   config: CognitiveConfig
   agents_roster: AgentSpec[]
-  live_agents: {
-    news: Record<string, unknown> | null
-    tech: Record<string, unknown> | null
-    macro: Record<string, unknown> | null
-    risk: Record<string, unknown> | null
-  }
+  // Latest live activity keyed by agent name (real pipeline) — or the sim's
+  // news/tech/macro/risk keys under ?demo=true. Generic map so both work.
+  live_agents: Record<string, Record<string, unknown> | null>
   reasoning: Array<Record<string, unknown>>
   decision: {
     latest: DecisionPayload | null

@@ -32,6 +32,8 @@ const { mockStore, mockUseCodexStore } = vi.hoisted(() => {
     setPerformanceSummary: vi.fn(),
     addProposal: vi.fn(),
     fetchPrices: vi.fn().mockResolvedValue(undefined),
+    fetchPositions: vi.fn().mockResolvedValue(undefined),
+    fetchPnl: vi.fn().mockResolvedValue(undefined),
     hydrateDashboard: vi.fn(),
   }
   // Zustand hooks accept an optional selector — honour it so consumers like

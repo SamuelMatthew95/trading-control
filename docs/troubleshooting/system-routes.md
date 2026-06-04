@@ -142,3 +142,33 @@ genuine backlogs on non-empty required streams still warn. Dashboard behavior is
 unchanged (the `/dashboard/stream-lag` route returns `{}` in memory mode anyway).
 
 **Regression test:** `tests/api/test_stream_lag_consumers.py::test_empty_required_stream_does_not_warn`, `tests/api/test_stream_lag_consumers.py::test_required_stream_with_backlog_warns`
+
+## /analyze 500'd on every call; feedback/performance routes were unregistered
+
+**Symptom:** `POST /analyze` returned HTTP 500 ("Trading service not initialized")
+on every request. The `/memory/*`, `/feedback/*`, `/insights`, `/api/statistics`
+and `/api/performance` surfaces were missing entirely, and there were no live
+`/api/positions` or `/api/pnl` REST endpoints.
+
+**Root cause:** `api/main_state.set_services` was never called at startup, so
+`get_trading_service()` raised `RuntimeError`. `feedback.py` / `performance.py`
+imported services (`FeedbackService`, `LearningService`) and getters that did
+not exist, so the routers could not be imported or registered.
+
+**Fix:** `api/main_state.py` is now a focused route-facing registry holding only
+the services REST routes resolve through it — TradingService (wrapping a
+`MultiAgentOrchestrator`), FeedbackService, LearningService, PaperBroker — with
+never-raising getters that fall back to degraded stubs. Other shared singletons
+keep their canonical homes (runtime store → `api.runtime_state`; live agents →
+`app.state.agents` via `api.dependencies`), so there is no parallel registry to
+drift. `api/startup.py` `_wire_shared_services()` calls `set_services()` once
+during the lifespan and publishes the live ReasoningAgent on
+`app.state.reasoning_agent` so `api.dependencies.get_reasoning_agent` resolves it
+instead of 503-ing. Added `api/services/feedback_service.py` +
+`api/services/learning_service.py` (in-memory stubs) and `api/routes/positions.py`
+(`/positions` + `/pnl`, PaperBroker-sourced). All three routers are registered in
+`api/main.py`.
+
+**Regression test:** `tests/api/test_positions_pnl_routes.py`,
+`tests/api/test_feedback_performance_routes.py`,
+`tests/api/test_analyze_routes.py::test_analyze_valid_request_returns_200`
