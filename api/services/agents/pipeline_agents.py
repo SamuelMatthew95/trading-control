@@ -99,6 +99,7 @@ from api.services.agents.prompts import (
     REFLECTION_SYSTEM_PROMPT,
     STRATEGY_PLANNING_PROMPT,
 )
+from api.services.agents.proposal_guardrails import register_proposal_creation
 from api.services.agents.scoring import (
     GRADE_SEVERITY,
     compute_weighted_score,
@@ -1357,8 +1358,26 @@ class StrategyProposer(MultiStreamAgent):
         # Agentic planning step: rank strong hypotheses by expected impact before acting
         strong = await self._plan_and_rank(hypotheses, strong, data.get(FieldName.TRACE_ID, ""))
 
+        # Acquire Redis once for the creation guardrails (dedup + daily cap).
+        # Inline import mirrors the heartbeat path below — redis_client pulls
+        # this module in transitively, so a top-level import would be circular.
+        guardrail_redis = None
+        try:
+            from api.redis_client import get_redis as _get_redis  # noqa: PLC0415
+
+            guardrail_redis = await _get_redis()
+        except Exception:
+            log_structured("warning", "proposal_guardrail_redis_unavailable", exc_info=True)
+
+        created = 0
         for hypothesis in strong:
             proposal = self._build_proposal(hypothesis, data, now_iso)
+
+            # Guardrail: skip a candidate that duplicates one already emitted
+            # today, and stop once the daily cap is reached, so the review queue
+            # is not flooded with repeats across reflection cycles.
+            if not await register_proposal_creation(guardrail_redis, proposal):
+                continue
 
             if proposal[FieldName.PROPOSAL_TYPE] == ProposalType.CODE_CHANGE:
                 await self.bus.publish(
@@ -1410,12 +1429,14 @@ class StrategyProposer(MultiStreamAgent):
                     "timestamp": now_iso,
                 },
             )
+            created += 1
 
         log_structured(
             "info",
             "strategy_proposals_published",
             total_hypotheses=len(hypotheses),
             strong_hypotheses=len(strong),
+            proposals_created=created,
             reflection_trace_id=data.get(FieldName.TRACE_ID),
         )
 
@@ -1432,8 +1453,8 @@ class StrategyProposer(MultiStreamAgent):
             await _write_heartbeat(
                 _redis,
                 self._state_name,
-                f"proposals published strong={len(strong)}/{len(hypotheses)}",
-                len(strong),
+                f"proposals created={created} strong={len(strong)}/{len(hypotheses)}",
+                created,
             )
         except Exception:
             log_structured("warning", "strategy_proposer_heartbeat_failed", exc_info=True)
@@ -1498,6 +1519,20 @@ class StrategyProposer(MultiStreamAgent):
                 FieldName.RATIONALE: rationale,
             },
         }
+
+        # Same creation guardrails as the hypothesis proposals: don't re-emit an
+        # identical directive twice in a day, and respect the daily cap.
+        guardrail_redis = None
+        try:
+            from api.redis_client import get_redis as _get_redis  # noqa: PLC0415
+
+            guardrail_redis = await _get_redis()
+        except Exception:
+            log_structured("warning", "proposal_guardrail_redis_unavailable", exc_info=True)
+        if not await register_proposal_creation(guardrail_redis, proposal):
+            log_structured("info", "prompt_evolution_skipped_guardrail", trace_id=trace_id)
+            return
+
         await self.bus.publish(STREAM_PROPOSALS, proposal)
         await persist_proposal(proposal)
         await self.bus.publish(
