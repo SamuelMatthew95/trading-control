@@ -500,6 +500,14 @@ export function TradingView({
   const winRateSign =
     stats.winRatePct == null ? 'neutral' : stats.winRatePct >= 50 ? 'positive' : 'negative'
 
+  // When the live broker PnL is available, spell out the realized/unrealized
+  // split so "Session P&L" (which folds in open-position mark-to-market) reads
+  // unambiguously next to the realized-only "Total PnL" shown elsewhere.
+  const pnlSub =
+    pnlSummary != null
+      ? `${formatUSD(pnlSummary.realized_pnl)} realized · ${formatUSD(pnlSummary.unrealized_pnl)} unrealized`
+      : undefined
+
   return (
     <div className="space-y-4">
       {/* Stats bar */}
@@ -507,6 +515,7 @@ export function TradingView({
         <StatTile
           label="Session P&L"
           value={stats.totalPnl < -0.005 ? `(${formatUSD(stats.totalPnl)})` : formatUSD(stats.totalPnl)}
+          sub={pnlSub}
           sign={pnlSign}
           icon={stats.totalPnl >= 0 ? TrendingUp : TrendingDown}
         />

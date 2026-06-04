@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
 import { formatPercent, formatTimeAgo, signedUSD, toFiniteNum as toFiniteNumber } from '@/lib/formatters'
 import { useCodexStore, type AgentLog, type Proposal, type TradeFeedItem } from '@/stores/useCodexStore'
 import { cardClass, mutedClass, sectionTitleClass } from '@/lib/dashboard-styles'
-import { proposalStatusClass } from '@/lib/dashboard-helpers'
+import { pnlColorClass, proposalStatusClass } from '@/lib/dashboard-helpers'
 
 function gradeTone(grade: string | null | undefined): string {
   const normalized = String(grade ?? '').toUpperCase()
@@ -103,7 +103,7 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
           <Kpi label="Graded Trades" value={String(gradedTrades.length)} note={`${closedTrades.length} closed fills`} />
           <Kpi label="Win Rate" value={winRate == null ? '--' : formatPercent(winRate, { signed: true })} tone="text-slate-900 dark:text-slate-100" />
-          <Kpi label="Total PnL" value={signedUSD(totalPnl)} tone={totalPnl >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'} />
+          <Kpi label="Total PnL" value={signedUSD(totalPnl)} tone={pnlColorClass(totalPnl)} />
           <Kpi label="Avg Grade Score" value={formatPercent(avgGradeScore, { decimals: 0 })} />
           <Kpi label="Proposal Queue" value={`${pendingProposals} pending`} note={`${approvedProposals} approved`} />
         </div>
