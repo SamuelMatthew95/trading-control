@@ -1,11 +1,24 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useCodexStore, type ProposalType } from '@/stores/useCodexStore'
+import { useCodexStore, type ProposalStatus, type ProposalType } from '@/stores/useCodexStore'
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
 
 const POLL_SLOW_MS = 30_000
 const POLL_FAST_MS = 15_000
+
+// Backend proposals carry `content` as either a string or an object (often an
+// empty `{}` in memory mode). Stringify only non-empty objects so the proposal
+// label can fall back to strategy_name / proposal_type instead of rendering a
+// bare "{}" as the candidate-change title.
+function proposalContentToString(content: unknown): string {
+  if (content == null) return ''
+  if (typeof content === 'string') return content
+  if (typeof content === 'object') {
+    return Object.keys(content as Record<string, unknown>).length > 0 ? JSON.stringify(content) : ''
+  }
+  return String(content)
+}
 
 export interface ApiHealth {
   dashboardState: 'pending' | 'ok' | 'error'
@@ -122,18 +135,23 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
         const res = await fetch(api(API_ENDPOINTS.LEARNING_PROPOSALS))
         if (!res.ok) return
         const data = await res.json()
-        const { addProposal, proposals: existing } = useCodexStore.getState()
-        const existingIds = new Set(existing.map((p) => p.id))
-        const newOnes = (data.proposals ?? []).filter(
-          (p: Record<string, unknown>) => !existingIds.has(p.id as string),
-        )
-        for (const p of newOnes) {
+        const { addProposal } = useCodexStore.getState()
+        // Upsert every proposal carrying its backend id — addProposal dedups on
+        // it, so re-polling updates rows in place instead of duplicating them.
+        // Oldest-first so the newest proposal ends up prepended at the front.
+        const incoming = (data.proposals ?? []) as Array<Record<string, unknown>>
+        for (const p of [...incoming].reverse()) {
           addProposal({
+            id: p.id != null ? String(p.id) : undefined,
             proposal_type: (p.proposal_type as ProposalType) ?? 'parameter_change',
-            content: JSON.stringify(p.content),
+            content: proposalContentToString(p.content),
             requires_approval: p.requires_approval !== false,
-            confidence: p.confidence as number | undefined,
+            confidence: typeof p.confidence === 'number' ? p.confidence : undefined,
+            grade_score: typeof p.grade_score === 'number' ? p.grade_score : undefined,
             reflection_trace_id: p.reflection_trace_id as string | undefined,
+            trace_id: (p.trace_id as string | undefined) ?? undefined,
+            strategy_name: (p.strategy_name as string | undefined) ?? undefined,
+            status: (p.status as ProposalStatus) ?? 'pending',
             timestamp: (p.timestamp as string) ?? new Date().toISOString(),
           })
         }
