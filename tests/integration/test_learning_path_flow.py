@@ -106,15 +106,15 @@ def _patch_loop_io(monkeypatch, fake_redis):
     monkeypatch.setattr(settings, "REFLECT_EVERY_N_FILLS", 3)
     monkeypatch.setattr(settings, "GRADE_EVERY_N_FILLS", 1)
     # Persistence is spied, not exercised — assertions are about agent handoffs.
-    monkeypatch.setattr("api.services.agents.pipeline_agents.write_grade_to_db", AsyncMock())
-    monkeypatch.setattr("api.services.agents.pipeline_agents.persist_trade_evaluation", AsyncMock())
+    monkeypatch.setattr("api.services.agents.grade_agent.write_grade_to_db", AsyncMock())
+    monkeypatch.setattr("api.services.agents.grade_agent.persist_trade_evaluation", AsyncMock())
 
 
 async def test_closed_trade_produces_a_grade(dlq, monkeypatch):
     """A single closed trade drives GradeAgent to PUBLISH a grade and LOG it — the
     exact link behind a dashboard stuck on 'Latest Grade --' on an idle board."""
     log_spy = AsyncMock()
-    monkeypatch.setattr("api.services.agents.pipeline_agents.write_agent_log", log_spy)
+    monkeypatch.setattr("api.services.agents.grade_agent.write_agent_log", log_spy)
 
     bus = _recording_bus()
     grader = GradeAgent(bus, dlq, agent_state=AgentStateRegistry())
@@ -133,7 +133,8 @@ async def test_trade_stream_yields_both_a_grade_and_a_routed_proposal(dlq, fake_
     """One trade stream, real agents: GradeAgent emits a grade AND the same fills
     drive ReflectionAgent -> StrategyProposer -> ProposalApplier to a routed
     proposal. A break at any handoff fails this single test."""
-    monkeypatch.setattr("api.services.agents.pipeline_agents.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.grade_agent.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.reflection_agent.write_agent_log", AsyncMock())
     monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
     monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
 
@@ -175,7 +176,7 @@ async def test_realized_pnl_attributes_to_the_decision_tools(dlq, monkeypatch):
     """The decisions->grade handoff: a decision names the tools that informed it;
     when the matching trade closes, GradeAgent folds the realized PnL into those
     tools' alpha — the outcome->tool-alpha loop behind tool governance."""
-    monkeypatch.setattr("api.services.agents.pipeline_agents.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.grade_agent.write_agent_log", AsyncMock())
 
     # Fresh registry (re-seeds the default catalog lazily) so we never perturb
     # other tests; the original singleton is restored in finally.
