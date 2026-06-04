@@ -20,7 +20,6 @@ from api.observability import (
     metrics_store,
 )
 from api.redis_inspector import router as debug_redis_router
-from api.routes.analyze import router as analyze_router
 from api.routes.backtest import router as backtest_router
 from api.routes.cognitive import router as cognitive_router
 from api.routes.dashboard_v2 import router as dashboard_v2_router
@@ -88,8 +87,6 @@ app.include_router(trades_router)
 app.include_router(trades_router, prefix="/api")
 app.include_router(monitoring_router)
 app.include_router(monitoring_router, prefix="/api")
-app.include_router(analyze_router)
-app.include_router(analyze_router, prefix="/api")
 app.include_router(tools_router)
 app.include_router(tools_router, prefix="/api")
 app.include_router(promotion_router)
