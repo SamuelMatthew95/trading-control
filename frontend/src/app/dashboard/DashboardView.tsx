@@ -11,6 +11,7 @@ import { LearningConsole } from '@/components/dashboard/LearningConsole'
 import { TradingView } from '@/components/dashboard/TradingView'
 import { TraceModal } from '@/components/dashboard/TraceModal'
 import { ProposalsSection } from '@/components/dashboard/ProposalsSection'
+import { LLMDegradedBanner } from '@/components/dashboard/LLMDegradedBanner'
 import { SystemDashboard } from '@/components/dashboard/system'
 import { AgentsDashboard } from '@/components/dashboard/agents'
 import { ALL_AGENT_NAMES, agentDisplayName, canonicalAgentKey } from '@/constants/agents'
@@ -831,6 +832,8 @@ export function DashboardView({ section }: { section: Section }) {
         >
           System Status: {systemStatus}
         </div>
+        {/* Reasoning-LLM degraded/down — page-level indicator (fail-closed warning) */}
+        <LLMDegradedBanner />
         {/* Persistence / memory-mode banner — single page-level indicator */}
         {dashboardData?.degraded_mode && (
           <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700/40 dark:bg-amber-950/30 dark:text-amber-300">
