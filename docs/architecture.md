@@ -149,7 +149,7 @@ api/
 ## Request flow
 
 1. A route receives an HTTP request.
-2. The route pulls shared services from `api.main_state`.
+2. The route resolves its dependencies (services, stores, the `EventBus`) via FastAPI `Depends`.
 3. Service code reads from DB or publishes to Redis Streams.
 4. Results are returned as typed Pydantic responses.
 5. Stream consumers (agents) process events asynchronously.
@@ -161,7 +161,7 @@ On startup (`api.main`):
 1. Validates DB connectivity and schema version.
 2. Initializes DB schema (creates tables if missing).
 3. Creates the `EventBus` and connects to Redis.
-4. Registers shared services (`TradingService`, `AgentLearningService`, `AgentMemoryService`).
+4. Builds the agent pipeline and installs shared service singletons (e.g. the Redis-backed REST store).
 5. Agents begin their XREAD loops and write WAITING status to Redis.
 
 ## System guarantees
