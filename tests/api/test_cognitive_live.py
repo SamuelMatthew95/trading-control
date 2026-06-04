@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import fakeredis
+
+from api.constants import FieldName
 from api.in_memory_store import InMemoryStore
 from api.runtime_state import set_runtime_store
 from api.services.cognitive_live import build_live_events, build_live_snapshot
+from api.services.redis_store import RedisStore, set_redis_store
 
 
 async def test_live_snapshot_is_fully_keyed_when_empty():
@@ -20,6 +24,10 @@ async def test_live_snapshot_is_fully_keyed_when_empty():
     assert isinstance(snap["traces"], list)
     assert set(snap["live_agents"]) == {"news", "tech", "macro", "risk"}
     assert snap["event_count"] == 0
+    # Agent Health roster is always populated (8 live agents) so the card is
+    # never a blank box — idle until they produce activity.
+    assert len(snap["health"]["agents"]) == 8
+    assert all(info["status"] == "idle" for info in snap["health"]["agents"].values())
 
 
 async def test_live_snapshot_reflects_real_grades_and_events():
@@ -46,3 +54,43 @@ async def test_live_events_shape():
     assert len(events) == 1
     assert events[0]["type"] == "grade"
     assert "seq" in events[0] and "payload" in events[0]
+
+
+async def test_memory_mode_end_to_end_with_redis_up():
+    """The deployed scenario: Postgres down (memory mode) but Redis up.
+
+    ReasoningAgent pushes decisions to the RedisStore and GradeAgent writes grades
+    to the runtime store — the Cognitive snapshot must reflect both, proving the
+    page is live (not demo) in memory mode.
+    """
+    store = InMemoryStore()
+    set_runtime_store(store)
+    redis = fakeredis.FakeAsyncRedis(decode_responses=True)
+    set_redis_store(RedisStore(redis))
+    try:
+        rs = RedisStore(redis)
+        set_redis_store(rs)
+        await rs.push_decision(
+            {
+                FieldName.TRACE_ID: "trace-1",
+                FieldName.ACTION: "buy",
+                FieldName.SYMBOL: "BTC/USD",
+                FieldName.CONFIDENCE: 0.77,
+                FieldName.REASONING_SUMMARY: "momentum edge",
+            }
+        )
+        store.add_grade({"subject": "REASONING_AGENT", "grade": "A", "score": 0.9})
+
+        snap = await build_live_snapshot()
+
+        # Decision flows from Redis into reasoning + decision + traces.
+        assert snap["decision"]["latest"] is not None
+        assert snap["decision"]["latest"]["action"] == "buy"
+        assert snap["decision"]["latest"]["score"] == 0.77
+        assert any(t["trace_id"] == "trace-1" for t in snap["traces"])
+        # Grade flows from the runtime store into agent_grades.
+        subjects = {g["subject_id"] for g in snap["learning"]["agent_grades"]}
+        assert "REASONING_AGENT" in subjects
+    finally:
+        set_redis_store(None)
+        await redis.aclose()

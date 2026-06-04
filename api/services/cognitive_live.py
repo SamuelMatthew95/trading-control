@@ -167,13 +167,53 @@ def _proposal_entries(raw_proposals: list[dict[str, Any]]) -> list[dict[str, Any
     return entries
 
 
+# Ordered list of the live agent identities (drives the health roster).
+_AGENT_NAMES_ORDERED = [
+    AGENT_SIGNAL,
+    AGENT_REASONING,
+    AGENT_EXECUTION,
+    AGENT_GRADE,
+    AGENT_IC_UPDATER,
+    AGENT_REFLECTION,
+    AGENT_STRATEGY_PROPOSER,
+    AGENT_NOTIFICATION,
+]
+
+
+def _build_agents_health(
+    agent_grades: list[dict[str, Any]], decisions_made: int
+) -> dict[str, dict[str, Any]]:
+    """Per-agent health derived from real activity (grades + decisions).
+
+    An agent is "healthy" when it has produced grades (or, for the reasoning
+    agent, decisions) this session; otherwise "idle". No fabricated status.
+    """
+    samples_by_agent = {g["subject_id"]: g["samples"] for g in agent_grades}
+    health: dict[str, dict[str, Any]] = {}
+    for name in _AGENT_NAMES_ORDERED:
+        events = int(samples_by_agent.get(name, 0))
+        if name == AGENT_REASONING:
+            events += decisions_made
+        health[name] = {
+            "status": "healthy" if events > 0 else "idle",
+            "events": events,
+            "last_seq": 0,
+        }
+    return health
+
+
 def _build_health(
-    *, total_events: int, decisions_made: int, last_decision: str | None, observations: int
+    *,
+    total_events: int,
+    decisions_made: int,
+    last_decision: str | None,
+    observations: int,
+    agents: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     """Build the CognitiveHealth block inline from live counts (no mutation)."""
     return {
         "event_stream": {"total_events": total_events, "last_seq": 0, "by_type": {}},
-        "agents": {},
+        "agents": agents,
         "decision": {
             "signals_received": {},
             "decisions_made": decisions_made,
@@ -265,6 +305,7 @@ async def build_live_snapshot(*, trace_limit: int = 20) -> dict[str, Any]:
         decisions_made=len(decisions),
         last_decision=last_decision,
         observations=len(observations),
+        agents=_build_agents_health(agent_grades, len(decisions)),
     )
 
     return {

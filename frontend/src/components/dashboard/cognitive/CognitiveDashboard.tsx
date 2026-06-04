@@ -442,18 +442,24 @@ function EvolutionPanel({ snap }: { snap: CognitiveSnapshot }) {
     <div className="grid gap-3 lg:grid-cols-2">
       <div className={card}>
         <div className={cn(label, 'mb-2')}>Config Evolution</div>
-        <ol className="space-y-2">
-          {snap.evolution.config_versions.map((cv) => (
-            <li key={cv.version} className="flex items-center gap-2 text-sm">
-              <span className="font-mono text-slate-500 dark:text-slate-400">v{cv.version}</span>
-              {cv.grade ? <Grade grade={cv.grade.grade} /> : <span className="text-xs text-slate-500 dark:text-slate-400">active</span>}
-              <span className="text-xs text-slate-500 dark:text-slate-400">
-                news {cv.config.weights.news} · tech {cv.config.weights.tech} · macro{' '}
-                {cv.config.weights.macro}
-              </span>
-            </li>
-          ))}
-        </ol>
+        {snap.evolution.config_versions.length === 0 ? (
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            No config versions yet — appears once the learning loop promotes a weight/threshold change.
+          </p>
+        ) : (
+          <ol className="space-y-2">
+            {snap.evolution.config_versions.map((cv) => (
+              <li key={cv.version} className="flex items-center gap-2 text-sm">
+                <span className="font-mono text-slate-500 dark:text-slate-400">v{cv.version}</span>
+                {cv.grade ? <Grade grade={cv.grade.grade} /> : <span className="text-xs text-slate-500 dark:text-slate-400">active</span>}
+                <span className="text-xs text-slate-500 dark:text-slate-400">
+                  news {cv.config.weights.news} · tech {cv.config.weights.tech} · macro{' '}
+                  {cv.config.weights.macro}
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
       </div>
       <div className={card}>
         <div className={cn(label, 'mb-2')}>Proposal Success by Type</div>
