@@ -144,6 +144,10 @@ _NEGATIVE_WORDS = frozenset(
 _NEWS_LIMIT = 10
 _CORRELATION_BARS = 30
 _CORRELATION_TIMEFRAME = "1Min"
+# Daily-bar fallback when intraday bars are sparse/absent (e.g. equities outside
+# market hours): a coarser correlation that is still available around the clock.
+_CORRELATION_DAILY_TIMEFRAME = "1Day"
+_CORRELATION_DAILY_BARS = 10
 _MIN_RETURNS = 3  # need at least this many return observations for a correlation
 
 # Macro regime is asset-class-wide, so it is read off a benchmark's recent trend
@@ -308,23 +312,30 @@ def _pearson(xs: list[float], ys: list[float]) -> float | None:
 
 
 async def _fetch_bars(
-    client: httpx.AsyncClient, symbol: str, peers: list[str]
+    client: httpx.AsyncClient,
+    symbol: str,
+    peers: list[str],
+    *,
+    timeframe: str,
+    limit: int,
+    start_delta: timedelta,
 ) -> dict[str, list[float]]:
-    """Recent close-price series for ``symbol`` + ``peers`` in one Alpaca call."""
+    """Recent close-price series for ``symbol`` + ``peers`` in one Alpaca call.
+
+    Bars are HISTORICAL: without an explicit ``start`` Alpaca returns the OLDEST
+    bars (ascending) — useless for a current estimate, which is why bar-based
+    tools returned {} on every decision. A recent ``start`` window + ``sort=desc``
+    yields the LATEST bars, mirroring the SignalGenerator SDK bootstrap.
+    """
     symbols = [symbol, *peers]
     path = "/v1beta3/crypto/us/bars" if _is_crypto(symbol) else "/v2/stocks/bars"
-    # Bars are HISTORICAL: without an explicit `start` Alpaca returns the OLDEST
-    # bars (ascending) — useless for a current-correlation estimate, which is
-    # why the tool returned {} on every decision. Request a recent window
-    # (newest-first) so we actually get the latest bars, mirroring the
-    # start/end the SignalGenerator's SDK bootstrap already passes.
-    start = (datetime.now(timezone.utc) - timedelta(minutes=_CORRELATION_BARS * 4)).isoformat()
+    start = (datetime.now(timezone.utc) - start_delta).isoformat()
     resp = await client.get(
         path,
         params={
             "symbols": ",".join(symbols),
-            FieldName.TIMEFRAME: _CORRELATION_TIMEFRAME,
-            FieldName.LIMIT: _CORRELATION_BARS,
+            FieldName.TIMEFRAME: timeframe,
+            FieldName.LIMIT: limit,
             "start": start,
             "sort": "desc",
         },
@@ -358,12 +369,33 @@ async def compute_cross_asset_correlation(symbol: str, redis) -> dict[str, Any]:
         return {}
     try:
         async with _client() as client:
-            closes = await _fetch_bars(client, symbol, peers)
+            closes = await _fetch_bars(
+                client,
+                symbol,
+                peers,
+                timeframe=_CORRELATION_TIMEFRAME,
+                limit=_CORRELATION_BARS,
+                start_delta=timedelta(minutes=_CORRELATION_BARS * 4),
+            )
+            base_returns = _returns(closes.get(symbol, []))
+            if len(base_returns) < _MIN_RETURNS:
+                # Intraday bars are sparse/absent (e.g. equities outside regular
+                # market hours) — the dominant reason this tool degraded to {} on
+                # every such call. Fall back to DAILY bars (available around the
+                # clock) so a real correlation is produced instead of nothing.
+                closes = await _fetch_bars(
+                    client,
+                    symbol,
+                    peers,
+                    timeframe=_CORRELATION_DAILY_TIMEFRAME,
+                    limit=_CORRELATION_DAILY_BARS,
+                    start_delta=timedelta(days=_CORRELATION_DAILY_BARS * 3),
+                )
+                base_returns = _returns(closes.get(symbol, []))
     except Exception:
         log_structured("warning", "correlation_fetch_failed", symbol=symbol, exc_info=True)
         return {}
 
-    base_returns = _returns(closes.get(symbol, []))
     if len(base_returns) < _MIN_RETURNS:
         return {}
     correlations: dict[str, float] = {}
@@ -390,28 +422,11 @@ async def compute_cross_asset_correlation(symbol: str, redis) -> dict[str, Any]:
 async def _fetch_recent_closes(
     client: httpx.AsyncClient, symbol: str, *, timeframe: str, limit: int
 ) -> list[float]:
-    """Recent close-price series for one symbol, newest-first (positive closes only).
-
-    An explicit recent ``start`` plus ``sort=desc`` is required so Alpaca returns
-    the NEWEST bars — without them it returns the oldest bars (ascending default),
-    which is the bug that made bar-based tools return empty on every call.
-    """
-    path = "/v1beta3/crypto/us/bars" if _is_crypto(symbol) else "/v2/stocks/bars"
-    start = (datetime.now(timezone.utc) - timedelta(days=limit * 3)).isoformat()
-    resp = await client.get(
-        path,
-        params={
-            "symbols": symbol,
-            FieldName.TIMEFRAME: timeframe,
-            FieldName.LIMIT: limit,
-            "start": start,
-            "sort": "desc",
-        },
+    """Recent close-price series for one symbol, newest-first (positive closes only)."""
+    closes = await _fetch_bars(
+        client, symbol, [], timeframe=timeframe, limit=limit, start_delta=timedelta(days=limit * 3)
     )
-    resp.raise_for_status()
-    bars = resp.json().get(FieldName.BARS, {}) or {}
-    series = bars.get(symbol) or []
-    return [c for c in (float(b.get("c", 0) or 0) for b in series) if c > 0]
+    return closes.get(symbol, [])
 
 
 async def fetch_macro_regime(symbol: str, redis) -> dict[str, Any]:
