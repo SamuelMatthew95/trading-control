@@ -1,77 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { apiFetch } from '@/lib/apiClient'
 import { TONE_DOT, TONE_TEXT, type Tone } from '@/lib/design/sentiment'
-
-// Mirrors api/constants.py LLMCallResult StrEnum
-const LLMCallResult = {
-  SUCCESS: 'success',
-  RATE_LIMITED: 'rate_limited',
-  TIMEOUT: 'timeout',
-  ERROR: 'error',
-} as const
-type LLMCallResult = (typeof LLMCallResult)[keyof typeof LLMCallResult]
-
-// Mirrors api/routes/llm_health.py _llm_status values
-const LLMStatus = {
-  LIVE: 'live',
-  DEGRADED: 'degraded',
-  DOWN: 'down',
-  UNKNOWN: 'unknown',
-} as const
-type LLMStatus = (typeof LLMStatus)[keyof typeof LLMStatus]
-
-interface CallRecord {
-  result: LLMCallResult
-  latency_ms: number | null
-}
-
-interface LocalInferenceData {
-  lm_studio_enabled: boolean
-  lm_studio_healthy: boolean
-  local_model: string | null
-  local_fallback_count: number
-  last_local_error: string | null
-  local_latency_ms: number | null
-  reachable: boolean
-  remote_localhost_mismatch: boolean
-  base_url_host: string | null
-  available_models: string[] | null
-  llm_fallback_enabled: boolean
-}
-
-interface LLMHealthData extends LocalInferenceData {
-  last_error?: {
-    kind: string | null
-    message: string | null
-    at: string | null
-  }
-
-  /** ISO timestamp of the last successful LLM call, from durable Redis storage. */
-  last_success_at?: string | null
-
-  status: LLMStatus
-  /** Configured cloud fallback provider (gemini / groq / anthropic / openai) */
-  provider: string
-  /** The provider actually serving requests: "lmstudio" when local is healthy, else provider */
-  active_provider: string
-  model: string
-  timestamp: string
-  window_seconds: number
-  total_in_window: number
-  success_count: number
-  success_rate_pct: number
-  avg_latency_ms: number
-  rate_limited_count: number
-  timeout_count: number
-  error_count: number
-  total_calls_lifetime: number
-  daily_calls: number
-  effective_delay_ms: number
-  grade_adjusted_delay: boolean
-  recent_results: CallRecord[]
-}
+import {
+  LLMCallResult,
+  LLMStatus,
+  useLlmHealth,
+  type CallRecord,
+  type LocalInferenceData,
+} from '@/lib/llm-health'
 
 // LLM health status → semantic Tone (colours resolve through the design tokens).
 const LLM_TONE: Record<LLMStatus, Tone> = {
@@ -261,31 +197,7 @@ function DelayValue({ delayMs, gradeAdjusted }: { delayMs: number; gradeAdjusted
 }
 
 export function LLMHealthPanel() {
-  const [data, setData] = useState<LLMHealthData | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-
-    const poll = async () => {
-      try {
-        const result = await apiFetch<LLMHealthData>('/llm/health')
-        if (!cancelled) {
-          setData(result)
-          setError(null)
-        }
-      } catch {
-        if (!cancelled) setError('Unavailable')
-      }
-    }
-
-    poll()
-    const id = setInterval(poll, 5000)
-    return () => {
-      cancelled = true
-      clearInterval(id)
-    }
-  }, [])
+  const { data, error } = useLlmHealth()
 
   if (error) {
     return (
