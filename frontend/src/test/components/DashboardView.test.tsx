@@ -87,7 +87,7 @@ describe('DashboardView — overview', () => {
     render(<DashboardView section="overview" />)
     // Mobile nav is mocked to null in this suite; assert key overview content instead.
     expect(screen.getByText(/System Status:/i)).toBeInTheDocument()
-    expect(screen.getByText(/Daily P&L/i)).toBeInTheDocument()
+    expect(screen.getByText(/Total P&L/i)).toBeInTheDocument()
   })
 
   it('never shows NaN anywhere on screen', () => {
@@ -95,9 +95,26 @@ describe('DashboardView — overview', () => {
     expect(screen.queryByText(/NaN/)).not.toBeInTheDocument()
   })
 
-  it('shows daily P&L on overview when empty', () => {
+  it('shows the Total P&L headline on overview when empty', () => {
     render(<DashboardView section="overview" />)
-    expect(screen.getByText(/Daily P&L/i)).toBeInTheDocument()
+    expect(screen.getByText(/Total P&L/i)).toBeInTheDocument()
+  })
+
+  it('shows a live Total P&L = realized orders + mark-to-market unrealized', () => {
+    // Regression: the overview P&L was realized-only and frozen. It now combines
+    // realized fills with live mark-to-market unrealized. The position carries a
+    // stale stored pnl: 0, but current_price 130 vs entry 100 on qty 1 marks to
+    // +$30 unrealized, proving the value is recomputed from price, not trusted.
+    mockStore.orders = [{ status: 'filled', pnl: 10 }]
+    mockStore.positions = [
+      { symbol: 'BTC/USD', side: 'long', quantity: 1, entry_price: 100, current_price: 130, pnl: 0 },
+    ]
+
+    render(<DashboardView section="overview" />)
+
+    expect(screen.getByText('Total P&L')).toBeInTheDocument()
+    expect(screen.getByText('+$40.00')).toBeInTheDocument()
+    expect(screen.getByText(/Realized \+\$10\.00 · Unrealized \+\$30\.00/)).toBeInTheDocument()
   })
 
   it('explains tiny positive best trade values on overview', () => {
