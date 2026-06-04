@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useRef } from 'react'
 import { useCodexStore, normalizeTradeFeedItem, type AgentStatus } from '@/stores/useCodexStore'
+import { coerceProposalContent, proposalStrategyName } from '@/lib/proposal-content'
 
 // --- Types ---
 type WebSocketMessage = {
@@ -415,7 +416,12 @@ class WebSocketManager {
     store.addProposal({
       id: stableId != null ? String(stableId) : undefined,
       proposal_type: (raw.proposal_type || 'parameter_change') as import('@/stores/useCodexStore').ProposalType,
-      content: String(raw.content || raw.description || ''),
+      // `content` may be a structured object (challenger promotions carry
+      // { strategy, shadow_edge, reason }) — coerce so it never renders as
+      // "[object Object]" in the proposal queue.
+      content: coerceProposalContent(raw.content || raw.description),
+      strategy_name:
+        (raw.strategy_name as string | undefined) ?? proposalStrategyName(raw.content),
       requires_approval: raw.requires_approval !== false,
       reflection_trace_id: raw.reflection_trace_id as string | undefined,
       trace_id: (raw.trace_id as string | undefined) ?? undefined,
