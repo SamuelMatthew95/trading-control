@@ -1,0 +1,372 @@
+"""ReflectionAgent — LLM-based pattern analysis across recent fills into hypotheses."""
+
+from __future__ import annotations
+
+import json
+import uuid
+from collections import deque
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any
+
+from api.config import settings
+from api.constants import (
+    AGENT_REFLECTION,
+    REDIS_KEY_LLM_COST,
+    REDIS_KEY_LLM_TOKENS,
+    REFLECTION_MIN_HYPOTHESES,
+    SOURCE_REFLECTION,
+    STREAM_AGENT_GRADES,
+    STREAM_FACTOR_IC_HISTORY,
+    STREAM_NOTIFICATIONS,
+    STREAM_REFLECTION_OUTPUTS,
+    STREAM_TRADE_COMPLETED,
+    STREAM_TRADE_PERFORMANCE,
+    FieldName,
+    LogType,
+    Severity,
+)
+from api.events.bus import EventBus
+from api.events.dlq import DLQManager
+from api.observability import log_structured
+from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
+from api.services.agent_state import AgentStateRegistry
+from api.services.agents.base import MultiStreamAgent
+from api.services.agents.db_helpers import (
+    persist_reflection_record,
+    write_agent_log,
+)
+from api.services.agents.prompts import (
+    FALLBACK_REFLECTION,
+    REFLECTION_IMPROVE_PROMPT,
+    REFLECTION_SYSTEM_PROMPT,
+)
+from api.services.agents.trade_scorer import (
+    aggregate_model_performance,
+    compute_learning_metrics,
+    compute_mistake_clusters,
+    compute_patterns,
+    compute_recommendations,
+)
+
+if TYPE_CHECKING:
+    from api.services.agents.grade_agent import GradeAgent
+
+# ---------------------------------------------------------------------------
+# ReflectionAgent — LLM-based pattern analysis across recent fills
+# ---------------------------------------------------------------------------
+
+
+class ReflectionAgent(MultiStreamAgent):
+    """Analyzes recent fills via LLM and generates improvement hypotheses."""
+
+    _state_name = AGENT_REFLECTION
+
+    def __init__(
+        self, bus: EventBus, dlq: DLQManager, *, agent_state: AgentStateRegistry | None = None
+    ) -> None:
+        super().__init__(
+            bus,
+            dlq,
+            streams=[
+                STREAM_TRADE_PERFORMANCE,
+                STREAM_TRADE_COMPLETED,
+                STREAM_AGENT_GRADES,
+                STREAM_FACTOR_IC_HISTORY,
+            ],
+            consumer="reflection-agent",
+            agent_state=agent_state,
+        )
+        self._fills = 0
+        self._recent_fills: deque[dict[str, Any]] = deque(maxlen=50)
+        self._recent_grades: deque[dict[str, Any]] = deque(maxlen=20)
+        self._recent_ic: deque[dict[str, Any]] = deque(maxlen=20)
+        # Holds the GradeAgent eval_buffer reference injected at startup (optional)
+        self._grade_agent: GradeAgent | None = None
+
+    async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
+        if stream in {STREAM_TRADE_PERFORMANCE, STREAM_TRADE_COMPLETED}:
+            self._fills += 1
+            self._recent_fills.append(
+                {
+                    FieldName.SYMBOL: data.get(FieldName.SYMBOL),
+                    FieldName.SIDE: data.get(FieldName.SIDE),
+                    "pnl": data.get(FieldName.PNL),
+                    "pnl_percent": data.get(FieldName.PNL_PERCENT),
+                    "fill_price": data.get(FieldName.FILL_PRICE),
+                    "filled_at": data.get(FieldName.FILLED_AT),
+                    # Decision provenance carried on the fill events so the
+                    # per-model reflection summary (_build_prompt) is populated.
+                    FieldName.MODEL_USED: data.get(FieldName.MODEL_USED),
+                    FieldName.PRIMARY_EDGE: data.get(FieldName.PRIMARY_EDGE),
+                }
+            )
+        elif stream == STREAM_AGENT_GRADES:
+            self._recent_grades.append(
+                {
+                    "grade": data.get(FieldName.GRADE),
+                    FieldName.SCORE: data.get(FieldName.SCORE),
+                    FieldName.METRICS: data.get(FieldName.METRICS, {}),
+                    FieldName.TIMESTAMP: data.get(FieldName.TIMESTAMP),
+                }
+            )
+        elif stream == STREAM_FACTOR_IC_HISTORY:
+            self._recent_ic.append(
+                {
+                    FieldName.FACTOR: data.get(FieldName.FACTOR_NAME),
+                    FieldName.IC: data.get(FieldName.IC_SCORE),
+                    FieldName.WEIGHT: data.get(FieldName.WEIGHT),
+                    FieldName.TIMESTAMP: data.get(FieldName.TIMESTAMP),
+                }
+            )
+
+        trigger = max(int(settings.REFLECT_EVERY_N_FILLS), 1)
+        if self._fills == 0 or self._fills % trigger != 0:
+            try:
+                from api.redis_client import get_redis as _get_redis_lazy  # noqa: PLC0415
+
+                _redis = await _get_redis_lazy()
+                await _write_heartbeat(
+                    _redis,
+                    self._state_name,
+                    f"fill_buffered:{self._fills}/{trigger}",
+                    self._fills,
+                    extra={FieldName.EXEC_STATUS: "idle:buffering"},
+                )
+            except Exception:
+                log_structured("warning", "reflection_idle_heartbeat_failed", exc_info=True)
+            return
+        if len(self._recent_fills) < 3:
+            return
+
+        await self._run_reflection()
+
+    async def _run_reflection(self) -> None:
+        trace_id = f"reflection_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
+
+        today = datetime.now(timezone.utc).date().isoformat()
+        redis = None
+        try:
+            from api.redis_client import get_redis  # noqa: PLC0415  (circular import)
+
+            redis = await get_redis()
+            budget_used = int(await redis.get(REDIS_KEY_LLM_TOKENS.format(date=today)) or 0)
+            if budget_used >= settings.ANTHROPIC_DAILY_TOKEN_BUDGET:
+                log_structured("warning", "reflection_skipped_budget_exceeded", trace_id=trace_id)
+                await self.bus.publish(
+                    STREAM_NOTIFICATIONS,
+                    {
+                        "msg_id": str(uuid.uuid4()),
+                        "source": SOURCE_REFLECTION,
+                        "type": "notification",
+                        "severity": Severity.WARNING,
+                        "notification_type": "reflection_skipped",
+                        "message": "Reflection skipped: daily LLM token budget exceeded",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+                return
+        except Exception:
+            pass  # Proceed without budget check if Redis unavailable
+
+        prompt = self._build_prompt()
+        reflection_data: dict[str, Any] = {}
+
+        try:
+            from api.services.llm_router import call_llm_with_system  # noqa: PLC0415
+
+            raw_text, tokens_used, cost_usd = await call_llm_with_system(
+                prompt, REFLECTION_SYSTEM_PROMPT, trace_id
+            )
+            reflection_data = self._parse_llm_response(raw_text)
+
+            if redis is not None:
+                await redis.incrby(REDIS_KEY_LLM_TOKENS.format(date=today), tokens_used)
+                await redis.incrbyfloat(REDIS_KEY_LLM_COST.format(date=today), cost_usd)
+
+            log_structured(
+                "info",
+                "reflection_completed",
+                trace_id=trace_id,
+                hypotheses=len(reflection_data.get(FieldName.HYPOTHESES, [])),
+                tokens=tokens_used,
+            )
+        except Exception:
+            log_structured(
+                "warning", "reflection_llm_failed_using_fallback", exc_info=True, trace_id=trace_id
+            )
+            reflection_data = {
+                **FALLBACK_REFLECTION,
+                "summary": f"LLM unavailable after {self._fills} fills.",
+            }
+
+        # Evaluator-Optimizer: if the first pass produced too few actionable hypotheses,
+        # call the LLM once more with a targeted improve prompt to force richer output.
+        hypotheses = reflection_data.get(FieldName.HYPOTHESES, [])
+        if len(hypotheses) < REFLECTION_MIN_HYPOTHESES and redis is not None:
+            try:
+                budget_now = int(await redis.get(REDIS_KEY_LLM_TOKENS.format(date=today)) or 0)
+                if budget_now < settings.ANTHROPIC_DAILY_TOKEN_BUDGET:
+                    from api.services.llm_router import call_llm_with_system  # noqa: PLC0415
+
+                    raw_improved, tokens_imp, cost_imp = await call_llm_with_system(
+                        prompt, REFLECTION_IMPROVE_PROMPT, trace_id
+                    )
+                    improved = self._parse_llm_response(raw_improved)
+                    if len(improved.get(FieldName.HYPOTHESES, [])) > len(hypotheses):
+                        reflection_data = improved
+                        await redis.incrby(REDIS_KEY_LLM_TOKENS.format(date=today), tokens_imp)
+                        await redis.incrbyfloat(REDIS_KEY_LLM_COST.format(date=today), cost_imp)
+                        log_structured(
+                            "info",
+                            "reflection_refined_by_evaluator_optimizer",
+                            trace_id=trace_id,
+                            original_hypotheses=len(hypotheses),
+                            refined_hypotheses=len(improved.get(FieldName.HYPOTHESES, [])),
+                        )
+            except Exception:
+                log_structured("warning", "reflection_refinement_failed", exc_info=True)
+
+        # Quant layer: compute mistake clusters from trade evaluations
+        quant = self._compute_quant_reflection()
+
+        reflection_payload: dict[str, Any] = {
+            "msg_id": str(uuid.uuid4()),
+            "source": SOURCE_REFLECTION,
+            "type": "reflection_output",
+            "trace_id": trace_id,
+            FieldName.FILLS_ANALYZED: self._fills,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            **reflection_data,
+            # Merge quant fields — these override any LLM-generated equivalents
+            FieldName.PATTERNS: quant[FieldName.PATTERNS],
+            FieldName.MISTAKE_CLUSTERS: quant[FieldName.MISTAKE_CLUSTERS],
+            FieldName.RECOMMENDATIONS: quant[FieldName.RECOMMENDATIONS],
+            FieldName.TRADES_ANALYZED: quant[FieldName.TRADES_ANALYZED],
+            FieldName.WIN_RATE: quant[FieldName.WIN_RATE],
+            FieldName.AVG_RETURN: quant[FieldName.AVG_RETURN],
+            FieldName.MODEL_PERFORMANCE: quant[FieldName.MODEL_PERFORMANCE],
+            FieldName.CONFIDENCE: quant[FieldName.CONFIDENCE],
+        }
+
+        await self.bus.publish(STREAM_REFLECTION_OUTPUTS, reflection_payload)
+        await write_agent_log(trace_id, LogType.REFLECTION, reflection_payload)
+        await persist_reflection_record(reflection_payload)
+        await self.bus.publish(
+            STREAM_NOTIFICATIONS,
+            {
+                "msg_id": str(uuid.uuid4()),
+                "source": SOURCE_REFLECTION,
+                "type": "notification",
+                "severity": Severity.INFO,
+                "notification_type": "reflection",
+                "message": reflection_data.get(FieldName.SUMMARY, "Reflection completed."),
+                FieldName.HYPOTHESIS_COUNT: len(reflection_data.get(FieldName.HYPOTHESES, [])),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+        # Write heartbeat so dashboard shows REFLECTION_AGENT as ACTIVE
+        if redis is not None:
+            try:
+                await _write_heartbeat(
+                    redis,
+                    self._state_name,
+                    f"reflection fills={self._fills} hypotheses={len(reflection_data.get(FieldName.HYPOTHESES, []))}",
+                    self._fills,
+                )
+            except Exception:
+                log_structured("warning", "reflection_heartbeat_failed", exc_info=True)
+
+    def _compute_quant_reflection(self) -> dict[str, Any]:
+        """Deterministic quant analysis of recent trade evaluations.
+
+        Uses the GradeAgent's eval_buffer if available (injected at startup),
+        otherwise falls back to computing from InMemoryStore or recent_fills data.
+        """
+        evaluations: list[dict[str, Any]] = []
+
+        # Prefer live eval buffer from GradeAgent
+        if self._grade_agent is not None:
+            evaluations = list(self._grade_agent._eval_buffer)
+
+        # If no evals yet, fall back to in-memory store
+        if not evaluations:
+            from api.runtime_state import get_runtime_store  # noqa: PLC0415
+            from api.runtime_state import is_db_available as _is_db_available  # noqa: PLC0415
+
+            if not _is_db_available():
+                evaluations = get_runtime_store().get_trade_evaluations(50)
+
+        if not evaluations:
+            # Synthesize minimal evaluations from recent fills as last resort
+            for fill in list(self._recent_fills):
+                from api.services.agents.trade_scorer import score_trade as _st  # noqa: PLC0415
+
+                try:
+                    evaluations.append(_st(fill))
+                except Exception:
+                    pass
+
+        patterns = compute_patterns(evaluations)
+        clusters = compute_mistake_clusters(evaluations)
+        recommendations = compute_recommendations(clusters, patterns)
+        metrics = compute_learning_metrics(evaluations)
+
+        return {
+            FieldName.PATTERNS: patterns,
+            FieldName.MISTAKE_CLUSTERS: clusters,
+            FieldName.RECOMMENDATIONS: recommendations,
+            FieldName.TRADES_ANALYZED: len(evaluations),
+            FieldName.WIN_RATE: metrics.get(FieldName.WIN_RATE, 0.0),
+            FieldName.AVG_RETURN: metrics.get(FieldName.AVG_RETURN, 0.0),
+            # Per-model performance so reflections (and the operator) can see
+            # which LLM is actually producing the wins/losses.
+            FieldName.MODEL_PERFORMANCE: aggregate_model_performance(evaluations),
+            FieldName.CONFIDENCE: round(
+                0.5 + min(len(evaluations), 50) / 100.0, 2
+            ),  # confidence grows with sample size
+        }
+
+    def _build_prompt(self) -> str:
+        recent_fills = list(self._recent_fills)[-20:]
+        total_pnl = sum(float(f.get(FieldName.PNL) or 0) for f in recent_fills)
+        win_rate = (
+            sum(1 for f in recent_fills if float(f.get(FieldName.PNL) or 0) > 0) / len(recent_fills)
+            if recent_fills
+            else 0
+        )
+        return json.dumps(
+            {
+                FieldName.FILLS_ANALYZED: len(recent_fills),
+                FieldName.TOTAL_PNL: round(total_pnl, 4),
+                "win_rate": round(win_rate, 4),
+                FieldName.RECENT_FILLS: recent_fills,
+                FieldName.RECENT_GRADES: list(self._recent_grades)[-5:],
+                FieldName.RECENT_IC_CHANGES: list(self._recent_ic)[-5:],
+                # Per-model win-rate/PnL so the LLM can reason about which model
+                # is trading well, not just aggregate outcomes.
+                FieldName.MODEL_PERFORMANCE: aggregate_model_performance(recent_fills),
+            },
+            default=str,
+        )
+
+    def _parse_llm_response(self, raw_text: str) -> dict[str, Any]:
+        """Parse LLM JSON response; fall back to defaults on parse error."""
+        cleaned = raw_text.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned[3:]
+            if "\n" in cleaned:
+                first, rest = cleaned.split("\n", 1)
+                if first.strip() in {"json", "JSON", ""}:
+                    cleaned = rest
+            if cleaned.rstrip().endswith("```"):
+                cleaned = cleaned.rstrip()[:-3].strip()
+        try:
+            parsed = json.loads(cleaned)
+            for key in ("winning_factors", "losing_factors", "hypotheses", "summary"):
+                if key not in parsed:
+                    parsed[key] = FALLBACK_REFLECTION.get(key, [])
+            return parsed
+        except json.JSONDecodeError:
+            log_structured("warning", "reflection_json_parse_failed", raw=cleaned[:200])
+            return dict(FALLBACK_REFLECTION)
