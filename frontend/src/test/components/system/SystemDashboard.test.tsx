@@ -65,6 +65,14 @@ describe('SystemDashboard integration', () => {
     expect(screen.getByText('Risk State')).toBeInTheDocument()
   })
 
+  it('sizes the Command Center card to its metrics instead of stretching it', () => {
+    // Regression: the card sat in a 2-col grid next to the taller Operator
+    // controls panel and stretched to match it, leaving a large empty band
+    // below the single KPI row. self-start keeps it sized to its content.
+    render(<SystemDashboard {...baseProps} />)
+    expect(screen.getByText('Command Center').closest('.self-start')).not.toBeNull()
+  })
+
   it('shows stalled data health on cold start', () => {
     render(<SystemDashboard {...baseProps} />)
     expect(screen.getAllByText('Stalled').length).toBeGreaterThan(0)
