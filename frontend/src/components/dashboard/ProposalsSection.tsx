@@ -41,8 +41,9 @@ function EmptyProposals() {
         No proposals awaiting review.
       </p>
       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-        The Proposal Agent will add candidate changes here after reflection and
-        challenger review.
+        Proposals appear once the learning loop completes a cycle — closed
+        trades → grades → reflection → challenger review. None have been
+        generated yet.
       </p>
     </div>
   );
