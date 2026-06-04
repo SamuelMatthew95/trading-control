@@ -421,3 +421,30 @@ stretching to the neighbouring panel.
 
 **Regression test:** `frontend/src/test/components/system/SystemDashboard.test.tsx`
 (`sizes the Command Center card to its metrics instead of stretching it`)
+
+## Overview shows "Active Positions: N" with no positions list anywhere on the page
+
+**Symptom:** The Overview ("main page") headline read `Active Positions: 1`, but
+the operator could not find that position anywhere on the page — the count had no
+backing detail. The Open Positions table only existed on the Trading page.
+
+**Root cause:** `DashboardView.tsx`'s overview rendered the four KPI tiles
+(including Active Positions), Performance, Equity Curve, Agent Matrix, and Live
+Market Prices — but no positions table. `OpenPositionsPanel` was defined *inside*
+`TradingView.tsx` and only used there, so the count's detail lived on a different
+page. The overview count also used `quantity` only while the table used
+`quantity ?? qty`, so the two definitions of "active" could drift.
+
+**Fix:** Extracted `OpenPositionsPanel` into its own reusable component
+(`components/dashboard/OpenPositionsPanel.tsx`) and rendered it on the overview
+directly beneath the KPI tiles, so "Active Positions" now has visible backing.
+The panel filters to genuinely open rows (non-zero qty) and the badge reports
+that active count. Added shared `positionQty` / `isActivePosition` helpers in
+`lib/formatters.ts` and routed the overview KPI, the Trading stats tile, and the
+table through them, so the count and the list can never disagree about which
+positions are open.
+
+**Regression test:** `frontend/src/test/components/DashboardView.test.tsx` —
+`surfaces the open position on the overview so the Active Positions count has
+visible detail` and `excludes flat (qty 0) positions from the overview Open
+Positions table`.
