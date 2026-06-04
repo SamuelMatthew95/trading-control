@@ -38,6 +38,14 @@ services:
         fromService:
           name: trading-control-db
           type: ps
+      # GitOps auto-PR / issue creation for applied proposals. The token is a
+      # secret managed in the Render dashboard (sync: false → not stored in the
+      # blueprint); GitOpsPublisher reads it via settings.GITHUB_TOKEN. Without
+      # it set, proposal application stays a safe dry-run no-op.
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_REPO
+        value: SamuelMatthew95/trading-control
 
   # NOTE: Price poller is now integrated into the web service as a background task.
   # No separate worker needed — it starts automatically with the app.
