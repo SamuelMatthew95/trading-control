@@ -53,3 +53,27 @@ risk-on / risk-off / neutral posture from a benchmark's recent trend
 regular trading hours. Redis-cached 300 s (`REDIS_KEY_MACRO_REGIME`).
 
 **Regression test:** `tests/api/test_market_intel.py::test_macro_regime_risk_on_when_benchmark_trends_up`
+
+## `check_cross_asset_correlation` still `{}` outside market hours (after the start-window fix)
+
+**Symptom:** Even with the recent-`start` fix, the correlation tool still showed
+`success: false` on a large share of decisions — concentrated outside regular
+trading hours.
+
+**Root cause:** It only ever requested **1-minute** bars. Equities have no 1-min
+bars outside market hours and intraday crypto bars can be too sparse to yield the
+`_MIN_RETURNS` (3) return observations a Pearson correlation needs, so the tool
+fell through to `{}`.
+
+**Fix:** `_fetch_bars` is now parametrized by `timeframe` / `limit` / `start_delta`,
+and `compute_cross_asset_correlation` falls back to **daily** bars
+(`_CORRELATION_DAILY_TIMEFRAME`, 10 bars) when the 1-min series is too short —
+a coarser correlation that is available around the clock
+(`api/services/market_intel.py`). The single-symbol macro-regime fetch reuses the
+same `_fetch_bars` helper.
+
+**Still `{}`?** If correlation (and order-book/news) are empty even with the
+fallback, `ALPACA_API_KEY` / `ALPACA_SECRET_KEY` are unset in the environment —
+that is the only remaining systemic cause.
+
+**Regression test:** `tests/api/test_market_intel.py::test_correlation_falls_back_to_daily_bars_when_intraday_sparse`
