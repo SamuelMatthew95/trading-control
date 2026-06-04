@@ -139,6 +139,7 @@ CLEAN_FILES: frozenset[str] = frozenset(
         "api/services/agents/pipeline_agents.py",
         "api/services/agents/prompts.py",
         "api/services/agents/proposal_applier.py",
+        "api/services/agents/proposal_guardrails.py",
         "api/services/agents/reasoning_agent.py",
         "api/services/agents/risk_guardian.py",
         "api/services/agents/scoring.py",
