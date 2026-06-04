@@ -621,9 +621,23 @@ export function DashboardView({ section }: { section: Section }) {
                     {livePnl.hasData ? signedUSD(livePnl.total) : '--'}
                   </LiveNumber>
                 ),
-                sub: livePnl.hasData
-                  ? `Realized ${signedUSD(livePnl.realized)} · Unrealized ${signedUSD(livePnl.unrealized)}`
-                  : undefined,
+                sub: livePnl.hasData ? (
+                  <div className="flex flex-wrap gap-x-5 gap-y-1">
+                    {([
+                      { label: 'Realized', amount: livePnl.realized },
+                      { label: 'Unrealized', amount: livePnl.unrealized },
+                    ] as const).map(({ label, amount }) => (
+                      <div key={label} className="flex flex-col gap-0.5">
+                        <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                          {label}
+                        </span>
+                        <span className={cn('font-mono tabular-nums text-xs font-semibold', performancePnlColorClass(amount))}>
+                          {signedUSD(amount)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : undefined,
                 badge: <LiveDot live={pricesLive} />,
                 trend: 0,
               },
@@ -642,7 +656,7 @@ export function DashboardView({ section }: { section: Section }) {
                 value: formatDailyChange(summary.dailyChange),
                 trend: Math.sign(summary.dailyChange ?? 0),
               },
-            ] as Array<{ title: string; value: ReactNode; trend: number; sub?: string; badge?: ReactNode }>).map((item) => (
+            ] as Array<{ title: string; value: ReactNode; trend: number; sub?: ReactNode; badge?: ReactNode }>).map((item) => (
               <div key={item.title} className={cardClass}>
                 <div className="mb-3 flex items-center justify-between">
                   <p className={sectionTitleClass}>{item.title}</p>
@@ -657,7 +671,7 @@ export function DashboardView({ section }: { section: Section }) {
                   )}
                 </div>
                 <p className={valueClass}>{item.value}</p>
-                {item.sub ? <p className={cn(mutedClass, 'mt-1')}>{item.sub}</p> : null}
+                {item.sub ? <div className="mt-2">{item.sub}</div> : null}
               </div>
             ))}
           </div>
