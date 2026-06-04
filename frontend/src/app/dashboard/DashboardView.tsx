@@ -5,9 +5,10 @@ import { useCodexStore, type AgentStatus } from '@/stores/useCodexStore'
 import { useSystemStatus } from '@/hooks/useSystemStatus'
 import { useRestPoll } from '@/hooks/useRestPoll'
 import { cn } from '@/lib/utils'
-import { formatUSD, signedUSD, formatTimeAgo, toFiniteNum as toFiniteNumber, sanitizeValue, formatTimestamp } from '@/lib/formatters'
+import { formatUSD, signedUSD, formatTimeAgo, toFiniteNum as toFiniteNumber, sanitizeValue, formatTimestamp, isActivePosition } from '@/lib/formatters'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
 import { LearningConsole } from '@/components/dashboard/LearningConsole'
+import { OpenPositionsPanel } from '@/components/dashboard/OpenPositionsPanel'
 import { TradingView } from '@/components/dashboard/TradingView'
 import { TraceModal } from '@/components/dashboard/TraceModal'
 import { ProposalsSection } from '@/components/dashboard/ProposalsSection'
@@ -386,8 +387,10 @@ export function DashboardView({ section }: { section: Section }) {
     const decidedTrades = wins + losses
     const winRate = decidedTrades > 0 ? (wins / decidedTrades) * 100 : null
     // Active = abs(qty) > 0, the backend canonical rule (side-agnostic), so the
-    // count matches diagnose_positions / get_active_position_count.
-    const activePositions = positions.filter((position) => Math.abs(toFiniteNumber(position?.quantity) ?? 0) > 0).length
+    // count matches diagnose_positions / get_active_position_count. Shared with
+    // the Open Positions table (below) via isActivePosition so the headline KPI
+    // and the rows it summarises always agree on which positions are open.
+    const activePositions = positions.filter(isActivePosition).length
     const dailyChangeFromMetric = getMetric(systemMetrics, 'daily_change_pct')
     const dailyChangeFromDashboard = toFiniteNumber((dashboardData as Record<string, unknown> | null)?.['daily_change_pct'])
     const baseEquity = getMetric(systemMetrics, 'portfolio_value')
@@ -631,6 +634,11 @@ export function DashboardView({ section }: { section: Section }) {
               </div>
             ))}
           </div>
+
+          {/* The detail behind the "Active Positions" KPI above — without this
+              the overview showed a count (e.g. "1") with no way to see the
+              underlying position anywhere on the page. */}
+          <OpenPositionsPanel />
 
           <div className={cardClass}>
             <p className={cn(sectionTitleClass, 'mb-3')}>Performance</p>
