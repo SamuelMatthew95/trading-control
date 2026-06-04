@@ -1,13 +1,16 @@
 'use client'
 
-import { useCallback, useMemo, useState, type ComponentType } from 'react'
+import { useCallback, useMemo, useState, type ComponentType, type ReactNode } from 'react'
 import { useCodexStore, type AgentStatus } from '@/stores/useCodexStore'
 import { useSystemStatus } from '@/hooks/useSystemStatus'
 import { useRestPoll } from '@/hooks/useRestPoll'
+import { useLivePnl } from '@/hooks/useLivePnl'
+import { useLivePositions } from '@/hooks/useLivePositions'
 import { cn } from '@/lib/utils'
-import { formatUSD, signedUSD, formatTimeAgo, toFiniteNum as toFiniteNumber, sanitizeValue, formatTimestamp, isActivePosition } from '@/lib/formatters'
+import { formatUSD, signedUSD, formatTimeAgo, toFiniteNum as toFiniteNumber, sanitizeValue, formatTimestamp, isActivePosition, pricesFreshnessMs } from '@/lib/formatters'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
 import { LearningConsole } from '@/components/dashboard/LearningConsole'
+import { LiveNumber, LiveDot } from '@/components/dashboard/LiveNumber'
 import { OpenPositionsPanel } from '@/components/dashboard/OpenPositionsPanel'
 import { TradingView } from '@/components/dashboard/TradingView'
 import { TraceModal } from '@/components/dashboard/TraceModal'
@@ -34,7 +37,7 @@ import {
 type Section = 'overview' | 'trading' | 'agents' | 'learning' | 'proposals' | 'system'
 
 type PerformanceCell = {
-  label: 'Total P&L' | 'Win Rate' | 'Best Trade' | 'Worst Trade'
+  label: 'Realized P&L' | 'Win Rate' | 'Best Trade' | 'Worst Trade'
   value: string
   colorClass: string
 }
@@ -248,7 +251,10 @@ function getTinyBestTradeExplanation(
 function buildPerformanceCells(summary: PerformanceSummaryLike | null): PerformanceCell[] {
   return [
     {
-      label: 'Total P&L',
+      // Realized P&L from graded/closed trades (DB or local fallback) — distinct
+      // from the live "Total P&L" headline, which also includes open-position
+      // unrealized. Labelled honestly so the two never read as contradictory.
+      label: 'Realized P&L',
       value: summary != null ? signedUSD(summary.total_pnl) : '--',
       colorClass: performancePnlColorClass(summary?.total_pnl ?? null),
     },
@@ -375,6 +381,13 @@ export function DashboardView({ section }: { section: Section }) {
   const isInMemoryMode = String((dashboardData as Record<string, unknown> | null)?.mode ?? '').includes('in_memory')
   const baseSystemStatus = useSystemStatus()
   const systemStatus = systemFeedError ? 'error' : baseSystemStatus
+
+  // Live P&L (realized + mark-to-market unrealized) and live-marked positions —
+  // the same source the header chip uses, so the two headline numbers agree.
+  const livePnl = useLivePnl()
+  const livePositions = useLivePositions()
+  const pricesAgeMs = pricesFreshnessMs(prices)
+  const pricesLive = pricesAgeMs != null && pricesAgeMs <= PRICE_FRESHNESS_MS
 
   const formatTimeAgoSafe = useCallback((date: Date) => formatTimeAgo(date), [])
   const summary = useMemo(() => {
@@ -595,13 +608,24 @@ export function DashboardView({ section }: { section: Section }) {
       {section === 'overview' && (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            {[
+            {([
               {
-                title: 'Daily P&L',
-                value: summary.hasOrders ? signedUSD(summary.dailyPnlNumeric) : '--',
-                trend: summary.hasOrders
-                  ? Math.sign(summary.dailyPnlNumeric)
-                  : 0,
+                // Realized + live mark-to-market unrealized — same source as the
+                // header chip, and it moves as prices stream (no longer static).
+                title: 'Total P&L',
+                value: (
+                  <LiveNumber
+                    value={livePnl.hasData ? livePnl.total : null}
+                    className={performancePnlColorClass(livePnl.hasData ? livePnl.total : null)}
+                  >
+                    {livePnl.hasData ? signedUSD(livePnl.total) : '--'}
+                  </LiveNumber>
+                ),
+                sub: livePnl.hasData
+                  ? `Realized ${signedUSD(livePnl.realized)} · Unrealized ${signedUSD(livePnl.unrealized)}`
+                  : undefined,
+                badge: <LiveDot live={pricesLive} />,
+                trend: 0,
               },
               {
                 title: 'Win Rate',
@@ -618,11 +642,13 @@ export function DashboardView({ section }: { section: Section }) {
                 value: formatDailyChange(summary.dailyChange),
                 trend: Math.sign(summary.dailyChange ?? 0),
               },
-            ].map((item) => (
+            ] as Array<{ title: string; value: ReactNode; trend: number; sub?: string; badge?: ReactNode }>).map((item) => (
               <div key={item.title} className={cardClass}>
                 <div className="mb-3 flex items-center justify-between">
                   <p className={sectionTitleClass}>{item.title}</p>
-                  {item.trend > 0 ? (
+                  {item.badge ? (
+                    item.badge
+                  ) : item.trend > 0 ? (
                     <TrendingUp className="h-4 w-4 text-emerald-500" />
                   ) : item.trend < 0 ? (
                     <TrendingDown className="h-4 w-4 text-rose-500" />
@@ -631,6 +657,7 @@ export function DashboardView({ section }: { section: Section }) {
                   )}
                 </div>
                 <p className={valueClass}>{item.value}</p>
+                {item.sub ? <p className={cn(mutedClass, 'mt-1')}>{item.sub}</p> : null}
               </div>
             ))}
           </div>
@@ -796,7 +823,7 @@ export function DashboardView({ section }: { section: Section }) {
           recentEvents={recentEvents}
           agentStatuses={agentStatuses}
           prices={prices}
-          positions={positions}
+          positions={livePositions}
           tradeFeed={tradeFeed}
           orders={orders}
           agentLogs={agentLogs}
