@@ -1,6 +1,7 @@
 'use client'
 import { create } from 'zustand'
 import { api } from '@/lib/apiClient'
+import { coerceProposalContent, proposalStrategyName } from '@/lib/proposal-content'
 import { NOTIFICATION_FALLBACKS, NOTIFICATION_SEVERITIES, type NotificationSeverity } from '@/constants/notifications'
 
 export type { NotificationSeverity } from '@/constants/notifications'
@@ -122,6 +123,7 @@ export type ProposalType =
   | 'tool_governance'
   | 'prompt_evolution'
   | 'challenger_result'
+  | 'challenger_promotion'
 
 export interface Proposal {
   id: string
@@ -828,10 +830,17 @@ export const useCodexStore = create<CodexState>((set) => ({
           .map((p) => ({
             id: (p.id as string) ?? String(Date.now()),
             proposal_type: (p.proposal_type as ProposalType) ?? 'parameter_change' as ProposalType,
-            content: String(p.content ?? ''),
+            // `content` may arrive as a structured object (e.g. challenger
+            // promotions) — coerce to readable text so the row never shows
+            // "[object Object]".
+            content: coerceProposalContent(p.content),
             requires_approval: p.requires_approval !== false,
             confidence: typeof p.confidence === 'number' ? p.confidence : undefined,
             reflection_trace_id: p.reflection_trace_id as string | undefined,
+            trace_id: (p.trace_id as string | undefined) ?? undefined,
+            strategy_name:
+              (p.strategy_name as string | undefined) ?? proposalStrategyName(p.content),
+            grade_score: typeof p.grade_score === 'number' ? p.grade_score : null,
             timestamp: (p.timestamp as string) ?? new Date().toISOString(),
             status: (p.status as ProposalStatus) ?? 'pending' as ProposalStatus,
           }))
