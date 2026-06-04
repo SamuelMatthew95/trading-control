@@ -184,6 +184,45 @@ describe('DashboardView — overview', () => {
 
     expect(screen.getByText(/System Status:\s*trading/i)).toBeInTheDocument()
   })
+
+  it('surfaces the open position on the overview so the Active Positions count has visible detail', () => {
+    // Regression: the overview showed an "Active Positions: 1" KPI but no
+    // positions list anywhere on the page, so operators saw the count and could
+    // not find the position. The Open Positions table now lives on the overview.
+    mockStore.positions = [
+      {
+        symbol: 'BTC/USD',
+        side: 'long',
+        quantity: 0.25,
+        entry_price: 50000,
+        current_price: 50100,
+        pnl: 25,
+        pnl_percent: 0.2,
+      },
+    ]
+
+    render(<DashboardView section="overview" />)
+
+    expect(screen.getByText('Open Positions')).toBeInTheDocument()
+    // Side badge + entry price are unique to the position row (the ticker grid
+    // reuses BTC/USD but never renders "LONG" or the entry price).
+    expect(screen.getByText('LONG')).toBeInTheDocument()
+    expect(screen.getByText('$50,000.00')).toBeInTheDocument()
+  })
+
+  it('excludes flat (qty 0) positions from the overview Open Positions table', () => {
+    // The table and the "Active Positions" KPI share isActivePosition, so a flat
+    // row is counted nowhere and listed nowhere — they can never disagree.
+    mockStore.positions = [
+      { symbol: 'BTC/USD', side: 'long', quantity: 0, entry_price: 50000, current_price: 50100, pnl: 0 },
+    ]
+
+    render(<DashboardView section="overview" />)
+
+    expect(screen.getByText('Open Positions')).toBeInTheDocument()
+    expect(screen.getByText(/no open positions/i)).toBeInTheDocument()
+    expect(screen.queryByText('LONG')).not.toBeInTheDocument()
+  })
 })
 
 describe('DashboardView — trading', () => {
