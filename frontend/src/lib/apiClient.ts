@@ -112,6 +112,10 @@ export const API_ENDPOINTS = {
   NOTIFICATIONS_UNREAD_COUNT: "/notifications/unread-count",
   DECISIONS_RECENT: "/decisions",
   DECISIONS_STATS: "/decisions/stats",
+
+  // Live positions + PnL sourced from the PaperBroker (works in memory mode)
+  POSITIONS: "/positions",
+  PNL: "/pnl",
 } as const;
 
 /**

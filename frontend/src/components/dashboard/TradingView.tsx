@@ -457,13 +457,19 @@ export function TradingView({
     tradeFeed = [],
     positions = [],
     performanceSummary = null,
+    pnlSummary = null,
   } = useCodexStore()
 
   const stats = useMemo(() => {
+    // Prefer the live PaperBroker PnL (realized + unrealized) so Session P&L
+    // reflects open-position mark-to-market, not just closed-trade realized PnL.
+    // Fall back to the DB/trends aggregate, then to the realized trade-feed sum.
     const totalPnl =
-      performanceSummary?.total_pnl != null && performanceSummary.total_pnl !== 0
-        ? performanceSummary.total_pnl
-        : tradeFeed.reduce((sum, t) => sum + (toNum(t.pnl) ?? 0), 0)
+      pnlSummary?.total_pnl != null
+        ? pnlSummary.total_pnl
+        : performanceSummary?.total_pnl != null && performanceSummary.total_pnl !== 0
+          ? performanceSummary.total_pnl
+          : tradeFeed.reduce((sum, t) => sum + (toNum(t.pnl) ?? 0), 0)
 
     const totalTrades = performanceSummary?.total_trades ?? tradeFeed.filter((t) => t.pnl != null).length
     // Derive wins from summary when available so sub-text matches the aggregate win rate.
@@ -486,7 +492,7 @@ export function TradingView({
       return Math.abs(qty) > 0
     }).length
     return { totalPnl, winRatePct, totalTrades, wins, fills: tradeFeed.length, activePositions }
-  }, [tradeFeed, positions, performanceSummary])
+  }, [tradeFeed, positions, performanceSummary, pnlSummary])
 
   const pnlSign =
     stats.totalPnl > 0.005 ? 'positive' : stats.totalPnl < -0.005 ? 'negative' : 'neutral'

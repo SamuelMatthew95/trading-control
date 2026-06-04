@@ -114,16 +114,31 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
       setPricesFetched(true)
     }
 
+    // Live positions + PnL straight from the PaperBroker-backed endpoints. These
+    // refresh the broker mirror on every call, so positions and unrealized PnL
+    // stay broker-truth on mount and after a WS reconnect — independent of the
+    // /dashboard/state snapshot.
+    const fetchPositionsAndPnl = () => {
+      useCodexStore.getState().fetchPositions()
+      useCodexStore.getState().fetchPnl()
+    }
+
     fetchDashboardState()
     fetchPrices()
+    fetchPositionsAndPnl()
 
     // When WS is live it streams prices and state in real-time; REST polling
   // at that point only risks overwriting fresher WS data with stale values.
-  // Only install the interval when WS is down.
-  if (wsConnected) return
+  // Positions/PnL are not pushed over WS as a periodic snapshot, so we keep a
+  // slow refresh for them even while WS is connected.
+  if (wsConnected) {
+    const tp = setInterval(fetchPositionsAndPnl, POLL_SLOW_MS)
+    return () => clearInterval(tp)
+  }
     const t = setInterval(() => {
       fetchDashboardState()
       useCodexStore.getState().fetchPrices()
+      fetchPositionsAndPnl()
     }, POLL_FAST_MS)
     return () => clearInterval(t)
   }, [wsConnected])
