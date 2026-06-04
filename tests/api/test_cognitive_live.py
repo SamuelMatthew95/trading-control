@@ -22,7 +22,11 @@ async def test_live_snapshot_is_fully_keyed_when_empty():
     assert isinstance(snap["proposals"], list)
     assert isinstance(snap["drift"]["alerts"], list)
     assert isinstance(snap["traces"], list)
-    assert set(snap["live_agents"]) == {"news", "tech", "macro", "risk"}
+    # live_agents is now keyed by real agent names (signal + reasoning slots).
+    from api.constants import AGENT_REASONING, AGENT_SIGNAL
+
+    assert AGENT_SIGNAL in snap["live_agents"]
+    assert AGENT_REASONING in snap["live_agents"]
     assert snap["event_count"] == 0
     # Agent Health roster is always populated (8 live agents) so the card is
     # never a blank box — idle until they produce activity.
@@ -74,6 +78,34 @@ async def test_proposals_carry_real_grade_and_reason():
     # proposal_success_rates reflect the approved suggestion
     rates = snap["evolution"]["proposal_success_rates"]
     assert rates["parameter_change"]["successes"] == 1
+
+
+async def test_signal_activity_and_grade_attach_to_real_agent():
+    """Signals/grades are written with source='signal_generator'; they must map to
+    the canonical SIGNAL_AGENT card (the link that was previously broken)."""
+    from api.constants import AGENT_SIGNAL
+
+    store = InMemoryStore()
+    set_runtime_store(store)
+    store.add_event(
+        {
+            "source": "signal_generator",
+            "data": {
+                "action": "buy",
+                "confidence": 0.8,
+                "rsi": 31.5,
+                "pct": 1.2,
+                "strength": "high",
+            },
+        }
+    )
+    store.add_grade({"source": "signal_generator", "score": 0.72})
+
+    snap = await build_live_snapshot()
+    sig_live = snap["live_agents"][AGENT_SIGNAL]
+    assert sig_live is not None and sig_live["rsi"] == 31.5 and sig_live["action"] == "buy"
+    subjects = {g["subject_id"] for g in snap["learning"]["agent_grades"]}
+    assert AGENT_SIGNAL in subjects  # source normalized to canonical agent name
 
 
 async def test_live_events_shape():

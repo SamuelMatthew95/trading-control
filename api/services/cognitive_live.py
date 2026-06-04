@@ -36,6 +36,7 @@ from api.constants import (
     AGENT_REFLECTION,
     AGENT_SIGNAL,
     AGENT_STRATEGY_PROPOSER,
+    SOURCE_SIGNAL,
     FieldName,
 )
 from api.observability import log_structured
@@ -44,6 +45,26 @@ from api.services.dashboard.learning import get_ic_weights_payload
 from api.services.dashboard.prompt_evolution import get_prompt_evolution_payload
 from api.services.dashboard.proposals import list_proposals_payload
 from api.services.redis_store import get_redis_store
+
+# Map the lowercase agent ``source`` strings written onto grades/events to the
+# canonical SCREAMING_SNAKE agent-name constants the roster + health use, so
+# grades attach to the right agent card instead of silently dropping.
+_SOURCE_TO_AGENT: dict[str, str] = {
+    SOURCE_SIGNAL: AGENT_SIGNAL,
+    "reasoning_agent": AGENT_REASONING,
+    "execution_engine": AGENT_EXECUTION,
+    "grade_agent": AGENT_GRADE,
+    "ic_updater": AGENT_IC_UPDATER,
+    "reflection_agent": AGENT_REFLECTION,
+    "strategy_proposer": AGENT_STRATEGY_PROPOSER,
+    "notification_agent": AGENT_NOTIFICATION,
+}
+
+
+def _canonical_agent(name: str) -> str:
+    """Normalize a grade/event subject or source to a canonical agent name."""
+    return _SOURCE_TO_AGENT.get(name, name)
+
 
 # Static roster descriptors for the live agents (name → role / emits / blurb).
 # ``emits`` mirrors the sim contract so the frontend's roster→grade keying still
@@ -100,6 +121,47 @@ _ROSTER: list[dict[str, str]] = [
 ]
 
 
+def _latest_signal_facets(events: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Most recent SignalGenerator signal as display facets (real indicators)."""
+    for ev in events:  # get_events() is newest-first
+        if str(ev.get(FieldName.SOURCE) or "") != SOURCE_SIGNAL:
+            continue
+        data = ev.get(FieldName.DATA)
+        if not isinstance(data, dict):
+            continue
+        return {
+            "action": data.get(FieldName.ACTION),
+            "confidence": data.get(FieldName.CONFIDENCE),
+            "rsi": data.get(FieldName.RSI),
+            "pct": data.get(FieldName.PCT),
+            "strength": data.get(FieldName.STRENGTH),
+        }
+    return None
+
+
+def _live_activity_by_agent(
+    events: list[dict[str, Any]], latest_decision: dict[str, Any] | None
+) -> dict[str, dict[str, Any] | None]:
+    """Latest real activity per agent (keyed by canonical agent name).
+
+    SignalGenerator → latest signal facets; ReasoningAgent → latest decision.
+    Other agents have no compact per-event facet to show → ``None`` (their card
+    still shows role + health). Honest: only agents with real activity light up.
+    """
+    return {
+        AGENT_SIGNAL: _latest_signal_facets(events),
+        AGENT_REASONING: (
+            {
+                "action": latest_decision.get(FieldName.ACTION),
+                "confidence": latest_decision.get(FieldName.SCORE),
+                "symbol": latest_decision.get(FieldName.SYMBOL),
+            }
+            if latest_decision
+            else None
+        ),
+    }
+
+
 def _to_decision_payload(d: dict[str, Any], buy: float, sell: float) -> dict[str, Any]:
     """Map a live ReasoningAgent decision → the sim DecisionPayload shape."""
     return {
@@ -118,10 +180,12 @@ def _agent_grades(grades: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Aggregate raw grade_history rows into per-subject AgentGrade entries."""
     by_subject: dict[str, list[dict[str, Any]]] = {}
     for g in grades:
-        subject = str(g.get(FieldName.SUBJECT) or g.get(FieldName.AGENT) or "")
-        if not subject:
+        raw = str(
+            g.get(FieldName.SUBJECT) or g.get(FieldName.AGENT) or g.get(FieldName.SOURCE) or ""
+        )
+        if not raw:
             continue
-        by_subject.setdefault(subject, []).append(g)
+        by_subject.setdefault(_canonical_agent(raw), []).append(g)
     out: list[dict[str, Any]] = []
     for subject, rows in by_subject.items():
         scores = [float(r.get(FieldName.SCORE) or 0.0) for r in rows]
@@ -346,7 +410,9 @@ async def build_live_snapshot(*, trace_limit: int = 20) -> dict[str, Any]:
 
     grades = store.get_grades(200)
     reflections = store.get_reflections(trace_limit)
-    events = store.get_events(trace_limit)
+    # Wider window so signal facets / event counts reflect real activity, not
+    # just the last few rows.
+    events = store.get_events(200)
 
     try:
         weights_payload = await get_ic_weights_payload()
@@ -422,7 +488,9 @@ async def build_live_snapshot(*, trace_limit: int = 20) -> dict[str, Any]:
             "risk": {},
         },
         "agents_roster": _ROSTER,
-        "live_agents": {"news": None, "tech": None, "macro": None, "risk": None},
+        "live_agents": _live_activity_by_agent(
+            events, decision_payloads[0] if decision_payloads else None
+        ),
         "reasoning": decision_payloads,
         "decision": {
             "latest": decision_payloads[0] if decision_payloads else None,

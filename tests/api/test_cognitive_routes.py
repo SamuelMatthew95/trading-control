@@ -30,7 +30,8 @@ async def test_state_exposes_all_observability_tabs():
     # Live snapshot is fully keyed for the frontend's deep accesses.
     assert isinstance(snapshot["evolution"]["agent_grades"], list)
     assert isinstance(snapshot["drift"]["alerts"], list)
-    assert set(snapshot["live_agents"]) == {"news", "tech", "macro", "risk"}
+    # live_agents is keyed by real agent names now (signal + reasoning slots).
+    assert isinstance(snapshot["live_agents"], dict)
 
 
 async def test_demo_state_still_seeded():
