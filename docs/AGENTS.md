@@ -169,9 +169,7 @@ heartbeat keys (`agent:status:{name}`), `agent_logs.agent_name`, and the
 
 - **Backend** — defined once in `api/constants.py` (`AGENT_SIGNAL = "SIGNAL_AGENT"`,
   …) and collected in `ALL_AGENT_NAMES`. Never write the raw string; import the
-  constant. (The `AGENT_PROMPTS` keys in `multi_agent_orchestrator.py` —
-  `CONSENSUS_AGENT`, `RISK_AGENT`, `SIZING_AGENT` — are internal prompt roles for
-  that planner, **not** pipeline agents, and are intentionally separate.)
+  constant.
 - **Frontend** — `frontend/src/constants/agents.ts` mirrors `ALL_AGENT_NAMES`
   exactly and must stay in sync. The dashboard imports these constants; it never
   hardcodes an agent name.
