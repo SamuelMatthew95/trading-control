@@ -470,7 +470,7 @@ async def fetch_macro_regime(symbol: str, redis) -> dict[str, Any]:
     else:
         regime = MacroRegime.NEUTRAL
     result = {
-        FieldName.REGIME: str(regime),
+        FieldName.REGIME: regime.value,
         FieldName.RETURN_PCT: return_pct,
         FieldName.BENCHMARK: benchmark,
     }

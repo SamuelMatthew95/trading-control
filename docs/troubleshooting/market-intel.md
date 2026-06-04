@@ -77,3 +77,22 @@ fallback, `ALPACA_API_KEY` / `ALPACA_SECRET_KEY` are unset in the environment �
 that is the only remaining systemic cause.
 
 **Regression test:** `tests/api/test_market_intel.py::test_correlation_falls_back_to_daily_bars_when_intraday_sparse`
+
+## Macro regime serialized as `"MacroRegime.RISK_ON"` on Python 3.10 (CI-only failure)
+
+**Symptom:** `tests/api/test_market_intel.py::test_macro_regime_*` failed on the
+3.10 CI leg (passed on 3.11) with
+`assert 'MacroRegime.RISK_ON' == <MacroRegime.RISK_ON: 'risk_on'>` — the regime
+payload value carried the enum's class-qualified name instead of `"risk_on"`.
+
+**Root cause:** `fetch_macro_regime` stored the regime as `str(regime)`. On
+Python 3.11 `enum.StrEnum` is real (`str()` returns the value), but on 3.10 the
+`StrEnum` backport shim in `api/constants.py` is a bare `class StrEnum(str, Enum)`
+that does NOT override `__str__`, so `str(MacroRegime.RISK_ON)` falls back to
+`Enum.__str__` → `"MacroRegime.RISK_ON"`.
+
+**Fix:** Use `regime.value` instead of `str(regime)` in `api/services/market_intel.py`
+— a plain `"risk_on"` string on both interpreter versions, matching the value the
+Redis-cached path returns.
+
+**Regression test:** `tests/api/test_market_intel.py::test_macro_regime_risk_on_when_benchmark_trends_up`
