@@ -696,6 +696,7 @@ class FieldName(StrEnum):
     OLDEST_PENDING_AGE_SECONDS = "oldest_pending_age_seconds"
     OLDEST_PENDING_SCORE_AGE_SECONDS = "oldest_pending_score_age_seconds"
     OPEN = "open"
+    OLD_VALUE = "old_value"
     OPENAI = "openai"
     OPEN_POSITION_QTY = "open_position_qty"
     OPEN_POSITIONS = "open_positions"

@@ -227,7 +227,11 @@ def _performance_trends_from_runtime_store(source: str = "in_memory") -> dict[st
         avg_loss = round(sum(loss_pnls) / losses, 2) if loss_pnls else 0.0
     return {
         "summary": {
-            FieldName.TOTAL_PNL: summary_data[FieldName.TOTAL_PNL],
+            # Realized PnL only — matches the DB path (SUM(pnl) over closed
+            # trades). Unrealized open-position PnL is exposed separately via the
+            # paired-PnL / /pnl endpoints so "Total PnL" means the same thing in
+            # both modes and never shows a phantom number next to zero closed fills.
+            FieldName.TOTAL_PNL: summary_data[FieldName.REALIZED_PNL],
             FieldName.TOTAL_TRADES: total_trades,
             "win_rate": round(summary_data[FieldName.WIN_RATE_PERCENT] / 100.0, 4),
             FieldName.AVG_WIN: avg_win,

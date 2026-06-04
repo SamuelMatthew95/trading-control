@@ -1,6 +1,6 @@
 'use client'
 import { create } from 'zustand'
-import { api } from '@/lib/apiClient'
+import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { coerceProposalContent, proposalStrategyName } from '@/lib/proposal-content'
 import { NOTIFICATION_FALLBACKS, NOTIFICATION_SEVERITIES, type NotificationSeverity } from '@/constants/notifications'
 
@@ -249,6 +249,19 @@ export interface PerformanceSummary {
   worst_trade: number
 }
 
+// Live PnL breakdown from GET /pnl (PaperBroker-sourced). Distinct from
+// PerformanceSummary: this carries realized vs unrealized split + open-position
+// count straight from the broker, updated on every poll/reconnect.
+export interface PnlSummary {
+  realized_pnl: number
+  unrealized_pnl: number
+  total_pnl: number
+  closed_trades: number
+  winning_trades: number
+  win_rate_percent: number
+  open_positions: number
+}
+
 export interface DailyPnl {
   day: string
   pnl: number
@@ -387,6 +400,7 @@ type CodexState = {
   tradeFeed: TradeFeedItem[]
   agentInstances: AgentInstance[]
   performanceSummary: PerformanceSummary | null
+  pnlSummary: PnlSummary | null
   dailyPnl: DailyPnl[]
   learningEvents: LearningEvent[]
   systemMetrics: SystemMetric[]
@@ -435,6 +449,8 @@ type CodexState = {
   hydrateFromLocalStorage: () => void
   bulkUpdate: (updates: Partial<CodexState>) => void
   fetchPrices: () => Promise<void>
+  fetchPositions: () => Promise<void>
+  fetchPnl: () => Promise<void>
 }
 
 const _loadFromStorage = <T>(key: string, limit: number): T[] => {
@@ -474,6 +490,7 @@ export const useCodexStore = create<CodexState>((set) => ({
   tradeFeed: [],
   agentInstances: [],
   performanceSummary: null,
+  pnlSummary: null,
   dailyPnl: [],
   learningEvents: [],
   systemMetrics: [],
@@ -571,6 +588,44 @@ export const useCodexStore = create<CodexState>((set) => ({
       })
     } catch (error) {
       console.error('Error fetching prices:', error)
+    }
+  },
+  // Authoritative open positions from the PaperBroker-backed /positions endpoint.
+  // Merge by symbol: REST is authoritative for symbols it returns; any WS-only
+  // position for a symbol the endpoint doesn't cover is preserved.
+  fetchPositions: async () => {
+    try {
+      const response = await fetch(api(API_ENDPOINTS.POSITIONS))
+      if (!response.ok) return
+      const data = await response.json()
+      const incoming = Array.isArray(data.positions) ? (data.positions as Position[]) : []
+      set((state) => {
+        const restSymbols = new Set(incoming.map((p) => p.symbol))
+        const merged = [
+          ...incoming,
+          ...state.positions.filter((p) => !restSymbols.has(p.symbol)),
+        ]
+        _saveToStorage('codex.positions', merged)
+        return { positions: merged }
+      })
+    } catch (error) {
+      console.error('Error fetching positions:', error)
+    }
+  },
+  // Live realized + unrealized PnL breakdown from the PaperBroker-backed /pnl
+  // endpoint. Stored separately from performanceSummary (which is the DB/trends
+  // aggregate) so the UI can show broker-truth unrealized PnL in every mode.
+  fetchPnl: async () => {
+    try {
+      const response = await fetch(api(API_ENDPOINTS.PNL))
+      if (!response.ok) return
+      const data = await response.json()
+      const summary = data?.summary
+      if (summary && typeof summary === 'object') {
+        set({ pnlSummary: summary as PnlSummary })
+      }
+    } catch (error) {
+      console.error('Error fetching pnl:', error)
     }
   },
   addSignal: (signal) => set((state) => ({

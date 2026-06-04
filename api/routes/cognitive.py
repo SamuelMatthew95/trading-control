@@ -1,10 +1,10 @@
-"""Read-only observability API for the cognitive trading brain.
+"""Observability API for the cognitive trading brain.
 
-Every endpoint here is a pure read of one :class:`cognitive.loop.CognitiveLoop`
-instance whose state lives entirely on its event stream — so the UI is a mirror
-of the stream, never a second source of truth. There are no mutation endpoints
-besides ``/reseed`` (which rebuilds the deterministic demo trajectory); behaviour
-changes only ever happen through the GitOps PR path, never through this API.
+``/cognitive/state`` and ``/cognitive/events`` now mirror the LIVE agent pipeline
+(decisions, grades, proposals, reflections, the real event stream) via
+``api.services.cognitive_live``. The standalone deterministic ``cognitive`` demo
+loop is still reachable behind ``?demo=true`` for design/QA, but is no longer the
+default — the page reflects real agents.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
+from api.services.cognitive_live import build_live_events, build_live_snapshot
 from cognitive.demo import build_seeded_loop
 from cognitive.loop import CognitiveLoop
 from cognitive.trace import build_trace
@@ -31,15 +32,20 @@ def _get_loop() -> CognitiveLoop:
 
 
 @router.get("/state")
-async def cognitive_state() -> dict[str, Any]:
-    """The full 7-tab observability snapshot (the single UI data source)."""
-    return _get_loop().snapshot()
+async def cognitive_state(demo: bool = False) -> dict[str, Any]:
+    """The full observability snapshot. Live agent data by default; ``?demo=true``
+    returns the deterministic seeded trajectory (design/QA only)."""
+    if demo:
+        return _get_loop().snapshot()
+    return await build_live_snapshot()
 
 
 @router.get("/events")
-async def cognitive_events(limit: int = 300) -> list[dict[str, Any]]:
-    """The raw SYSTEM_EVENT_STREAM (most recent ``limit`` events)."""
-    return _get_loop().stream.snapshot()[-limit:]
+async def cognitive_events(limit: int = 300, demo: bool = False) -> list[dict[str, Any]]:
+    """The recent event stream — live by default, seeded demo with ``?demo=true``."""
+    if demo:
+        return _get_loop().stream.snapshot()[-limit:]
+    return await build_live_events(limit)
 
 
 @router.get("/config")

@@ -28,6 +28,7 @@ from api.database import engine, get_settings_info, init_database, test_database
 from api.events.bus import EventBus, ensure_all_streams_ready
 from api.events.dlq import DLQManager
 from api.in_memory_store import InMemoryStore
+from api.main_state import set_services
 from api.mcp.server import mcp_lifespan_context
 from api.observability import log_structured
 from api.redis_client import close_redis, get_redis
@@ -56,6 +57,8 @@ from api.services.config_overrides import apply_parameter_overrides
 from api.services.event_pipeline import EventPipeline
 from api.services.execution.brokers.paper import PaperBroker
 from api.services.execution.execution_engine import ExecutionEngine
+from api.services.feedback_service import FeedbackService
+from api.services.learning_service import LearningService
 from api.services.lmstudio_provider import (
     _is_lmstudio_effectively_enabled,
 )
@@ -65,9 +68,11 @@ from api.services.lmstudio_provider import (
 from api.services.lmstudio_provider import (
     log_startup_config as lm_studio_log_startup_config,
 )
+from api.services.multi_agent_orchestrator import MultiAgentOrchestrator
 from api.services.prompt_store import PromptStore, set_prompt_store
 from api.services.redis_store import RedisStore, set_redis_store
 from api.services.signal_generator import SignalGenerator
+from api.services.trading import TradingService
 from api.services.websocket_broadcaster import get_broadcaster
 from api.workers.price_poller import poll_prices
 from backtest.challenger import BASELINE_STRATEGY
@@ -271,6 +276,54 @@ def _build_agents(event_bus, dlq_manager, redis_client, agent_state, paper_broke
     ]
 
 
+def _wire_shared_services(app: FastAPI, agents: list, paper_broker: PaperBroker) -> None:
+    """Populate the route-facing service registry and app.state singletons.
+
+    REST routes (analyze, feedback, performance, positions, pnl) resolve their
+    dependencies through ``api.main_state`` getters, so this must run once at
+    startup. The TradingService wraps a MultiAgentOrchestrator for the synchronous
+    ``/analyze`` path; without an Anthropic key the orchestrator uses its
+    deterministic reasoning model, so /analyze still returns a real decision
+    offline.
+
+    The live ReasoningAgent is also published on ``app.state.reasoning_agent`` so
+    the idiomatic dependency in ``api.dependencies`` (``get_reasoning_agent``)
+    resolves the exact instance the pipeline runs, instead of 503-ing. Other
+    agents stay reachable via ``app.state.agents`` (the canonical list other
+    routes already filter), so we don't duplicate per-agent registries here.
+    """
+    try:
+        orchestrator = MultiAgentOrchestrator(api_key=settings.ANTHROPIC_API_KEY or None)
+    except Exception:
+        # Never let orchestrator construction block startup — /analyze falls back
+        # to MOCK MODE (a valid degraded FLAT decision) when the orchestrator is
+        # absent.
+        log_structured("warning", "orchestrator_init_failed_mock_mode", exc_info=True)
+        orchestrator = None
+    trading_service = TradingService(orchestrator)
+
+    set_services(
+        trading_service=trading_service,
+        feedback_service=FeedbackService(),
+        learning_service=LearningService(),
+        paper_broker=paper_broker,
+    )
+
+    # Publish the live ReasoningAgent on app.state so api.dependencies can inject
+    # it (the agent is event-driven; this is the read handle for REST/introspection).
+    reasoning_agent = next((a for a in agents if isinstance(a, ReasoningAgent)), None)
+    app.state.reasoning_agent = reasoning_agent
+
+    log_structured(
+        "info",
+        "shared_services_wired",
+        trading_service=True,
+        orchestrator=orchestrator is not None,
+        paper_broker=True,
+        reasoning_agent=reasoning_agent is not None,
+    )
+
+
 def _start_background_tasks(app: FastAPI) -> None:
     """Launch the long-running background tasks (poller, keep-alive, backtest)."""
     app.state.poller_task = asyncio.create_task(poll_prices(), name="price-poller")
@@ -393,6 +446,11 @@ async def lifespan(app: FastAPI):
                 streams=getattr(agent, "streams", None),
             )
         app.state.agents = agents
+
+        # Wire the shared service registry (api.main_state) so the analyze /
+        # feedback / performance / positions / pnl routes operate on the same
+        # live PaperBroker, runtime store, and pipeline agents.
+        _wire_shared_services(app, agents, paper_broker)
 
         # Wire the dynamic challenger spawner (shared by the dashboard route and
         # an approved NEW_AGENT proposal) onto the live agents list + the applier.

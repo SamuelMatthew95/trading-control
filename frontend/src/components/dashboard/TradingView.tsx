@@ -4,16 +4,16 @@ import { useMemo } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
 import { cn } from '@/lib/utils'
 import { deriveActivityIndicator, ACTIVITY_FRESH_MS } from '@/lib/agent-activity'
-import { formatUSD, formatTimeAgo, getField, getStr, toFiniteNum as toNum } from '@/lib/formatters'
+import { formatUSD, formatTimeAgo, getField, getStr, isActivePosition, toFiniteNum as toNum } from '@/lib/formatters'
 import { GRADE_STYLES } from '@/lib/grade-colors'
-import { Activity, BarChart2, Layers, TrendingDown, TrendingUp } from 'lucide-react'
+import { Activity, BarChart2, TrendingDown, TrendingUp } from 'lucide-react'
+import { OpenPositionsPanel } from '@/components/dashboard/OpenPositionsPanel'
 import {
   tradeFeedEmptyLabel,
   activityDotClass,
   activityLabel,
   confColorClass,
   actionBadgeClass,
-  positionSideBadgeClass,
   winRateFromFeed,
 } from '@/lib/dashboard-helpers'
 
@@ -321,120 +321,6 @@ function AgentActivityPanel({ setActiveTraceId }: { setActiveTraceId: (id: strin
 }
 
 // ---------------------------------------------------------------------------
-// Open Positions
-// ---------------------------------------------------------------------------
-
-function OpenPositionsPanel() {
-  const { positions = [] } = useCodexStore()
-
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
-      <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5 dark:border-slate-800">
-        <p className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
-          Open Positions
-        </p>
-        <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-mono text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-          {positions.length} active
-        </span>
-      </div>
-
-      {positions.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-3 py-12">
-          <Layers className="h-9 w-9 text-slate-300 dark:text-slate-700" />
-          <p className="text-sm text-slate-500 dark:text-slate-400">No open positions</p>
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 dark:border-slate-800">
-                {['Symbol', 'Side', 'Qty', 'Entry', 'Current', 'P&L', 'P&L %'].map((h, i) => (
-                  <th
-                    key={h}
-                    className={cn(
-                      'py-3 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400',
-                      i === 0 ? 'pl-5 pr-4 text-left' : i >= 4 ? 'px-4 text-right last:pr-5' : 'px-4 text-left',
-                    )}
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-              {positions.map((pos, i) => {
-                const pnl = toNum(getField(pos, 'pnl'))
-                const pnlPct = toNum(getField(pos, 'pnl_percent'))
-                const isPos = (pnl ?? 0) >= 0
-                const side = getStr(pos, 'side').toUpperCase()
-                const symbol = getStr(pos, 'symbol') || '--'
-                // ORM uses `quantity`; paper-broker Redis state uses `qty` — try both.
-                const qty = toNum(getField(pos, 'quantity')) ?? toNum(getField(pos, 'qty'))
-                const entryPrice = toNum(getField(pos, 'entry_price'))
-                const currentPrice = toNum(getField(pos, 'current_price'))
-
-                return (
-                  <tr
-                    key={`${symbol}-${i}`}
-                    className="transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                  >
-                    <td className="py-3 pl-5 pr-4 font-mono font-bold text-slate-900 dark:text-slate-100">
-                      {symbol}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={cn('rounded-md px-2 py-0.5 text-[11px] font-black', positionSideBadgeClass(side))}>
-                        {side || '--'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 font-mono tabular-nums text-slate-700 dark:text-slate-300">
-                      {qty != null ? qty : '--'}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-700 dark:text-slate-300">
-                      {entryPrice != null ? formatUSD(entryPrice) : '--'}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-700 dark:text-slate-300">
-                      {currentPrice != null ? formatUSD(currentPrice) : '--'}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {pnl != null ? (
-                        <span
-                          className={cn(
-                            'font-black font-mono tabular-nums',
-                            isPos ? 'text-emerald-500' : 'text-rose-500',
-                          )}
-                        >
-                          {isPos ? '+' : '-'}{formatUSD(pnl)}
-                        </span>
-                      ) : (
-                        <span className="text-slate-400">--</span>
-                      )}
-                    </td>
-                    <td className="py-3 pl-4 pr-5 text-right">
-                      {pnlPct != null ? (
-                        <span
-                          className={cn(
-                            'font-mono tabular-nums text-xs',
-                            isPos ? 'text-emerald-500' : 'text-rose-500',
-                          )}
-                        >
-                          {isPos ? '+' : ''}{pnlPct.toFixed(2)}%
-                        </span>
-                      ) : (
-                        <span className="text-slate-400 text-xs">--</span>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Main TradingView
 // ---------------------------------------------------------------------------
 
@@ -457,13 +343,19 @@ export function TradingView({
     tradeFeed = [],
     positions = [],
     performanceSummary = null,
+    pnlSummary = null,
   } = useCodexStore()
 
   const stats = useMemo(() => {
+    // Prefer the live PaperBroker PnL (realized + unrealized) so Session P&L
+    // reflects open-position mark-to-market, not just closed-trade realized PnL.
+    // Fall back to the DB/trends aggregate, then to the realized trade-feed sum.
     const totalPnl =
-      performanceSummary?.total_pnl != null && performanceSummary.total_pnl !== 0
-        ? performanceSummary.total_pnl
-        : tradeFeed.reduce((sum, t) => sum + (toNum(t.pnl) ?? 0), 0)
+      pnlSummary?.total_pnl != null
+        ? pnlSummary.total_pnl
+        : performanceSummary?.total_pnl != null && performanceSummary.total_pnl !== 0
+          ? performanceSummary.total_pnl
+          : tradeFeed.reduce((sum, t) => sum + (toNum(t.pnl) ?? 0), 0)
 
     const totalTrades = performanceSummary?.total_trades ?? tradeFeed.filter((t) => t.pnl != null).length
     // Derive wins from summary when available so sub-text matches the aggregate win rate.
@@ -479,20 +371,25 @@ export function TradingView({
         : winRateFromFeed(tradeFeed)
 
     // Active = abs(qty) > 0 (backend canonical rule), not the raw array length,
-    // so a flat (qty 0) row never inflates the count. ORM uses `quantity`,
-    // paper-broker Redis state uses `qty` — try both, matching the table render.
-    const activePositions = positions.filter((pos) => {
-      const qty = toNum(getField(pos, 'quantity')) ?? toNum(getField(pos, 'qty')) ?? 0
-      return Math.abs(qty) > 0
-    }).length
+    // so a flat (qty 0) row never inflates the count. `isActivePosition` reads
+    // ORM `quantity` and paper-broker `qty`, matching the Open Positions table.
+    const activePositions = positions.filter(isActivePosition).length
     return { totalPnl, winRatePct, totalTrades, wins, fills: tradeFeed.length, activePositions }
-  }, [tradeFeed, positions, performanceSummary])
+  }, [tradeFeed, positions, performanceSummary, pnlSummary])
 
   const pnlSign =
     stats.totalPnl > 0.005 ? 'positive' : stats.totalPnl < -0.005 ? 'negative' : 'neutral'
 
   const winRateSign =
     stats.winRatePct == null ? 'neutral' : stats.winRatePct >= 50 ? 'positive' : 'negative'
+
+  // When the live broker PnL is available, spell out the realized/unrealized
+  // split so "Session P&L" (which folds in open-position mark-to-market) reads
+  // unambiguously next to the realized-only "Total PnL" shown elsewhere.
+  const pnlSub =
+    pnlSummary != null
+      ? `${formatUSD(pnlSummary.realized_pnl)} realized · ${formatUSD(pnlSummary.unrealized_pnl)} unrealized`
+      : undefined
 
   return (
     <div className="space-y-4">
@@ -501,6 +398,7 @@ export function TradingView({
         <StatTile
           label="Session P&L"
           value={stats.totalPnl < -0.005 ? `(${formatUSD(stats.totalPnl)})` : formatUSD(stats.totalPnl)}
+          sub={pnlSub}
           sign={pnlSign}
           icon={stats.totalPnl >= 0 ? TrendingUp : TrendingDown}
         />

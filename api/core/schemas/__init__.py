@@ -118,6 +118,23 @@ class StandardResponse(BaseModel):
     error: str | None = Field(None, description="Error message if any")
 
 
+class AnnotationCreate(BaseModel):
+    """Human annotation staged against an agent run for reinforcement."""
+
+    run_id: str | None = Field(None, description="Agent run id being annotated")
+    label: str | None = Field(None, description="Annotation label (e.g. good/bad)")
+    note: str | None = Field(None, description="Free-text reviewer note")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Extra annotation context")
+
+
+class ReinforceRequest(BaseModel):
+    """Request to run the reinforcement / feedback pipeline for a run."""
+
+    run_id: str = Field(..., description="Agent run id to reinforce")
+    reward: float | None = Field(None, description="Optional scalar reward signal")
+    notes: str | None = Field(None, description="Optional reviewer notes")
+
+
 class HealthResponse(BaseModel):
     """Health check response."""
 

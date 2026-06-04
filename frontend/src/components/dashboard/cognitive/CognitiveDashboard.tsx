@@ -329,12 +329,16 @@ function CognitionLoopPanel() {
 
 function AgentsPanel({ snap }: { snap: CognitiveSnapshot }) {
   const grades = new Map(snap.evolution.agent_grades.map((g) => [g.subject_id, g]))
+  const agentsHealth = snap.health.agents
   return (
     <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
       {snap.agents_roster.map((agent) => {
+        // Real roster: key by agent name first; fall back to the sim's
+        // emits-derived key so the seeded demo still attaches.
         const signalName = agent.emits.replace('_signal', '')
-        const grade = grades.get(signalName)
-        const live = snap.live_agents[signalName as 'news' | 'tech' | 'macro' | 'risk'] ?? null
+        const grade = grades.get(agent.name) ?? grades.get(signalName)
+        const live = snap.live_agents[agent.name] ?? snap.live_agents[signalName] ?? null
+        const health = agentsHealth[agent.name]
         return (
           <div key={agent.name} className={card}>
             <div className="flex items-center justify-between">
@@ -342,18 +346,31 @@ function AgentsPanel({ snap }: { snap: CognitiveSnapshot }) {
               {grade ? <Grade grade={grade.grade} /> : <span className={cn(chip, gradeTone(null))}>{agent.role}</span>}
             </div>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{agent.description}</p>
+            {health && (
+              <div className="mt-2 flex items-center gap-2 text-xs">
+                <span
+                  className={cn(
+                    chip,
+                    health.status === 'healthy'
+                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                      : 'border-slate-500/20 bg-slate-500/10 text-slate-500 dark:text-slate-400',
+                  )}
+                >
+                  {health.status}
+                </span>
+                <span className="text-slate-500 dark:text-slate-400">{health.events} events</span>
+              </div>
+            )}
             {grade && (
               <div className="mt-2 grid grid-cols-2 gap-1 text-xs text-slate-600 dark:text-slate-400">
                 <span>score {grade.score}</span>
                 <span>n {grade.samples ?? 0}</span>
-                <span>hit {((grade.correct_rate ?? 0) * 100).toFixed(0)}%</span>
-                <span>pnl {signed(grade.contribution ?? 0, 1)}</span>
               </div>
             )}
             {live && (
               <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                 last: {Object.entries(live)
-                  .filter(([k]) => k !== 'type')
+                  .filter(([k, v]) => k !== 'type' && v != null)
                   .map(([k, v]) => `${k} ${typeof v === 'number' ? v : String(v)}`)
                   .join(' · ')}
               </div>
@@ -442,18 +459,25 @@ function EvolutionPanel({ snap }: { snap: CognitiveSnapshot }) {
     <div className="grid gap-3 lg:grid-cols-2">
       <div className={card}>
         <div className={cn(label, 'mb-2')}>Config Evolution</div>
-        <ol className="space-y-2">
-          {snap.evolution.config_versions.map((cv) => (
-            <li key={cv.version} className="flex items-center gap-2 text-sm">
-              <span className="font-mono text-slate-500 dark:text-slate-400">v{cv.version}</span>
-              {cv.grade ? <Grade grade={cv.grade.grade} /> : <span className="text-xs text-slate-500 dark:text-slate-400">active</span>}
-              <span className="text-xs text-slate-500 dark:text-slate-400">
-                news {cv.config.weights.news} · tech {cv.config.weights.tech} · macro{' '}
-                {cv.config.weights.macro}
-              </span>
-            </li>
-          ))}
-        </ol>
+        {snap.evolution.config_versions.length === 0 ? (
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            No config versions yet — appears once the learning loop promotes a weight/threshold change.
+          </p>
+        ) : (
+          <ol className="space-y-2">
+            {snap.evolution.config_versions.map((cv) => (
+              <li key={cv.version} className="flex items-start gap-2 text-sm">
+                <span className="font-mono text-slate-500 dark:text-slate-400">v{cv.version}</span>
+                {cv.grade ? <Grade grade={cv.grade.grade} /> : <span className="text-xs text-slate-500 dark:text-slate-400">active</span>}
+                <span className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2">
+                  {cv.config.rationale && cv.config.rationale.length > 0
+                    ? cv.config.rationale
+                    : 'directive promoted'}
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
       </div>
       <div className={card}>
         <div className={cn(label, 'mb-2')}>Proposal Success by Type</div>
