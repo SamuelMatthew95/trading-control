@@ -448,3 +448,42 @@ positions are open.
 `surfaces the open position on the overview so the Active Positions count has
 visible detail` and `excludes flat (qty 0) positions from the overview Open
 Positions table`.
+
+## P&L looked static (didn't move with the market) and headline numbers contradicted each other
+
+**Symptom:** Operators reported the P&L "doesn't update, just static" and that the
+numbers were confusing "bullshit": the header chip showed e.g. `Total P&L -$0.61`
+while the overview headline showed `Daily P&L --` and the Performance card showed
+`Total P&L -$0.09` — three different figures, none of them moving as prices ticked.
+
+**Root cause:** Two separate problems.
+1. **No client-side mark-to-market.** When prices streamed in over WebSocket, open
+   positions' `pnl` was *not* recomputed — it stayed frozen at whatever the backend
+   last pushed (only on a fill). So unrealized P&L (and therefore the header "Total
+   P&L", which includes it) only moved on fills, never as the market moved.
+2. **Three different definitions wearing overlapping labels.** Header "Total P&L" =
+   realized(orders) + unrealized(positions). Overview "Daily P&L" = realized(orders)
+   only, no date filter (so not actually daily). Performance "Total P&L" =
+   closed-trade / DB aggregate (realized). They measured different things but read
+   like they should agree.
+
+**Fix:**
+- Added mark-to-market helpers in `lib/formatters.ts` (`positionLivePnl`,
+  `positionLivePnlPct`, `livePriceFor`, `pricesFreshnessMs`) that value a position
+  against the freshest streamed price (side-aware), plus `useLivePositions`
+  (re-marks `pnl`/`current_price`/`pnl_percent` every tick) and `useLivePnl`
+  (`{realized, unrealized, total}`) as the single P&L source.
+- The header chip and the overview headline now both render `useLivePnl().total`,
+  so they can never disagree; the overview tile is relabelled **Total P&L** (was the
+  mislabelled "Daily P&L") with a `Realized … · Unrealized …` breakdown, and the
+  Performance card's cell is relabelled **Realized P&L** to stop it contradicting.
+- The Open Positions table (overview + trading) and the System page's P&L Clarity /
+  exposure consume live-marked positions, so they move with the market.
+- New `LiveNumber` flashes green/red when a value changes and `LiveDot` shows a
+  pulsing live indicator, so updates are *visible* instead of silently swapping.
+
+**Regression test:** `frontend/src/test/helpers/live-pnl.test.ts` (mark-to-market
+math, `markPositionsToMarket`, `computeLivePnl`),
+`frontend/src/test/components/LiveNumber.test.tsx` (flash on change), and
+`frontend/src/test/components/DashboardView.test.tsx` —
+`shows a live Total P&L = realized orders + mark-to-market unrealized`.
