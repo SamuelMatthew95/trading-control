@@ -277,15 +277,20 @@ def _build_agents(event_bus, dlq_manager, redis_client, agent_state, paper_broke
 
 
 def _wire_shared_services(app: FastAPI, agents: list, paper_broker: PaperBroker) -> None:
-    """Populate ``api.main_state`` with the live service stack.
+    """Populate the route-facing service registry and app.state singletons.
 
-    Route modules (analyze, feedback, performance, positions, pnl) resolve their
+    REST routes (analyze, feedback, performance, positions, pnl) resolve their
     dependencies through ``api.main_state`` getters, so this must run once at
     startup. The TradingService wraps a MultiAgentOrchestrator for the synchronous
     ``/analyze`` path; without an Anthropic key the orchestrator uses its
     deterministic reasoning model, so /analyze still returns a real decision
-    offline. NotificationAgent / ReasoningAgent are pulled out of the live agent
-    fleet so reflection-layer routes share the exact instances the pipeline runs.
+    offline.
+
+    The live ReasoningAgent is also published on ``app.state.reasoning_agent`` so
+    the idiomatic dependency in ``api.dependencies`` (``get_reasoning_agent``)
+    resolves the exact instance the pipeline runs, instead of 503-ing. Other
+    agents stay reachable via ``app.state.agents`` (the canonical list other
+    routes already filter), so we don't duplicate per-agent registries here.
     """
     try:
         orchestrator = MultiAgentOrchestrator(api_key=settings.ANTHROPIC_API_KEY or None)
@@ -297,25 +302,24 @@ def _wire_shared_services(app: FastAPI, agents: list, paper_broker: PaperBroker)
         orchestrator = None
     trading_service = TradingService(orchestrator)
 
-    notification_agent = next((a for a in agents if isinstance(a, NotificationAgent)), None)
-    reasoning_agent = next((a for a in agents if isinstance(a, ReasoningAgent)), None)
-
     set_services(
         trading_service=trading_service,
         feedback_service=FeedbackService(),
         learning_service=LearningService(),
         paper_broker=paper_broker,
-        runtime_store=app.state.in_memory_store,
-        notification_agent=notification_agent,
-        reasoning_agent=reasoning_agent,
     )
+
+    # Publish the live ReasoningAgent on app.state so api.dependencies can inject
+    # it (the agent is event-driven; this is the read handle for REST/introspection).
+    reasoning_agent = next((a for a in agents if isinstance(a, ReasoningAgent)), None)
+    app.state.reasoning_agent = reasoning_agent
+
     log_structured(
         "info",
         "shared_services_wired",
         trading_service=True,
         orchestrator=orchestrator is not None,
         paper_broker=True,
-        notification_agent=notification_agent is not None,
         reasoning_agent=reasoning_agent is not None,
     )
 

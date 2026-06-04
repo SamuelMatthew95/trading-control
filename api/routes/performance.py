@@ -124,7 +124,17 @@ async def get_statistics(force_refresh: bool = False) -> dict[str, Any]:
 async def get_recent_runs(limit: int = 20) -> dict[str, Any]:
     if not is_db_available():
         store = get_runtime_store()
-        runs = list(getattr(store, "agent_runs", []))[-limit:]
+        # Newest-first, projected to the same {id, task_id, created_at} contract
+        # the DB branch returns so the endpoint shape is mode-independent.
+        rows = list(getattr(store, "agent_runs", []))[-limit:][::-1]
+        runs = [
+            {
+                FieldName.ID: r.get(FieldName.ID),
+                FieldName.TASK_ID: r.get(FieldName.TASK_ID),
+                FieldName.CREATED_AT: r.get(FieldName.CREATED_AT),
+            }
+            for r in rows
+        ]
         return {FieldName.RUNS: runs, FieldName.SOURCE: "in_memory"}
 
     try:
