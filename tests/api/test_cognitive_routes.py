@@ -20,7 +20,21 @@ TABS = (
 
 
 async def test_state_exposes_all_observability_tabs():
+    # Default is now the LIVE snapshot — it must expose every tab the UI renders
+    # (empty in a fresh store, but every key present so the page never crashes).
     snapshot = await route.cognitive_state()
+    for tab in TABS:
+        assert tab in snapshot
+    assert isinstance(snapshot["event_count"], int)
+    assert len(snapshot["agents_roster"]) > 0
+    # Live snapshot is fully keyed for the frontend's deep accesses.
+    assert isinstance(snapshot["evolution"]["agent_grades"], list)
+    assert isinstance(snapshot["drift"]["alerts"], list)
+    assert set(snapshot["live_agents"]) == {"news", "tech", "macro", "risk"}
+
+
+async def test_demo_state_still_seeded():
+    snapshot = await route.cognitive_state(demo=True)
     for tab in TABS:
         assert tab in snapshot
     assert snapshot["event_count"] > 0
@@ -45,7 +59,8 @@ async def test_agents_endpoint_lists_full_roster():
 
 
 async def test_trace_endpoint_reconstructs_a_full_chain():
-    snapshot = await route.cognitive_state()
+    # Trace reconstruction reads the seeded demo stream, so drive it via demo mode.
+    snapshot = await route.cognitive_state(demo=True)
     trace_id = snapshot["traces"][0]["trace_id"]
     trace = await route.cognitive_trace(trace_id)
     assert trace["trace_id"] == trace_id
