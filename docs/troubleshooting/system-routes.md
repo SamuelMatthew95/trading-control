@@ -1,5 +1,17 @@
 # System Routes Troubleshooting
 
+## Dead "manual orchestrator" route cluster removed (/analyze 500s; feedback/performance non-importable)
+
+**Symptom:** `POST /analyze` and `POST /shadow/analyze` returned HTTP 500 (`RuntimeError: Trading service not initialized`) on every call. `api/routes/feedback.py` and `api/routes/performance.py` existed but were never registered and could not even be imported.
+
+**Root cause:** A pre-event-driven design (on-demand `MultiAgentOrchestrator` + `TradingService`, wired via `api/main_state.py`) was superseded by the live agent pipeline but left behind. `set_services()` was never called, so `get_trading_service()` always raised; `feedback.py`/`performance.py` imported a service module (`feedback_service.py`/`learning_service.py`) and DI provider that never existed.
+
+**Fix:** Removed the whole dead cluster — `api/routes/{analyze,feedback,performance}.py`, `api/main_state.py`, `api/services/trading.py`, `api/services/multi_agent_orchestrator.py` — and the router registration in `api/main.py`. The live event-driven pipeline and `/learning/*` routes already cover these capabilities.
+
+**Regression test:** `tests/core/test_api_modularization.py::test_dead_orchestrator_cluster_removed`
+
+---
+
 ## Stream lag always shows "Consumer group not found"
 
 **Symptom:** `GET /system/status` → `stream_lag` reports `"error": "Consumer group not found"` for every stream, even while agents are actively processing.
