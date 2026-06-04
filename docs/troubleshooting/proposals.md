@@ -79,3 +79,33 @@ For proposals to persist across restarts the backend must be in DB mode, not
 memory mode.
 
 **Regression test:** `frontend/src/test/components/ProposalsSection.test.tsx` (empty-state copy)
+
+---
+
+## Verifying the loop actually produces proposals (and they reach the UI)
+
+**Symptom:** Unsure whether proposals are being generated, whether the
+different types are wired, or whether the dashboard will ever "see" them.
+
+**How it flows (verified end-to-end):**
+`trade fills + grades → ReflectionAgent → reflection_outputs → StrategyProposer
+→ proposals (PARAMETER_CHANGE / CODE_CHANGE / NEW_AGENT / REGIME_ADJUSTMENT /
+PROMPT_EVOLUTION) → ProposalApplier` which routes each type — config auto-PR,
+GitHub issue, prompt store, tool registry, or Redis control plane. All agents
+run inside the single `gunicorn -w 1` web process (started in the FastAPI
+lifespan), so the in-process `InMemoryStore` is **shared** — a proposal the
+StrategyProposer writes in memory mode is readable by `/dashboard/learning/proposals`.
+
+**Notes:**
+- A reflection-born `PARAMETER_CHANGE` is description-only (the hypothesis schema
+  is `{description, confidence, type}`), so the applier's auto-PR is a recognised
+  no-op — it's a human-review item, not a fabricated value. Auto-PR fires for
+  structured param proposals (or operator approval).
+- GitHub auto-PR / issue creation needs `GITHUB_TOKEN` in the Render env
+  (declared `sync: false` in `render.yaml`; read via `settings.GITHUB_TOKEN`).
+  Without it, application is a safe dry-run no-op.
+- The dashboard router is mounted at both `/dashboard/*` and `/api/dashboard/*`,
+  so the frontend reaches it regardless of `NEXT_PUBLIC_API_URL`.
+
+**Regression tests:** `tests/integration/test_cognition_loop_flow.py`,
+`tests/api/test_dashboard_proposals_read.py`
