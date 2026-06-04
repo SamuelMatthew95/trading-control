@@ -449,12 +449,13 @@ function EvolutionPanel({ snap }: { snap: CognitiveSnapshot }) {
         ) : (
           <ol className="space-y-2">
             {snap.evolution.config_versions.map((cv) => (
-              <li key={cv.version} className="flex items-center gap-2 text-sm">
+              <li key={cv.version} className="flex items-start gap-2 text-sm">
                 <span className="font-mono text-slate-500 dark:text-slate-400">v{cv.version}</span>
                 {cv.grade ? <Grade grade={cv.grade.grade} /> : <span className="text-xs text-slate-500 dark:text-slate-400">active</span>}
-                <span className="text-xs text-slate-500 dark:text-slate-400">
-                  news {cv.config.weights.news} · tech {cv.config.weights.tech} · macro{' '}
-                  {cv.config.weights.macro}
+                <span className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2">
+                  {cv.config.rationale && cv.config.rationale.length > 0
+                    ? cv.config.rationale
+                    : 'directive promoted'}
                 </span>
               </li>
             ))}

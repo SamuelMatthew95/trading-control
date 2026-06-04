@@ -41,6 +41,7 @@ from api.constants import (
 from api.observability import log_structured
 from api.runtime_state import get_runtime_store
 from api.services.dashboard.learning import get_ic_weights_payload
+from api.services.dashboard.prompt_evolution import get_prompt_evolution_payload
 from api.services.dashboard.proposals import list_proposals_payload
 from api.services.redis_store import get_redis_store
 
@@ -137,23 +138,57 @@ def _agent_grades(grades: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def _score_to_letter(score: float) -> str:
+    """Band a 0..1 grade score to a letter grade (display only)."""
+    if score >= 0.9:
+        return "A"
+    if score >= 0.8:
+        return "B"
+    if score >= 0.7:
+        return "C"
+    if score >= 0.6:
+        return "D"
+    return "F"
+
+
+def _proposal_reason(p: dict[str, Any]) -> str:
+    """Best-effort human reason from the proposal payload."""
+    content = p.get(FieldName.CONTENT)
+    if isinstance(content, str) and content.strip():
+        return content
+    if isinstance(content, dict):
+        reason = content.get(FieldName.REASON) or content.get(FieldName.REASONING_SUMMARY)
+        if reason:
+            return str(reason)
+    return str(p.get(FieldName.REASONING_SUMMARY) or p.get(FieldName.BIAS) or "")
+
+
 def _proposal_entries(raw_proposals: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Map dashboard proposals → the sim QueueEntry shape."""
+    """Map dashboard proposals → the sim QueueEntry shape, carrying the real
+    grade, confidence and reason so the Proposals tab shows live suggestions."""
     entries: list[dict[str, Any]] = []
     for p in raw_proposals:
         ptype = str(p.get(FieldName.PROPOSAL_TYPE) or p.get(FieldName.ACTION) or "proposal")
+        grade_score = p.get(FieldName.GRADE_SCORE)
+        proposal_grade = None
+        if isinstance(grade_score, (int, float)):
+            proposal_grade = {"grade": _score_to_letter(float(grade_score)), "score": grade_score}
+        content = p.get(FieldName.CONTENT) if isinstance(p.get(FieldName.CONTENT), dict) else {}
         entries.append(
             {
                 "proposal": {
                     "proposal_id": str(p.get(FieldName.ID) or p.get(FieldName.TRACE_ID) or ""),
                     "proposal_type": ptype,
-                    "target": str(p.get(FieldName.STRATEGY_NAME) or p.get(FieldName.SYMBOL) or "—"),
-                    "old_value": "—",
-                    "new_value": "—",
-                    "change": None,
-                    "reason": str(
-                        p.get(FieldName.REASONING_SUMMARY) or p.get(FieldName.BIAS) or ""
+                    "target": str(
+                        p.get(FieldName.STRATEGY_NAME)
+                        or content.get(FieldName.PARAMETER)
+                        or p.get(FieldName.SYMBOL)
+                        or "—"
                     ),
+                    "old_value": content.get(FieldName.OLD_VALUE, "—"),
+                    "new_value": content.get(FieldName.NEW_VALUE, "—"),
+                    "change": None,
+                    "reason": _proposal_reason(p),
                     "expected_impact": "",
                     "diff": {},
                 },
@@ -161,7 +196,8 @@ def _proposal_entries(raw_proposals: list[dict[str, Any]]) -> list[dict[str, Any
                 "verdict": None,
                 "delta": None,
                 "pull_request": None,
-                "proposal_grade": None,
+                "proposal_grade": proposal_grade,
+                "confidence": p.get(FieldName.CONFIDENCE),
             }
         )
     return entries
@@ -200,6 +236,65 @@ def _build_agents_health(
             "last_seq": 0,
         }
     return health
+
+
+def _config_versions_from_prompt(
+    prompt_payload: dict[str, Any], weights: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Map the real prompt-directive active+history into ConfigVersion entries.
+
+    The active directive is the current config version; prior directives form the
+    descending history. Each carries the live factor weights so the Evolution tab
+    reflects the actual self-evolving config, not a placeholder.
+    """
+    active = prompt_payload.get(FieldName.ACTIVE)
+    history = prompt_payload.get(FieldName.HISTORY) or []
+    versions: list[dict[str, Any]] = []
+
+    def _entry(record: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "version": int(record.get(FieldName.VERSION, 0)),
+            "config": {
+                "version": int(record.get(FieldName.VERSION, 0)),
+                "weights": weights,
+                "buy_threshold": 0.0,
+                "sell_threshold": 0.0,
+                "risk": {},
+                "rationale": str(record.get(FieldName.RATIONALE) or ""),
+            },
+            "grade": None,
+        }
+
+    if isinstance(active, dict):
+        versions.append(_entry(active))
+    for record in history:
+        if isinstance(record, dict):
+            versions.append(_entry(record))
+    return versions
+
+
+def _proposal_success_rates(raw_proposals: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Per-proposal-type accept/total stats from the live proposal log."""
+    # ptype -> [attempts, successes]; index-based to avoid a FieldName key read.
+    counts: dict[str, list[int]] = {}
+    for p in raw_proposals:
+        ptype = str(p.get(FieldName.PROPOSAL_TYPE) or "proposal")
+        bucket = counts.setdefault(ptype, [0, 0])
+        bucket[0] += 1
+        if bool(p.get(FieldName.APPLIED)) or str(p.get(FieldName.STATUS)) in {
+            "approved",
+            "applied",
+            "merged",
+        }:
+            bucket[1] += 1
+    return {
+        ptype: {
+            "attempts": attempts,
+            "successes": successes,
+            "success_rate": round(successes / attempts, 4) if attempts else 0.0,
+        }
+        for ptype, (attempts, successes) in counts.items()
+    }
 
 
 def _build_health(
@@ -268,6 +363,16 @@ async def build_live_snapshot(*, trace_limit: int = 20) -> dict[str, Any]:
     except Exception:
         raw_proposals = []
 
+    # Real self-evolving prompt directive: version + history drive the "Active
+    # Config" card and the Config Evolution list (the live config the reasoning
+    # agent actually assembles, not a sim placeholder).
+    try:
+        prompt_payload = await get_prompt_evolution_payload()
+    except Exception:
+        prompt_payload = {}
+    config_version = int(prompt_payload.get(FieldName.VERSION, 0)) or 1
+    config_versions = _config_versions_from_prompt(prompt_payload, weights)
+
     buy_threshold = 0.0
     sell_threshold = 0.0
     decision_payloads = [_to_decision_payload(d, buy_threshold, sell_threshold) for d in decisions]
@@ -310,7 +415,7 @@ async def build_live_snapshot(*, trace_limit: int = 20) -> dict[str, Any]:
 
     return {
         "config": {
-            "version": 1,
+            "version": config_version,
             "weights": weights,
             "buy_threshold": buy_threshold,
             "sell_threshold": sell_threshold,
@@ -342,8 +447,8 @@ async def build_live_snapshot(*, trace_limit: int = 20) -> dict[str, Any]:
             "monitor": {"window": 0, "min_samples": 0, "metrics": {}},
         },
         "evolution": {
-            "config_versions": [],
-            "proposal_success_rates": {},
+            "config_versions": config_versions,
+            "proposal_success_rates": _proposal_success_rates(raw_proposals),
             "agent_grades": agent_grades,
         },
         "health": health,

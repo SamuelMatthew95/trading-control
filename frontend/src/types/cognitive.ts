@@ -7,6 +7,8 @@ export interface CognitiveConfig {
   buy_threshold: number
   sell_threshold: number
   risk: Record<string, number>
+  // Present on live config versions: why this directive was promoted.
+  rationale?: string
 }
 
 export interface AgentSpec {

@@ -46,6 +46,36 @@ async def test_live_snapshot_reflects_real_grades_and_events():
     assert snap["event_count"] == 1
 
 
+async def test_proposals_carry_real_grade_and_reason():
+    """StrategyProposer suggestions must surface their grade/confidence/reason —
+    the 'suggesting' integration, not an empty placeholder."""
+    store = InMemoryStore()
+    set_runtime_store(store)
+    store.add_event(
+        {
+            "log_type": "proposal",
+            "payload": {
+                "proposal_type": "parameter_change",
+                "grade_score": 0.82,
+                "confidence": 0.7,
+                "strategy_name": "momentum_v2",
+                "content": {"parameter": "buy_threshold", "old_value": 0.6, "new_value": 0.55},
+                "status": "approved",
+            },
+        }
+    )
+    snap = await build_live_snapshot()
+    assert len(snap["proposals"]) == 1
+    entry = snap["proposals"][0]
+    assert entry["proposal_grade"]["grade"] == "B"  # 0.82 → B band
+    assert entry["confidence"] == 0.7
+    assert entry["proposal"]["target"] in {"momentum_v2", "buy_threshold"}
+    assert entry["proposal"]["new_value"] == 0.55
+    # proposal_success_rates reflect the approved suggestion
+    rates = snap["evolution"]["proposal_success_rates"]
+    assert rates["parameter_change"]["successes"] == 1
+
+
 async def test_live_events_shape():
     store = InMemoryStore()
     set_runtime_store(store)
