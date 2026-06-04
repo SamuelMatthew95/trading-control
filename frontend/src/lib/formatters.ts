@@ -68,6 +68,65 @@ export function isActivePosition(pos: unknown): boolean {
 }
 
 /**
+ * The freshest price to mark a position against: the live price-stream value for
+ * its symbol, else the position's stored `current_price`, else `entry_price`.
+ * `prices` is the store's `prices` map (keyed by symbol → { price, … }).
+ */
+export function livePriceFor(pos: unknown, prices?: Record<string, unknown>): number | null {
+  const symbol = getStr(pos, 'symbol')
+  const live = prices ? toFiniteNum(getField(getField(prices, symbol), 'price')) : null
+  return live ?? toFiniteNum(getField(pos, 'current_price')) ?? toFiniteNum(getField(pos, 'entry_price'))
+}
+
+/**
+ * Live mark-to-market unrealized P&L for an open position.
+ *
+ * Recomputes from the freshest price ({@link livePriceFor}) instead of trusting
+ * the `pnl` the backend last sent — that stored value is frozen between position
+ * pushes, which is why P&L looked "static" while prices ticked. Side-aware:
+ * `side` is 'long'/'short' when present, otherwise inferred from the sign of the
+ * quantity; magnitude uses abs(qty) so a short stored as negative qty is correct.
+ * Returns the stored `pnl` (or null) when entry/current price are unknown so we
+ * never regress a value the backend already computed.
+ */
+export function positionLivePnl(pos: unknown, prices?: Record<string, unknown>): number | null {
+  const entry = toFiniteNum(getField(pos, 'entry_price'))
+  const qty = positionQty(pos)
+  if (qty === 0) return 0
+  const current = livePriceFor(pos, prices)
+  if (entry == null || current == null) return toFiniteNum(getField(pos, 'pnl'))
+  const sideRaw = getStr(pos, 'side').toLowerCase()
+  const isShort = sideRaw === 'short' || sideRaw === 'sell' || qty < 0
+  const magnitude = Math.abs(qty)
+  return isShort ? (entry - current) * magnitude : (current - entry) * magnitude
+}
+
+/** Live unrealized P&L as a percentage return on the position's cost basis. */
+export function positionLivePnlPct(pos: unknown, prices?: Record<string, unknown>): number | null {
+  const entry = toFiniteNum(getField(pos, 'entry_price'))
+  const pnl = positionLivePnl(pos, prices)
+  if (entry == null || pnl == null) return null
+  const basis = entry * Math.abs(positionQty(pos))
+  if (basis === 0) return null
+  return (pnl / basis) * 100
+}
+
+/**
+ * Age in ms of the freshest entry in the price map, or null when none carry a
+ * usable timestamp. Lets any surface show a "live" indicator without re-deriving
+ * the freshness scan.
+ */
+export function pricesFreshnessMs(prices: Record<string, unknown>): number | null {
+  let freshest = Number.POSITIVE_INFINITY
+  for (const key of Object.keys(prices)) {
+    const row = prices[key]
+    const ts = parseTimestampMs(getField(row, 'updatedAt') ?? getField(row, 'ts') ?? getField(row, 'timestamp'))
+    if (ts != null) freshest = Math.min(freshest, Date.now() - ts)
+  }
+  return Number.isFinite(freshest) ? freshest : null
+}
+
+/**
  * Parse any timestamp-like value to epoch milliseconds, or return null.
  *
  * Handles: Date objects, numeric ms, numeric seconds (via EPOCH_MS_THRESHOLD),
