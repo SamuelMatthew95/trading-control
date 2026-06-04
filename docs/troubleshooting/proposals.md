@@ -109,3 +109,31 @@ StrategyProposer writes in memory mode is readable by `/dashboard/learning/propo
 
 **Regression tests:** `tests/integration/test_cognition_loop_flow.py`,
 `tests/api/test_dashboard_proposals_read.py`
+
+---
+
+## Challenger beat baseline (+PnL) but produced no proposal — "just static"
+
+**Symptom:** The Learning Loop showed challengers with real shadow evidence
+(e.g. `mean_reversion` — 317 shadow trades, 66% win, +$2,121, "beats baseline")
+yet `RECENT PROPOSALS` stayed empty and nothing was ever promoted. The winning
+verdict was displayed and discarded.
+
+**Root cause:** `ChallengerAgent` computed `beats_baseline_shadow` from
+tick-driven shadow trades, but the only paths that emitted a proposal —
+`_grade()` and `_retire_with_summary()` — are gated on `self._fills`, which only
+increments on live `STREAM_TRADE_PERFORMANCE` events. With the live pipeline idle
+(no closed trades), `_fills` stays 0, so a challenger never grades, never retires
+at `max_fills` (200), and never proposes — no matter how decisively it beats
+baseline in shadow. (Separately, `PromotionGate` has no caller at all.)
+
+**Fix:** Added `ChallengerAgent._maybe_propose_shadow_promotion()`, invoked from
+the `STREAM_MARKET_EVENTS` path. Once a challenger accumulates
+`CHALLENGER_MIN_SHADOW_TRADES` (25) shadow trades AND beats baseline, it publishes
+a single (latched) `proposal_type="challenger_promotion"`,
+`requires_approval=True` proposal to `STREAM_PROPOSALS` — which the existing
+`event_pipeline` → `safe_writer.write_strategy_proposal` path persists into the
+learning-loop queue. Decoupled from live fills; a human approves (nothing
+auto-promotes).
+
+**Regression test:** `tests/agents/test_challenger_agent.py::test_shadow_winner_emits_promotion_proposal_once`
