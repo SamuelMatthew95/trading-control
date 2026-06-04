@@ -29,7 +29,12 @@ def test_no_bare_ex_120_in_agent_code() -> None:
         pathlib.Path("api/services/signal_generator.py"),
         pathlib.Path("api/services/agents/reasoning_agent.py"),
         pathlib.Path("api/services/execution/execution_engine.py"),
-        pathlib.Path("api/services/agents/pipeline_agents.py"),
+        pathlib.Path("api/services/agents/grade_agent.py"),
+        pathlib.Path("api/services/agents/ic_updater.py"),
+        pathlib.Path("api/services/agents/reflection_agent.py"),
+        pathlib.Path("api/services/agents/strategy_proposer.py"),
+        pathlib.Path("api/services/agents/notification_agent.py"),
+        pathlib.Path("api/services/agents/challenger_agent.py"),
     ]
     violations: list[str] = []
     for path in agent_files:
