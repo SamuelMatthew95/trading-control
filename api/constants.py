@@ -1321,6 +1321,11 @@ REGRESSION_MAX_FALSE_POSITIVE_DELTA: Final[float] = 0.05
 REGRESSION_MAX_SLIPPAGE_DELTA_BPS: Final[float] = 2.0
 # A replay needs at least this many trades to be considered statistically valid.
 REGRESSION_MIN_REPLAY_TRADES: Final[int] = 10
+# A shadow challenger must accumulate at least this many shadow trades before it
+# may emit a (human-approvable) promotion proposal — enough evidence that "beats
+# baseline" is signal, not noise. Decouples challenger learning from the live-fill
+# starvation that otherwise gates grades/retirement on trades that never close.
+CHALLENGER_MIN_SHADOW_TRADES: Final[int] = 25
 
 REDIS_KEY_PRICES: Final[str] = "prices:{symbol}"  # use .format(symbol=symbol)
 # Market-intel caches (Category 1 market-data cache) — written by the reasoning
