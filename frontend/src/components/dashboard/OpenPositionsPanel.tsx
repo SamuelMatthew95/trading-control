@@ -1,10 +1,11 @@
 'use client'
 
 import { useMemo } from 'react'
-import { useCodexStore } from '@/stores/useCodexStore'
+import { useLivePositions } from '@/hooks/useLivePositions'
 import { cn } from '@/lib/utils'
 import { formatUSD, getField, getStr, isActivePosition, positionQty, toFiniteNum as toNum } from '@/lib/formatters'
 import { Layers } from 'lucide-react'
+import { LiveNumber } from '@/components/dashboard/LiveNumber'
 import { positionSideBadgeClass } from '@/lib/dashboard-helpers'
 
 const COLUMNS = ['Symbol', 'Side', 'Qty', 'Entry', 'Current', 'P&L', 'P&L %'] as const
@@ -18,7 +19,10 @@ const COLUMNS = ['Symbol', 'Side', 'Qty', 'Entry', 'Current', 'P&L', 'P&L %'] as
  * panel can never contradict the Overview's "Active Positions" KPI.
  */
 export function OpenPositionsPanel() {
-  const { positions = [] } = useCodexStore()
+  // Live-marked positions: P&L / current price re-valued against the price stream
+  // every tick, so the table moves with the market instead of freezing between
+  // backend position pushes.
+  const positions = useLivePositions()
   const openPositions = useMemo(() => positions.filter(isActivePosition), [positions])
 
   return (
@@ -91,14 +95,15 @@ export function OpenPositionsPanel() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       {pnl != null ? (
-                        <span
+                        <LiveNumber
+                          value={pnl}
                           className={cn(
                             'font-black font-mono tabular-nums',
                             isPos ? 'text-emerald-500' : 'text-rose-500',
                           )}
                         >
                           {isPos ? '+' : '-'}{formatUSD(pnl)}
-                        </span>
+                        </LiveNumber>
                       ) : (
                         <span className="text-slate-400">--</span>
                       )}
