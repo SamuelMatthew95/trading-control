@@ -172,6 +172,47 @@ async def test_correlation_request_uses_recent_start_window(monkeypatch):
     assert out  # non-empty result when bars are present
 
 
+async def test_correlation_falls_back_to_daily_bars_when_intraday_sparse(monkeypatch):
+    """Regression: when 1-min bars are too sparse (e.g. equities after hours), the
+    tool must retry with daily bars instead of degrading to {} every time."""
+    monkeypatch.setattr(market_intel.settings, "ALPACA_API_KEY", "k")
+    redis = AsyncMock()
+    redis.get = AsyncMock(return_value=None)
+
+    resp_intraday = MagicMock()  # too few bars → < _MIN_RETURNS returns
+    resp_intraday.json.return_value = {"bars": {"BTC/USD": [{"c": 100}]}}
+    resp_intraday.raise_for_status = MagicMock()
+
+    resp_daily = MagicMock()  # enough daily bars to compute a correlation
+    resp_daily.json.return_value = {
+        "bars": {
+            "BTC/USD": [{"c": 103}, {"c": 102}, {"c": 101}, {"c": 100}],
+            "ETH/USD": [{"c": 51.5}, {"c": 51}, {"c": 50.5}, {"c": 50}],
+        }
+    }
+    resp_daily.raise_for_status = MagicMock()
+
+    seen_timeframes: list = []
+
+    async def _get(path, params=None):
+        seen_timeframes.append((params or {}).get(FieldName.TIMEFRAME))
+        return resp_intraday if len(seen_timeframes) == 1 else resp_daily
+
+    client = MagicMock()
+    client.get = _get
+
+    @asynccontextmanager
+    async def _cm():
+        yield client
+
+    with patch.object(market_intel, "_client", lambda: _cm()):
+        out = await compute_cross_asset_correlation("BTC/USD", redis)
+
+    assert seen_timeframes == ["1Min", "1Day"]  # intraday first, daily fallback
+    assert out  # a correlation was produced from the daily bars
+    assert "ETH/USD" in out[FieldName.CORRELATIONS]
+
+
 # --- macro regime tool ------------------------------------------------------
 
 
