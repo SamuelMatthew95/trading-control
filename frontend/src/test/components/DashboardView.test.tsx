@@ -89,7 +89,7 @@ describe('DashboardView — overview', () => {
     render(<DashboardView section="overview" />)
     // Mobile nav is mocked to null in this suite; assert key overview content instead.
     expect(screen.getByText(/System Status:/i)).toBeInTheDocument()
-    expect(screen.getByText(/Daily P&L/i)).toBeInTheDocument()
+    expect(screen.getByText(/Total P&L/i)).toBeInTheDocument()
   })
 
   it('never shows NaN anywhere on screen', () => {
@@ -97,9 +97,31 @@ describe('DashboardView — overview', () => {
     expect(screen.queryByText(/NaN/)).not.toBeInTheDocument()
   })
 
-  it('shows daily P&L on overview when empty', () => {
+  it('shows the Total P&L headline on overview when empty', () => {
     render(<DashboardView section="overview" />)
-    expect(screen.getByText(/Daily P&L/i)).toBeInTheDocument()
+    expect(screen.getByText(/Total P&L/i)).toBeInTheDocument()
+  })
+
+  it('shows a live Total P&L = realized orders + mark-to-market unrealized', () => {
+    // Regression: the overview P&L was realized-only and frozen. It now combines
+    // realized fills with live mark-to-market unrealized. The position carries a
+    // stale stored pnl: 0, but current_price 130 vs entry 100 on qty 1 marks to
+    // +$30 unrealized, proving the value is recomputed from price, not trusted.
+    mockStore.orders = [{ status: 'filled', pnl: 10 }]
+    mockStore.positions = [
+      { symbol: 'BTC/USD', side: 'long', quantity: 1, entry_price: 100, current_price: 130, pnl: 0 },
+    ]
+
+    render(<DashboardView section="overview" />)
+
+    // Live total is unique to the headline (Performance card shows the realized
+    // $10 aggregate separately), proving realized $10 + unrealized $30 = $40.
+    expect(screen.getByText('Total P&L')).toBeInTheDocument()
+    expect(screen.getByText('+$40.00')).toBeInTheDocument()
+    // Breakdown renders as labelled mini-stats ("Realized"/"Unrealized" are
+    // distinct from the Performance card's "Realized P&L").
+    expect(screen.getByText('Realized')).toBeInTheDocument()
+    expect(screen.getByText('Unrealized')).toBeInTheDocument()
   })
 
   it('explains tiny positive best trade values on overview', () => {
@@ -185,6 +207,45 @@ describe('DashboardView — overview', () => {
     render(<DashboardView section="overview" />)
 
     expect(screen.getByText(/System Status:\s*trading/i)).toBeInTheDocument()
+  })
+
+  it('surfaces the open position on the overview so the Active Positions count has visible detail', () => {
+    // Regression: the overview showed an "Active Positions: 1" KPI but no
+    // positions list anywhere on the page, so operators saw the count and could
+    // not find the position. The Open Positions table now lives on the overview.
+    mockStore.positions = [
+      {
+        symbol: 'BTC/USD',
+        side: 'long',
+        quantity: 0.25,
+        entry_price: 50000,
+        current_price: 50100,
+        pnl: 25,
+        pnl_percent: 0.2,
+      },
+    ]
+
+    render(<DashboardView section="overview" />)
+
+    expect(screen.getByText('Open Positions')).toBeInTheDocument()
+    // Side badge + entry price are unique to the position row (the ticker grid
+    // reuses BTC/USD but never renders "LONG" or the entry price).
+    expect(screen.getByText('LONG')).toBeInTheDocument()
+    expect(screen.getByText('$50,000.00')).toBeInTheDocument()
+  })
+
+  it('excludes flat (qty 0) positions from the overview Open Positions table', () => {
+    // The table and the "Active Positions" KPI share isActivePosition, so a flat
+    // row is counted nowhere and listed nowhere — they can never disagree.
+    mockStore.positions = [
+      { symbol: 'BTC/USD', side: 'long', quantity: 0, entry_price: 50000, current_price: 50100, pnl: 0 },
+    ]
+
+    render(<DashboardView section="overview" />)
+
+    expect(screen.getByText('Open Positions')).toBeInTheDocument()
+    expect(screen.getByText(/no open positions/i)).toBeInTheDocument()
+    expect(screen.queryByText('LONG')).not.toBeInTheDocument()
   })
 })
 

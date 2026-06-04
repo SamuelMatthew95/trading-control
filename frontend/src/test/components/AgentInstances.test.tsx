@@ -37,7 +37,14 @@ const { mockStore, mockUseCodexStore } = vi.hoisted(() => {
     fetchPnl: vi.fn().mockResolvedValue(undefined),
     hydrateDashboard: vi.fn(),
   }
-  const hook = Object.assign(() => store, { getState: () => store })
+  // Honour an optional selector so slice-reading consumers (useLivePnl /
+  // useLivePositions via useCodexStore((s) => s.orders)) get the slice, not the
+  // whole store — matches the real zustand hook and DashboardView.test.
+  const hook = Object.assign(
+    (selector?: (s: typeof store) => unknown) =>
+      typeof selector === 'function' ? selector(store) : store,
+    { getState: () => store },
+  )
   return { mockStore: store, mockUseCodexStore: hook }
 })
 
