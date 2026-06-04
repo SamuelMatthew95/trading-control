@@ -3,10 +3,12 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LayoutDashboard, CandlestickChart, Bot, TrendingUp, Lightbulb, Settings2, Menu, BarChart3, Activity, Brain } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { LiveNumber, LiveDot } from '@/components/dashboard/LiveNumber'
 import { useWebSocket } from '@/hooks/useWebSocket'
+import { useLivePnl } from '@/hooks/useLivePnl'
 import { useSystemStatus } from '@/hooks/useSystemStatus'
 import { api } from '@/lib/apiClient'
 import {
@@ -45,13 +47,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [killSwitchPending, setKillSwitchPending] = useState(false)
   const [mounted, setMounted] = useState(false)
-  const { killSwitchActive, orders, positions, wsConnected, setKillSwitch, hydrateFromLocalStorage } = useCodexStore()
+  const { killSwitchActive, wsConnected, setKillSwitch, hydrateFromLocalStorage } = useCodexStore()
 
-  const dailyPnl = useMemo(() => {
-    const realized = orders.reduce((sum, order) => sum + (Number(order?.pnl) || 0), 0)
-    const unrealized = positions.reduce((sum, position) => sum + (Number(position?.pnl) || 0), 0)
-    return realized + unrealized
-  }, [orders, positions])
+  // Realized + live mark-to-market unrealized, shared with the overview headline
+  // so the two never disagree. Updates as prices stream, not just on fills.
+  const { total: totalPnl } = useLivePnl()
   const systemStatus = useSystemStatus()
 
   // Hydrate persisted store data from localStorage AFTER the first client
@@ -166,18 +166,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
                     Total P&L
                   </span>
-                  <span
+                  <LiveNumber
+                    value={totalPnl}
                     className={cn(
                       'text-xs font-mono font-bold tabular-nums',
-                      dailyPnl > 0
+                      totalPnl > 0
                         ? 'text-emerald-600 dark:text-emerald-400'
-                        : dailyPnl < 0
+                        : totalPnl < 0
                           ? 'text-rose-600 dark:text-rose-400'
                           : 'text-slate-500 dark:text-slate-400'
                     )}
                   >
-                    {dailyPnl > 0 ? `+${formatUSD(dailyPnl)}` : dailyPnl < 0 ? `-${formatUSD(dailyPnl)}` : formatUSD(dailyPnl)}
-                  </span>
+                    {totalPnl > 0 ? `+${formatUSD(totalPnl)}` : totalPnl < 0 ? `-${formatUSD(totalPnl)}` : formatUSD(totalPnl)}
+                  </LiveNumber>
+                  <LiveDot live={wsConnected} label="" />
                 </div>
                 <ThemeToggle />
                 <span
