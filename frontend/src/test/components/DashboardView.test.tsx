@@ -112,9 +112,14 @@ describe('DashboardView — overview', () => {
 
     render(<DashboardView section="overview" />)
 
+    // Live total is unique to the headline (Performance card shows the realized
+    // $10 aggregate separately), proving realized $10 + unrealized $30 = $40.
     expect(screen.getByText('Total P&L')).toBeInTheDocument()
     expect(screen.getByText('+$40.00')).toBeInTheDocument()
-    expect(screen.getByText(/Realized \+\$10\.00 · Unrealized \+\$30\.00/)).toBeInTheDocument()
+    // Breakdown renders as labelled mini-stats ("Realized"/"Unrealized" are
+    // distinct from the Performance card's "Realized P&L").
+    expect(screen.getByText('Realized')).toBeInTheDocument()
+    expect(screen.getByText('Unrealized')).toBeInTheDocument()
   })
 
   it('explains tiny positive best trade values on overview', () => {
