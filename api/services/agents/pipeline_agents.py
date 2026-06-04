@@ -1320,6 +1320,22 @@ class ReflectionAgent(MultiStreamAgent):
 # ---------------------------------------------------------------------------
 
 
+async def _acquire_guardrail_redis() -> Any:
+    """Best-effort Redis handle for the proposal-creation guardrails.
+
+    Inline import avoids a circular dependency (redis_client transitively
+    imports this module). Returns None on any failure so the guardrail fails
+    open rather than blocking proposal creation.
+    """
+    try:
+        from api.redis_client import get_redis  # noqa: PLC0415
+
+        return await get_redis()
+    except Exception:
+        log_structured("warning", "proposal_guardrail_redis_unavailable", exc_info=True)
+        return None
+
+
 class StrategyProposer(MultiStreamAgent):
     """Turns reflection hypotheses into typed proposals that require human approval."""
 
@@ -1359,15 +1375,7 @@ class StrategyProposer(MultiStreamAgent):
         strong = await self._plan_and_rank(hypotheses, strong, data.get(FieldName.TRACE_ID, ""))
 
         # Acquire Redis once for the creation guardrails (dedup + daily cap).
-        # Inline import mirrors the heartbeat path below — redis_client pulls
-        # this module in transitively, so a top-level import would be circular.
-        guardrail_redis = None
-        try:
-            from api.redis_client import get_redis as _get_redis  # noqa: PLC0415
-
-            guardrail_redis = await _get_redis()
-        except Exception:
-            log_structured("warning", "proposal_guardrail_redis_unavailable", exc_info=True)
+        guardrail_redis = await _acquire_guardrail_redis()
 
         created = 0
         for hypothesis in strong:
@@ -1522,13 +1530,7 @@ class StrategyProposer(MultiStreamAgent):
 
         # Same creation guardrails as the hypothesis proposals: don't re-emit an
         # identical directive twice in a day, and respect the daily cap.
-        guardrail_redis = None
-        try:
-            from api.redis_client import get_redis as _get_redis  # noqa: PLC0415
-
-            guardrail_redis = await _get_redis()
-        except Exception:
-            log_structured("warning", "proposal_guardrail_redis_unavailable", exc_info=True)
+        guardrail_redis = await _acquire_guardrail_redis()
         if not await register_proposal_creation(guardrail_redis, proposal):
             log_structured("info", "prompt_evolution_skipped_guardrail", trace_id=trace_id)
             return
