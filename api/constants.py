@@ -305,6 +305,7 @@ class FieldName(StrEnum):
     BEST_HOURS = "best_hours"
     BEST_TRADE = "best_trade"
     BIAS = "bias"
+    BENCHMARK = "benchmark"
     BID = "bid"
     BRANCH = "branch"
     BLOCKED_TOOLS = "blocked_tools"
@@ -666,6 +667,7 @@ class FieldName(StrEnum):
     DECISION_COST_USD = "decision_cost_usd"
     TOTAL_COST = "total_cost"
     NET_ROI = "net_roi"
+    MACRO_REGIME = "macro_regime"
     MOMENTUM = "momentum"
     MOMENTUM_PCT = "momentum_pct"
     MONITORING_ACTIVE = "monitoring_active"
@@ -1095,6 +1097,18 @@ class MarketDirection(StrEnum):
     NEUTRAL = "neutral"
 
 
+class MacroRegime(StrEnum):
+    """Market-wide risk posture derived from a benchmark's recent trend.
+
+    Powers the ``fetch_macro_regime`` perception tool (BTC proxies crypto, SPY
+    proxies equities). These are payload VALUES, not dict keys.
+    """
+
+    RISK_ON = "risk_on"
+    RISK_OFF = "risk_off"
+    NEUTRAL = "neutral"
+
+
 class MarketState(StrEnum):
     """Current state of the US equity cash session (NYSE / NASDAQ).
 
@@ -1314,6 +1328,7 @@ REDIS_KEY_PRICES: Final[str] = "prices:{symbol}"  # use .format(symbol=symbol)
 # inside the cache window reuse one API call instead of re-hitting Alpaca.
 REDIS_KEY_NEWS_SENTIMENT: Final[str] = "news_sentiment:{symbol}"  # use .format(symbol=symbol)
 REDIS_KEY_CORRELATION: Final[str] = "correlation:{symbol}"  # use .format(symbol=symbol)
+REDIS_KEY_MACRO_REGIME: Final[str] = "macro_regime:{symbol}"  # use .format(symbol=benchmark)
 REDIS_KEY_WORKER_HEARTBEAT: Final[str] = "worker:heartbeat"
 # Self-evolving prompt store (Category 2 computed configuration). The active
 # learned "adaptive directive" per reasoning node + a capped history for audit
@@ -1419,6 +1434,7 @@ REDIS_PRICES_TTL_SECONDS: Final[int] = 150
 # fetch is the heaviest of the three — cache both to bound Alpaca calls.
 REDIS_NEWS_SENTIMENT_TTL_SECONDS: Final[int] = 300  # 5 min
 REDIS_CORRELATION_TTL_SECONDS: Final[int] = 120  # 2 min
+REDIS_MACRO_REGIME_TTL_SECONDS: Final[int] = 300  # 5 min — macro regime moves slowly
 REDIS_IC_WEIGHTS_TTL_SECONDS: Final[int] = 90_000  # ~25 hours; survives overnight
 RECLAIM_MIN_IDLE_MS: Final[int] = 60_000
 DLQ_MAX_RETRIES: Final[int] = 3
