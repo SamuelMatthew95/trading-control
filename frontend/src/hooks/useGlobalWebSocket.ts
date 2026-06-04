@@ -409,12 +409,18 @@ class WebSocketManager {
 
   private _handleProposal(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>): void {
     const raw = msg as unknown as Record<string, unknown>
+    // Preserve the backend id (trace_id / msg_id) so this proposal dedups
+    // against the REST-polled copy and the approve/reject PATCH can match it.
+    const stableId = raw.id ?? raw.trace_id ?? raw.msg_id
     store.addProposal({
+      id: stableId != null ? String(stableId) : undefined,
       proposal_type: (raw.proposal_type || 'parameter_change') as import('@/stores/useCodexStore').ProposalType,
       content: String(raw.content || raw.description || ''),
       requires_approval: raw.requires_approval !== false,
       reflection_trace_id: raw.reflection_trace_id as string | undefined,
+      trace_id: (raw.trace_id as string | undefined) ?? undefined,
       confidence: typeof raw.confidence === 'number' ? raw.confidence : undefined,
+      status: (raw.status as import('@/stores/useCodexStore').ProposalStatus) ?? 'pending',
       timestamp: msg.timestamp || new Date().toISOString(),
     })
   }
