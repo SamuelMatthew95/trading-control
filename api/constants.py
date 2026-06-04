@@ -1253,6 +1253,14 @@ REDIS_KEY_LLM_COST: Final[str] = "llm:cost:{date}"
 REDIS_KEY_LLM_DAILY_CALLS: Final[str] = "llm:daily_calls:{date}"
 # Dynamic call delay written by GradeAgent when rate-limiting is detected
 REDIS_KEY_LLM_CALL_DELAY_MS: Final[str] = "llm:call_delay_ms"
+# Proposal-creation guardrails (StrategyProposer). Date-keyed like the LLM
+# budget so they reset each day and old keys roll off via TTL. The count key is
+# a per-day total proposal counter (daily cap); the dedup key is a per-day SET
+# of proposal fingerprints so the same candidate change is not emitted twice in
+# a day. Written by api/services/agents/proposal_guardrails.py.
+REDIS_KEY_PROPOSALS_DAILY_COUNT: Final[str] = "proposals:count:{date}"
+REDIS_KEY_PROPOSALS_DEDUP: Final[str] = "proposals:dedup:{date}"
+PROPOSAL_GUARDRAIL_TTL_SECONDS: Final[int] = 172_800  # 48h — survives the day, self-cleans
 REDIS_KEY_KILL_SWITCH: Final[str] = "kill_switch:active"
 REDIS_KEY_KILL_SWITCH_UPDATED_AT: Final[str] = "kill_switch:updated_at"
 REDIS_KEY_IC_WEIGHTS: Final[str] = "alpha:ic_weights"
