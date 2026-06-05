@@ -16,9 +16,14 @@ from api.services.decision_policy import (
 
 
 def _ctx(*, sentiment=0.0, regime=MacroRegime.NEUTRAL, imbalance=0.0) -> dict:
+    # Mirror production: fetch_macro_regime stores the regime's STRING value, not
+    # the enum member. On Python 3.10 the StrEnum backport's str(member) yields
+    # "MacroRegime.RISK_OFF" (not "risk_off"), so passing the member would mis-parse
+    # — exactly the 3.10 footgun documented in docs/troubleshooting/market-intel.md.
+    regime_value = regime.value if hasattr(regime, "value") else regime
     return {
         FieldName.NEWS_SENTIMENT: {FieldName.SENTIMENT: sentiment},
-        FieldName.MACRO_REGIME: {FieldName.REGIME: regime},
+        FieldName.MACRO_REGIME: {FieldName.REGIME: regime_value},
         FieldName.ORDER_BOOK: {FieldName.IMBALANCE: imbalance},
     }
 
