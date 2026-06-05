@@ -16,6 +16,7 @@ from api.constants import (
     LLM_TEMPERATURE_ANALYSIS,
     LLM_TEMPERATURE_TRADING,
     LM_STUDIO_PROVIDER,
+    MAX_BACKOFF_SECONDS,
     AgentAction,
     FieldName,
 )
@@ -141,14 +142,22 @@ def _get_provider_key(provider: str) -> str:
 _last_groq_model: str | None = None
 
 
+def _groq_backoff_delay(attempt: int) -> float:
+    """Deterministic exponential backoff (no jitter), capped at MAX_BACKOFF_SECONDS."""
+    return float(min(2**attempt, MAX_BACKOFF_SECONDS))
+
+
 async def _groq_completion(
     *, system_prompt: str, prompt: str, max_tokens: int, temperature: float, trace_id: str
 ):
-    """Call Groq with the capable model, transparently retrying on the instruct
-    fallback model when the primary is throttled (429 / quota / rate-limit).
+    """Call Groq with the capable model, degrading to the lighter instruct model
+    when the primary is throttled, and retrying the pair with bounded backoff
+    when BOTH are rate-limited (429 / quota / rate-limit).
 
-    A throttled primary therefore degrades to a lighter model instead of raising
-    — which previously cascaded into skip_reasoning and starved the learning loop.
+    Parity with the Gemini path: a transient free-tier 429 no longer becomes an
+    instant raise → REJECT. Only after the bounded retries are exhausted does it
+    raise, so the agent still fails closed (never a blind trade). Non-rate-limit
+    errors raise immediately — backoff only helps throttling.
     """
     global _last_groq_model
     from groq import AsyncGroq  # noqa: PLC0415
@@ -156,6 +165,7 @@ async def _groq_completion(
     client = AsyncGroq(api_key=settings.GROQ_API_KEY)
     primary = settings.GROQ_MODEL
     fallback = settings.GROQ_FALLBACK_MODEL
+    retries = max(0, int(LLM_MAX_RETRIES))
 
     async def _create(model: str):
         return await client.chat.completions.create(
@@ -168,12 +178,20 @@ async def _groq_completion(
             ],
         )
 
-    try:
-        response = await _create(primary)
-        _last_groq_model = primary
-        return response
-    except Exception as exc:
-        if fallback and fallback != primary and _is_rate_limit_error(exc):
+    last_exc: Exception | None = None
+    for attempt in range(retries + 1):
+        # Tier 1 — the capable primary model.
+        try:
+            response = await _create(primary)
+            _last_groq_model = primary
+            return response
+        except Exception as exc:
+            if not _is_rate_limit_error(exc):
+                raise
+            last_exc = exc
+
+        # Tier 2 — primary throttled → lighter instruct model (separate headroom).
+        if fallback and fallback != primary:
             log_structured(
                 "warning",
                 "groq_primary_throttled_falling_back_to_instruct",
@@ -181,10 +199,29 @@ async def _groq_completion(
                 primary_model=primary,
                 fallback_model=fallback,
             )
-            response = await _create(fallback)
-            _last_groq_model = fallback
-            return response
-        raise
+            try:
+                response = await _create(fallback)
+                _last_groq_model = fallback
+                return response
+            except Exception as exc:
+                if not _is_rate_limit_error(exc):
+                    raise
+                last_exc = exc
+
+        # Both tiers throttled — bounded backoff, then retry the pair.
+        if attempt < retries:
+            delay = _groq_backoff_delay(attempt)
+            log_structured(
+                "warning",
+                "groq_rate_limit_retry",
+                attempt=attempt + 1,
+                backoff_seconds=delay,
+                trace_id=trace_id,
+            )
+            await asyncio.sleep(delay)
+
+    # Retries exhausted — surface the throttle so the caller fails closed (REJECT).
+    raise last_exc if last_exc is not None else RuntimeError("groq_rate_limited")
 
 
 async def _call_groq(prompt: str, trace_id: str) -> tuple[dict, int, float]:
