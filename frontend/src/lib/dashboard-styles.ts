@@ -12,7 +12,7 @@ export const sectionTitleClass =
 export const mutedClass = 'text-xs font-sans text-slate-500 dark:text-slate-400'
 
 export const valueClass =
-  'text-2xl font-black font-mono tabular-nums text-slate-900 dark:text-slate-100'
+  'text-2xl font-semibold font-mono tabular-nums text-slate-900 dark:text-slate-100'
 
 export const consolePanelClass =
   'rounded-xl border border-slate-200 bg-white shadow-sm shadow-slate-900/5 dark:border-slate-800/80 dark:bg-slate-950/80 dark:shadow-black/20'
