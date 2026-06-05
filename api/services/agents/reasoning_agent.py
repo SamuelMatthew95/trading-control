@@ -21,6 +21,9 @@ from sqlalchemy import text
 from api.config import settings
 from api.constants import (
     AGENT_REASONING,
+    DECISION_MODE_HYBRID,
+    DECISION_MODE_LLM,
+    DECISION_MODE_POLICY,
     KELLY_FRACTION_SCALE,
     LLM_FALLBACK_MODE_LOCAL_POLICY,
     LLM_FALLBACK_MODE_REJECT_SIGNAL,
@@ -30,6 +33,7 @@ from api.constants import (
     LLM_TIMEOUT_SECONDS,
     MAX_RISK_PER_TRADE_PCT,
     MIN_RR_RATIO,
+    MODEL_LABEL_POLICY,
     NO_ORDER_ACTIONS,
     REACT_CRITIQUE_CONFIDENCE_THRESHOLD,
     REASONING_NODE,
@@ -79,7 +83,7 @@ from api.services.agents.vector_helpers import (
     embed_text,
     search_vector_memory,
 )
-from api.services.decision_policy import DEFAULT_POLICY_PARAMS, decide_policy
+from api.services.decision_policy import decide_policy, get_policy_params
 from api.services.execution.brokers.paper import PaperBroker
 from api.services.llm_router import active_model_label, call_llm_with_system
 from api.services.market_intel import (
@@ -238,39 +242,10 @@ class ReasoningAgent(BaseStreamConsumer):
             outputs={FieldName.COUNT: len(similar_trades)},
         )
 
-        # --- LLM decision (enriched with gathered context) ---------------
-        fallback_reason: str | None = None
-        if budget_used >= settings.ANTHROPIC_DAILY_TOKEN_BUDGET:
-            fallback_reason = "budget_exceeded"
-            summary = await self._apply_fallback(
-                data, trace_id, reason=fallback_reason, context=context
-            )
-            tokens_used, cost_usd = 0, 0.0
-        else:
-            try:
-                summary, tokens_used, cost_usd = await asyncio.wait_for(
-                    self._call_llm(data, similar_trades, trace_id, context),
-                    timeout=LLM_TIMEOUT_SECONDS,
-                )
-            except asyncio.TimeoutError:
-                fallback_reason = "llm_timeout"
-                log_structured(
-                    "warning",
-                    "reasoning_llm_timeout",
-                    trace_id=trace_id,
-                    timeout=LLM_TIMEOUT_SECONDS,
-                )
-                summary = await self._apply_fallback(
-                    data, trace_id, reason=fallback_reason, context=context
-                )
-                tokens_used, cost_usd = 0, 0.0
-            except Exception as exc:  # noqa: BLE001
-                fallback_reason = str(exc)
-                summary = await self._apply_fallback(
-                    data, trace_id, reason=fallback_reason, context=context
-                )
-                tokens_used, cost_usd = 0, 0.0
-
+        # --- Decision (routed by DECISION_MODE — Level-3 data/control split) ---
+        summary, tokens_used, cost_usd, fallback_reason = await self._produce_decision(
+            data, context, similar_trades, trace_id, budget_used
+        )
         is_fallback = fallback_reason is not None
 
         # ReAct Step 2: Self-critique for high-confidence actionable decisions.
@@ -1337,6 +1312,113 @@ class ReasoningAgent(BaseStreamConsumer):
             return direction in {AgentAction.BUY, "long"}
         return direction in {AgentAction.SELL, AgentAction.HOLD, "short", "flat"}
 
+    async def _produce_decision(
+        self,
+        data: dict[str, Any],
+        context: dict[str, Any],
+        similar_trades: list[dict[str, Any]],
+        trace_id: str,
+        budget_used: int,
+    ) -> tuple[dict[str, Any], int, float, str | None]:
+        """Route the per-signal decision by DECISION_MODE (data/control-plane split).
+
+        Returns ``(summary, tokens_used, cost_usd, fallback_reason)``.
+
+        - ``policy``: the deterministic data-plane policy decides — no LLM on the
+          critical path, always available.
+        - ``llm`` (default): the LLM decides; the policy runs in SHADOW so we can
+          measure agreement before trusting policy-primary. LLM failure degrades
+          per the configured fallback.
+        - ``hybrid``: LLM-primary, but the policy is the always-on safety net on
+          any LLM failure (never goes dark), regardless of LLM_FALLBACK_MODE.
+        """
+        mode = settings.DECISION_MODE
+
+        # Data-plane primary — deterministic, no external call on the hot path.
+        if mode == DECISION_MODE_POLICY:
+            self._last_model_label = MODEL_LABEL_POLICY
+            summary = decide_policy(data, context, get_policy_params())
+            summary[FieldName.TRACE_ID] = trace_id
+            return summary, 0, 0.0, None
+
+        # Budget exhausted before any call — degrade per mode.
+        if budget_used >= settings.ANTHROPIC_DAILY_TOKEN_BUDGET:
+            summary = await self._degrade(data, context, trace_id, "budget_exceeded")
+            return summary, 0, 0.0, "budget_exceeded"
+
+        # LLM-primary (llm | hybrid).
+        try:
+            summary, tokens_used, cost_usd = await asyncio.wait_for(
+                self._call_llm(data, similar_trades, trace_id, context),
+                timeout=LLM_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            log_structured(
+                "warning", "reasoning_llm_timeout", trace_id=trace_id, timeout=LLM_TIMEOUT_SECONDS
+            )
+            summary = await self._degrade(data, context, trace_id, "llm_timeout")
+            return summary, 0, 0.0, "llm_timeout"
+        except Exception as exc:  # noqa: BLE001
+            summary = await self._degrade(data, context, trace_id, str(exc))
+            return summary, 0, 0.0, str(exc)
+
+        # llm mode: validate the deterministic policy against the live LLM call.
+        if mode == DECISION_MODE_LLM:
+            self._shadow_compare_policy(summary, data, context, trace_id)
+        return summary, tokens_used, cost_usd, None
+
+    async def _degrade(
+        self, data: dict[str, Any], context: dict[str, Any], trace_id: str, reason: str
+    ) -> dict[str, Any]:
+        """Decision when the LLM cannot answer.
+
+        ``hybrid`` always uses the deterministic policy (a real decision, never
+        dark); other modes honour the configured ``LLM_FALLBACK_MODE``.
+        """
+        if settings.DECISION_MODE == DECISION_MODE_HYBRID:
+            decision = decide_policy(data, context or {}, get_policy_params())
+            decision[FieldName.RISK_FACTORS] = [
+                *decision.get(FieldName.RISK_FACTORS, []),
+                reason,
+            ]
+            decision[FieldName.PRIMARY_EDGE] = f"hybrid_fallback:{reason}"
+            decision.update(
+                {
+                    FieldName.LATENCY_MS: 0,
+                    FieldName.COST_USD: 0.0,
+                    FieldName.TRACE_ID: trace_id,
+                    FieldName.FALLBACK: True,
+                }
+            )
+            return decision
+        return await self._apply_fallback(data, trace_id, reason=reason, context=context)
+
+    def _shadow_compare_policy(
+        self,
+        llm_summary: dict[str, Any],
+        data: dict[str, Any],
+        context: dict[str, Any],
+        trace_id: str,
+    ) -> None:
+        """Run the deterministic policy in SHADOW beside the live LLM decision and
+        log agreement — zero-risk evidence for promoting DECISION_MODE=policy."""
+        try:
+            policy = decide_policy(data, context, get_policy_params())
+            llm_action = str(llm_summary.get(FieldName.ACTION, "")).lower()
+            policy_action = str(policy.get(FieldName.ACTION, "")).lower()
+            log_structured(
+                "info",
+                "decision_shadow_compare",
+                trace_id=trace_id,
+                llm_action=llm_action,
+                policy_action=policy_action,
+                agree=llm_action == policy_action,
+            )
+        except Exception:
+            log_structured(
+                "warning", "decision_shadow_compare_failed", trace_id=trace_id, exc_info=True
+            )
+
     async def _apply_fallback(
         self,
         data: dict[str, Any],
@@ -1350,7 +1432,7 @@ class ReasoningAgent(BaseStreamConsumer):
         # always available; the LLM's role moves to tuning its params (control
         # plane), off this critical path.
         if settings.LLM_FALLBACK_MODE == LLM_FALLBACK_MODE_LOCAL_POLICY:
-            decision = decide_policy(data, context or {}, DEFAULT_POLICY_PARAMS)
+            decision = decide_policy(data, context or {}, get_policy_params())
             decision[FieldName.RISK_FACTORS] = [
                 *decision.get(FieldName.RISK_FACTORS, []),
                 reason,
