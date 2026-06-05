@@ -1,46 +1,109 @@
 'use client'
 
+import type { ComponentType, ReactNode } from 'react'
+import { Activity, ArrowUpRight, Brain, Gauge, Lightbulb, TrendingDown, TrendingUp } from 'lucide-react'
+
 import { cn } from '@/lib/utils'
 import { formatPercent, formatTimeAgo, signedUSD, toFiniteNum as toFiniteNumber } from '@/lib/formatters'
 import { useCodexStore, type AgentLog, type Proposal, type TradeFeedItem } from '@/stores/useCodexStore'
 import { cardClass, mutedClass, sectionTitleClass } from '@/lib/dashboard-styles'
 import { pnlColorClass, proposalStatusClass } from '@/lib/dashboard-helpers'
+// Reuse the shared learning-grade colour language (the Cognitive page uses the
+// same A/B/C/D/F scale) instead of re-deriving hardcoded emerald/rose classes.
+import { actionTone, gradeTone } from '@/lib/cognitive'
+import { EmptyState } from '@/components/ui/empty-state'
 
-function gradeTone(grade: string | null | undefined): string {
-  const normalized = String(grade ?? '').toUpperCase()
-  if (normalized === 'A' || normalized === 'B') return 'border-emerald-400/30 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300'
-  if (normalized === 'C') return 'border-amber-400/30 bg-amber-400/10 text-amber-700 dark:text-amber-300'
-  if (normalized === 'D' || normalized === 'F') return 'border-rose-400/30 bg-rose-400/10 text-rose-700 dark:text-rose-300'
-  return 'border-slate-300 bg-slate-100 text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400'
-}
+// Decorative icon-chip tints. Neutral uses the slate chrome scale; the rest map
+// onto the semantic design tokens so the accents track the app palette.
+type Accent = 'primary' | 'success' | 'danger' | 'warning' | 'neutral'
 
-function actionTone(side: string | null | undefined): string {
-  return String(side).toLowerCase() === 'sell'
-    ? 'border-rose-400/30 bg-rose-400/10 text-rose-700 dark:text-rose-300'
-    : 'border-emerald-400/30 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300'
+const ACCENT_CHIP: Record<Accent, string> = {
+  primary: 'bg-primary/10 text-primary',
+  success: 'bg-success/10 text-success',
+  danger: 'bg-danger/10 text-danger',
+  warning: 'bg-warning/10 text-warning',
+  neutral: 'bg-slate-100 text-slate-500 dark:bg-slate-800/60 dark:text-slate-400',
 }
 
 function proposalLabel(proposal: Proposal): string {
   return proposal.content || proposal.strategy_name || proposal.proposal_type.replace(/_/g, ' ')
 }
 
-function Kpi({ label, value, tone, note }: { label: string; value: string; tone?: string; note?: string }) {
+/** Coerce a grade score (ratio 0–1 or already a percent) to a 0–100 scale. */
+function toPct(value: unknown): number | null {
+  const n = toFiniteNumber(value)
+  if (n == null) return null
+  return Math.abs(n) <= 1 ? n * 100 : n
+}
+
+function IconChip({ icon: Icon, accent = 'primary' }: { icon: ComponentType<{ className?: string }>; accent?: Accent }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950/70 px-3 py-2">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">{label}</p>
-      <p className={cn('mt-1 font-mono text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100', tone)}>{value}</p>
-      {note && <p className="mt-1 truncate text-[11px] text-slate-500 dark:text-slate-400">{note}</p>}
+    <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', ACCENT_CHIP[accent])}>
+      <Icon className="h-3.5 w-3.5" />
+    </span>
+  )
+}
+
+function PanelHeader({
+  icon,
+  accent = 'primary',
+  title,
+  subtitle,
+  right,
+}: {
+  icon: ComponentType<{ className?: string }>
+  accent?: Accent
+  title: string
+  subtitle?: string
+  right?: ReactNode
+}) {
+  return (
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="flex items-center gap-2">
+        <IconChip icon={icon} accent={accent} />
+        <div>
+          <p className={sectionTitleClass}>{title}</p>
+          {subtitle ? <p className={mutedClass}>{subtitle}</p> : null}
+        </div>
+      </div>
+      {right}
     </div>
   )
 }
 
-function EmptyRow({ colSpan, message }: { colSpan: number; message: string }) {
+function StatTile({
+  label,
+  value,
+  note,
+  icon,
+  accent = 'neutral',
+  valueTone,
+}: {
+  label: string
+  value: string
+  note?: string
+  icon: ComponentType<{ className?: string }>
+  accent?: Accent
+  valueTone?: string
+}) {
   return (
-    <tr>
-      <td colSpan={colSpan} className="px-3 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
-        {message}
-      </td>
-    </tr>
+    <div className="rounded-xl border border-slate-200 bg-white px-3 py-3 transition-colors hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950/70 dark:hover:border-slate-700">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">{label}</p>
+        <IconChip icon={icon} accent={accent} />
+      </div>
+      <p className={cn('mt-2 font-mono text-2xl font-bold tabular-nums text-slate-900 dark:text-slate-100', valueTone)}>{value}</p>
+      <p className="mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400">{note ?? '\u00A0'}</p>
+    </div>
+  )
+}
+
+function Meter({ value, className }: { value: number | null; className?: string }) {
+  const pct = value == null ? 0 : Math.max(0, Math.min(100, value))
+  return (
+    <div className={cn('h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800', className)}>
+      <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+    </div>
   )
 }
 
@@ -88,186 +151,267 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
 
   return (
     <div className="space-y-3">
-      <section className={cardClass}>
+      {/* Hero summary band — title + headline KPIs */}
+      <section className="rounded-xl border border-slate-200 bg-gradient-to-br from-white via-white to-primary/5 p-3 shadow-sm shadow-slate-900/5 dark:border-slate-800/80 dark:from-slate-950/80 dark:via-slate-950/80 dark:to-primary/10 dark:shadow-black/20 sm:p-4">
         <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className={sectionTitleClass}>Learning Control Plane</p>
-            <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500 dark:text-slate-400">
-              This page now shows only live learning evidence that is already in the dashboard store: graded fills, proposal outcomes, and learning-agent activity. Backtest calibration widgets were removed from this operator view.
-            </p>
+          <div className="flex items-start gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Brain className="h-5 w-5" />
+            </span>
+            <div>
+              <p className={sectionTitleClass}>Learning Control Plane</p>
+              <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500 dark:text-slate-400">
+                Live learning evidence from the dashboard store — graded fills, proposal outcomes, and learning-agent activity.
+              </p>
+            </div>
           </div>
-          <span className="rounded-full border border-slate-200 dark:border-slate-800 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+          <span className="rounded-full border border-slate-200 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:border-slate-800 dark:text-slate-400">
             Source: live dashboard state
           </span>
         </div>
-        <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
-          <Kpi label="Graded Trades" value={String(gradedTrades.length)} note={`${closedTrades.length} closed fills`} />
-          <Kpi label="Win Rate" value={winRate == null ? '--' : formatPercent(winRate, { signed: true })} tone="text-slate-900 dark:text-slate-100" />
-          <Kpi label="Total PnL" value={signedUSD(totalPnl)} tone={pnlColorClass(totalPnl)} />
-          <Kpi label="Avg Grade Score" value={formatPercent(avgGradeScore, { decimals: 0 })} />
-          <Kpi label="Proposal Queue" value={`${pendingProposals} pending`} note={`${approvedProposals} approved`} />
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+          <StatTile
+            label="Graded Trades"
+            value={String(gradedTrades.length)}
+            note={`of ${closedTrades.length} closed fills`}
+            icon={Activity}
+            accent="primary"
+          />
+          <StatTile
+            label="Win Rate"
+            value={winRate == null ? '--' : formatPercent(winRate, { signed: true })}
+            note={`${wins}W · ${losses}L`}
+            icon={TrendingUp}
+            accent="success"
+          />
+          <StatTile
+            label="Total PnL"
+            value={signedUSD(totalPnl)}
+            icon={totalPnl >= 0 ? TrendingUp : TrendingDown}
+            accent={totalPnl >= 0 ? 'success' : 'danger'}
+            valueTone={pnlColorClass(totalPnl)}
+          />
+          <StatTile
+            label="Avg Grade Score"
+            value={formatPercent(avgGradeScore, { decimals: 0 })}
+            note={`${gradedTrades.length} graded`}
+            icon={Gauge}
+            accent="primary"
+          />
+          <StatTile
+            label="Proposal Queue"
+            value={`${pendingProposals} pending`}
+            note={`${approvedProposals} approved`}
+            icon={Lightbulb}
+            accent="warning"
+          />
         </div>
       </section>
 
-      <section className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <div className={cardClass}>
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <p className={sectionTitleClass}>Graded Trade Outcomes</p>
-              <p className={mutedClass}>Recent fills with grades, P&L, and trace links.</p>
-            </div>
-            {latestGrade && <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">Latest {latestGrade.grade ?? 'NR'}</span>}
-          </div>
-          <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
-            <table className="w-full min-w-[760px] text-left text-xs">
-              <thead className="bg-slate-100 dark:bg-slate-900/80 text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                <tr>
-                  <th className="px-3 py-2 font-semibold">Trade</th>
-                  <th className="px-3 py-2 font-semibold">P&L</th>
-                  <th className="px-3 py-2 font-semibold">Grade</th>
-                  <th className="px-3 py-2 font-semibold">Score</th>
-                  <th className="px-3 py-2 font-semibold">Lifecycle</th>
-                  <th className="px-3 py-2 text-right font-semibold">Trace</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-800/80 bg-white dark:bg-slate-950/50">
-                {sortedByTime(tradeFeed).slice(0, 12).map((trade: TradeFeedItem) => {
-                  const pnl = toFiniteNumber(trade.pnl)
-                  const traceId = trade.execution_trace_id ?? trade.signal_trace_id
-                  return (
-                    <tr key={trade.id} className="text-slate-600 dark:text-slate-300">
-                      <td className="px-3 py-2">
-                        <div className="flex items-center gap-2">
-                          <span className={cn('rounded border px-2 py-0.5 font-mono text-[10px] uppercase', actionTone(trade.side))}>{trade.side}</span>
-                          <span className="font-mono font-semibold text-slate-900 dark:text-slate-100">{trade.symbol || '--'}</span>
-                        </div>
-                        <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{trade.qty ?? '--'} units</p>
-                      </td>
-                      <td className={cn('px-3 py-2 font-mono', (pnl ?? 0) >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300')}>
-                        {pnl == null ? '--' : signedUSD(pnl)}
-                        <span className="ml-2 text-slate-500 dark:text-slate-400">{formatPercent(trade.pnl_percent, { signed: true })}</span>
-                      </td>
-                      <td className="px-3 py-2">
-                        <span className={cn('rounded border px-2 py-1 font-mono text-[10px] uppercase', gradeTone(trade.grade))}>{trade.grade ?? 'NR'}</span>
-                      </td>
-                      <td className="px-3 py-2 font-mono text-slate-500 dark:text-slate-400">{formatPercent(trade.grade_score, { decimals: 0 })}</td>
-                      <td className="px-3 py-2 text-slate-500 dark:text-slate-400">
-                        filled {trade.filled_at ? formatTimeAgo(trade.filled_at) : '--'} · graded {trade.graded_at ? formatTimeAgo(trade.graded_at) : '--'}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        {traceId ? (
-                          <button type="button" onClick={() => setActiveTraceId(traceId)} className="font-mono text-[11px] text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100">
-                            {traceId.slice(0, 12)}…
-                          </button>
-                        ) : (
-                          <span className="text-slate-400 dark:text-slate-600">--</span>
-                        )}
-                      </td>
+      {/* Main grid — evidence tables (left) + at-a-glance rail (right) */}
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="space-y-3">
+          {/* Graded Trade Outcomes */}
+          <section className={cardClass}>
+            <PanelHeader
+              icon={Activity}
+              accent="primary"
+              title="Graded Trade Outcomes"
+              subtitle="Recent fills with grades, P&L, and trace links."
+              right={
+                latestGrade ? (
+                  <span className={cn('rounded border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase', gradeTone(latestGrade.grade))}>
+                    Latest {latestGrade.grade ?? 'NR'}
+                  </span>
+                ) : undefined
+              }
+            />
+            {tradeFeed.length === 0 ? (
+              <EmptyState icon={Activity} message="No fills yet — learning outcomes appear after execution and grading." />
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                <table className="w-full min-w-[760px] text-left text-xs">
+                  <thead className="bg-slate-100 dark:bg-slate-900/80 text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                    <tr>
+                      <th className="px-3 py-2 font-semibold">Trade</th>
+                      <th className="px-3 py-2 font-semibold">P&L</th>
+                      <th className="px-3 py-2 font-semibold">Grade</th>
+                      <th className="px-3 py-2 font-semibold">Score</th>
+                      <th className="px-3 py-2 font-semibold">Lifecycle</th>
+                      <th className="px-3 py-2 text-right font-semibold">Trace</th>
                     </tr>
-                  )
-                })}
-                {tradeFeed.length === 0 && <EmptyRow colSpan={6} message="No fills yet. Learning outcomes appear after execution and grading." />}
-              </tbody>
-            </table>
-          </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800/80 bg-white dark:bg-slate-950/50">
+                    {sortedByTime(tradeFeed).slice(0, 12).map((trade: TradeFeedItem) => {
+                      const pnl = toFiniteNumber(trade.pnl)
+                      const traceId = trade.execution_trace_id ?? trade.signal_trace_id
+                      return (
+                        <tr key={trade.id} className="text-slate-600 transition-colors hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900/40">
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <span className={cn('rounded border px-2 py-0.5 font-mono text-[10px] uppercase', actionTone(trade.side))}>{trade.side}</span>
+                              <span className="font-mono font-semibold text-slate-900 dark:text-slate-100">{trade.symbol || '--'}</span>
+                            </div>
+                            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{trade.qty ?? '--'} units</p>
+                          </td>
+                          <td className={cn('px-3 py-2 font-mono', pnlColorClass(pnl ?? 0))}>
+                            {pnl == null ? '--' : signedUSD(pnl)}
+                            <span className="ml-2 text-slate-500 dark:text-slate-400">{formatPercent(trade.pnl_percent, { signed: true })}</span>
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className={cn('rounded border px-2 py-1 font-mono text-[10px] uppercase', gradeTone(trade.grade))}>{trade.grade ?? 'NR'}</span>
+                          </td>
+                          <td className="px-3 py-2 font-mono text-slate-500 dark:text-slate-400">{formatPercent(trade.grade_score, { decimals: 0 })}</td>
+                          <td className="px-3 py-2 text-slate-500 dark:text-slate-400">
+                            filled {trade.filled_at ? formatTimeAgo(trade.filled_at) : '--'} · graded {trade.graded_at ? formatTimeAgo(trade.graded_at) : '--'}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            {traceId ? (
+                              <button
+                                type="button"
+                                onClick={() => setActiveTraceId(traceId)}
+                                className="inline-flex items-center gap-1 font-mono text-[11px] text-slate-500 transition-colors hover:text-primary dark:text-slate-400 dark:hover:text-primary"
+                              >
+                                {traceId.slice(0, 10)}…
+                                <ArrowUpRight className="h-3 w-3" />
+                              </button>
+                            ) : (
+                              <span className="text-slate-400 dark:text-slate-600">--</span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          {/* Proposal Outcomes */}
+          <section className={cardClass}>
+            <PanelHeader
+              icon={Lightbulb}
+              accent="warning"
+              title="Proposal Outcomes"
+              subtitle="Strategy changes generated by the learning loop."
+              right={<span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">{proposals.length} total</span>}
+            />
+            {proposals.length === 0 ? (
+              <EmptyState icon={Lightbulb} message="No strategy proposals yet — evidence appears here after reflection." />
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                <table className="w-full min-w-[680px] text-left text-xs">
+                  <thead className="bg-slate-100 dark:bg-slate-900/80 text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                    <tr>
+                      <th className="px-3 py-2 font-semibold">Change</th>
+                      <th className="px-3 py-2 font-semibold">Expected</th>
+                      <th className="px-3 py-2 font-semibold">Grade Δ</th>
+                      <th className="px-3 py-2 font-semibold">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800/80 bg-white dark:bg-slate-950/50">
+                    {sortedByTime(proposals).slice(0, 8).map((proposal) => (
+                      <tr key={proposal.id} className="text-slate-600 transition-colors hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900/40">
+                        <td className="max-w-[340px] px-3 py-2">
+                          <p className="line-clamp-2 font-medium text-slate-900 dark:text-slate-100">{proposalLabel(proposal)}</p>
+                          <p className="mt-1 font-mono text-[11px] text-slate-400 dark:text-slate-600">{proposal.proposal_type.replace(/_/g, ' ')}</p>
+                        </td>
+                        <td className="px-3 py-2 font-mono text-slate-500 dark:text-slate-400">{formatPercent(proposal.confidence, { decimals: 0 })}</td>
+                        <td className="px-3 py-2 font-mono text-slate-500 dark:text-slate-400">{formatPercent(proposal.grade_score, { decimals: 0 })}</td>
+                        <td className="px-3 py-2">
+                          <span className={cn('rounded border px-2 py-1 font-mono text-[10px] uppercase', proposalStatusClass(proposal.status))}>{proposal.status}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
         </div>
 
-        <aside className={cardClass}>
-          <p className={sectionTitleClass}>Current Learning State</p>
-          <div className="mt-3 space-y-2">
-            <div className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950/70 px-3 py-2">
-              <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Latest Grade</p>
-              <p className="mt-1 font-mono text-sm text-slate-900 dark:text-slate-100">
-                {latestGrade ? `${latestGrade.symbol} ${latestGrade.grade ?? 'NR'} / ${formatPercent(latestGrade.grade_score, { decimals: 0 })}` : 'Waiting for first grade'}
-              </p>
+        {/* At-a-glance rail */}
+        <div className="space-y-3">
+          <aside className={cardClass}>
+            <PanelHeader icon={Gauge} accent="primary" title="Current Learning State" />
+            <div className="space-y-2">
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/70">
+                <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Latest Grade</p>
+                {latestGrade ? (
+                  <>
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <span className={cn('rounded border px-2 py-0.5 font-mono text-xs font-semibold uppercase', gradeTone(latestGrade.grade))}>
+                        {latestGrade.grade ?? 'NR'}
+                      </span>
+                      <span className="font-mono text-sm font-semibold text-slate-900 dark:text-slate-100">{latestGrade.symbol}</span>
+                      <span className="ml-auto font-mono text-xs text-slate-500 dark:text-slate-400">{formatPercent(latestGrade.grade_score, { decimals: 0 })}</span>
+                    </div>
+                    <Meter value={toPct(latestGrade.grade_score)} className="mt-2" />
+                  </>
+                ) : (
+                  <p className="mt-1 font-mono text-sm text-slate-400 dark:text-slate-500">Waiting for first grade</p>
+                )}
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/70">
+                <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Latest Proposal</p>
+                <div className="mt-1.5 flex items-start gap-2">
+                  <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+                  <p className="line-clamp-2 text-sm text-slate-600 dark:text-slate-300">
+                    {latestProposal ? proposalLabel(latestProposal) : 'No proposal generated yet'}
+                  </p>
+                </div>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/70">
+                <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">What operators should check</p>
+                <ul className="mt-2 space-y-1.5 text-xs text-slate-500 dark:text-slate-400">
+                  {[
+                    'Are poor grades clustering by symbol or side?',
+                    'Did an approved proposal improve realized grades?',
+                    'Are traces attached to every graded execution?',
+                  ].map((item) => (
+                    <li key={item} className="flex items-start gap-2">
+                      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/50" />
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950/70 px-3 py-2">
-              <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Latest Proposal</p>
-              <p className="mt-1 line-clamp-2 text-sm text-slate-600 dark:text-slate-300">
-                {latestProposal ? proposalLabel(latestProposal) : 'No proposal generated yet'}
-              </p>
-            </div>
-            <div className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950/70 px-3 py-2">
-              <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">What operators should check</p>
-              <ul className="mt-2 space-y-1 text-xs text-slate-500 dark:text-slate-400">
-                <li>• Are poor grades clustering by symbol or side?</li>
-                <li>• Did an approved proposal improve realized grades?</li>
-                <li>• Are traces attached to every graded execution?</li>
-              </ul>
-            </div>
-          </div>
-        </aside>
-      </section>
+          </aside>
 
-      <section className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-        <div className={cardClass}>
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <div>
-              <p className={sectionTitleClass}>Proposal Outcomes</p>
-              <p className={mutedClass}>Strategy changes generated by the learning loop.</p>
-            </div>
-            <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">{proposals.length} total</span>
-          </div>
-          <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
-            <table className="w-full min-w-[680px] text-left text-xs">
-              <thead className="bg-slate-100 dark:bg-slate-900/80 text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                <tr>
-                  <th className="px-3 py-2 font-semibold">Change</th>
-                  <th className="px-3 py-2 font-semibold">Expected</th>
-                  <th className="px-3 py-2 font-semibold">Grade Δ</th>
-                  <th className="px-3 py-2 font-semibold">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-800/80 bg-white dark:bg-slate-950/50">
-                {sortedByTime(proposals).slice(0, 8).map((proposal) => (
-                  <tr key={proposal.id} className="text-slate-600 dark:text-slate-300">
-                    <td className="max-w-[340px] px-3 py-2">
-                      <p className="line-clamp-2 font-medium text-slate-900 dark:text-slate-100">{proposalLabel(proposal)}</p>
-                      <p className="mt-1 font-mono text-[11px] text-slate-400 dark:text-slate-600">{proposal.proposal_type.replace(/_/g, ' ')}</p>
-                    </td>
-                    <td className="px-3 py-2 font-mono text-slate-500 dark:text-slate-400">{formatPercent(proposal.confidence, { decimals: 0 })}</td>
-                    <td className="px-3 py-2 font-mono text-slate-500 dark:text-slate-400">{formatPercent(proposal.grade_score, { decimals: 0 })}</td>
-                    <td className="px-3 py-2">
-                      <span className={cn('rounded border px-2 py-1 font-mono text-[10px] uppercase', proposalStatusClass(proposal.status))}>{proposal.status}</span>
-                    </td>
-                  </tr>
-                ))}
-                {proposals.length === 0 && <EmptyRow colSpan={4} message="No strategy proposals yet. Proposal evidence appears here after reflection." />}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className={cardClass}>
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <div>
-              <p className={sectionTitleClass}>Learning Agent Activity</p>
-              <p className={mutedClass}>Only grade, reflection, proposal, and learning events.</p>
-            </div>
-            <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">{learningLogs.length} events</span>
-          </div>
-          <div className="rounded-lg border border-slate-200 dark:border-slate-800">
+          <aside className={cardClass}>
+            <PanelHeader
+              icon={Activity}
+              accent="primary"
+              title="Learning Agent Activity"
+              subtitle="Grade, reflection, proposal, and learning events."
+              right={<span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">{learningLogs.length} events</span>}
+            />
             {learningLogs.length === 0 ? (
-              <p className="px-3 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No learning-agent events have streamed yet.</p>
+              <EmptyState icon={Activity} message="No learning-agent events have streamed yet." />
             ) : (
               <div className="divide-y divide-slate-200 dark:divide-slate-800/80">
                 {learningLogs.map((log, index) => (
-                  <div key={`${log.trace_id ?? log.timestamp}-${index}`} className="grid grid-cols-[120px_1fr] gap-3 px-3 py-2 text-xs">
-                    <div>
-                      <p className="truncate font-semibold text-slate-600 dark:text-slate-300">{String(log.agent_name ?? log.agent ?? 'Agent')}</p>
-                      <p className="font-mono text-[11px] text-slate-400 dark:text-slate-600">{log.timestamp ? formatTimeAgo(log.timestamp) : '--'}</p>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate text-slate-500 dark:text-slate-400">{log.event_type ?? 'learning_event'}</p>
+                  <div key={`${log.trace_id ?? log.timestamp}-${index}`} className="flex gap-3 px-1 py-2.5 text-xs">
+                    <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary/60" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate font-semibold text-slate-700 dark:text-slate-200">{String(log.agent_name ?? log.agent ?? 'Agent')}</p>
+                        <span className="shrink-0 font-mono text-[10px] text-slate-400 dark:text-slate-500">{log.timestamp ? formatTimeAgo(log.timestamp) : '--'}</span>
+                      </div>
+                      <span className="mt-1 inline-block rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
+                        {log.event_type ?? 'learning_event'}
+                      </span>
                       <p className="mt-1 line-clamp-2 text-slate-500 dark:text-slate-400">{log.message ?? log.primary_edge ?? 'No message provided.'}</p>
                     </div>
                   </div>
                 ))}
               </div>
             )}
-          </div>
+          </aside>
         </div>
-      </section>
+      </div>
     </div>
   )
 }
