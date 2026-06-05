@@ -212,7 +212,7 @@ export function NotificationFeed({
                         return (
                           <span
                             key={`${displayValue(badge.label)}-${index}`}
-                            className={cn('rounded px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide', toneStyles[badgeTone].badge)}
+                            className={cn('rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide', toneStyles[badgeTone].badge)}
                           >
                             {displayValue(badge.label)}
                           </span>
