@@ -45,7 +45,7 @@ class ExecutionEngine:
                 f"{context[FieldName.ASSET]} {context[FieldName.TIMEFRAME]} signal"
             )
             payload = {
-                "asset": context[FieldName.ASSET],
+                FieldName.ASSET: context[FieldName.ASSET],
                 FieldName.TIMEFRAME: context[FieldName.TIMEFRAME],
                 FieldName.GROUNDING: grounding,
             }
