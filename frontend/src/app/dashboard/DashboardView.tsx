@@ -165,6 +165,12 @@ function pickHigherPriorityStatus(
   return priority[incoming] < priority[current] ? incoming : current
 }
 
+// Last-resort equity base for the Daily Change % tile when the backend emits no
+// portfolio_value / equity / starting_equity system metric. Mirrors the backend
+// paper starting capital (DEFAULT_PAPER_CASH = $100k); a live metric is always
+// preferred over this constant when present.
+const DEFAULT_PAPER_EQUITY = 100_000
+
 function getMetric(systemMetrics: Array<Record<string, unknown>>, metricName: string): number | null {
   const match = systemMetrics.find((metric) => metric?.metric_name === metricName)
   return toFiniteNumber(match?.value)
@@ -209,8 +215,13 @@ function formatWinRate(rate: number | null, hasClosedTrades: boolean): string {
   return `${rate.toFixed(2)}%${hasClosedTrades ? '' : ' (open only)'}`
 }
 
+// Dead-band |change| < 0.005% to a clean "0.00%" so a tiny non-zero P&L on a
+// large equity base never renders the "-0.00%"/"+0.00%" artifact.
+const DAILY_CHANGE_DEADBAND_PCT = 0.005
+
 function formatDailyChange(change: number | null | undefined): string {
   if (typeof change !== 'number' || !Number.isFinite(change)) return '--'
+  if (Math.abs(change) < DAILY_CHANGE_DEADBAND_PCT) return '0.00%'
   const sign = change > 0 ? '+' : ''
   return `${sign}${change.toFixed(2)}%`
 }
@@ -404,14 +415,23 @@ export function DashboardView({ section }: { section: Section }) {
     // the Open Positions table (below) via isActivePosition so the headline KPI
     // and the rows it summarises always agree on which positions are open.
     const activePositions = positions.filter(isActivePosition).length
-    const dailyChangeFromMetric = getMetric(systemMetrics, 'daily_change_pct')
-    const dailyChangeFromDashboard = toFiniteNumber((dashboardData as Record<string, unknown> | null)?.['daily_change_pct'])
+
+    // Daily Change % = live total P&L (realized + live mark-to-market unrealized)
+    // as a % of the account equity base. Using the live total — not realized-only
+    // order PnL — means it moves with the market every tick and always agrees in
+    // sign with the Total P&L headline, instead of the old behaviour that read
+    // 0.00% while an open position was underwater. Falls back to a backend-supplied
+    // value only when there is no live order/position to mark.
     const baseEquity = getMetric(systemMetrics, 'portfolio_value')
       ?? getMetric(systemMetrics, 'account_equity')
       ?? getMetric(systemMetrics, 'equity')
       ?? getMetric(systemMetrics, 'starting_equity')
-    const computedDailyChange = baseEquity && baseEquity > 0 ? (dailyPnlNumeric / baseEquity) * 100 : null
-    const dailyChange = dailyChangeFromMetric ?? dailyChangeFromDashboard ?? computedDailyChange
+      ?? DEFAULT_PAPER_EQUITY
+    const liveDailyChange =
+      livePnl.hasData && baseEquity > 0 ? (livePnl.total / baseEquity) * 100 : null
+    const dailyChangeFromMetric = getMetric(systemMetrics, 'daily_change_pct')
+    const dailyChangeFromDashboard = toFiniteNumber((dashboardData as Record<string, unknown> | null)?.['daily_change_pct'])
+    const dailyChange = liveDailyChange ?? dailyChangeFromMetric ?? dailyChangeFromDashboard ?? null
 
     return {
       dailyPnlNumeric,
@@ -421,7 +441,7 @@ export function DashboardView({ section }: { section: Section }) {
       hasOrders: orders.length > 0,
       hasClosedTrades: closedTrades.length > 0,
     }
-  }, [orders, positions, systemMetrics, dashboardData])
+  }, [orders, positions, systemMetrics, dashboardData, livePnl])
 
   const closedTradePnls = useMemo(
     () => orders
@@ -654,7 +674,10 @@ export function DashboardView({ section }: { section: Section }) {
               {
                 title: 'Daily Change %',
                 value: formatDailyChange(summary.dailyChange),
-                trend: Math.sign(summary.dailyChange ?? 0),
+                trend:
+                  Math.abs(summary.dailyChange ?? 0) < DAILY_CHANGE_DEADBAND_PCT
+                    ? 0
+                    : Math.sign(summary.dailyChange ?? 0),
               },
             ] as Array<{ title: string; value: ReactNode; trend: number; sub?: ReactNode; badge?: ReactNode }>).map((item) => (
               <div key={item.title} className={cardClass}>
