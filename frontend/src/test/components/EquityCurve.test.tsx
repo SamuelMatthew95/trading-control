@@ -21,6 +21,33 @@ describe('EquityCurve', () => {
     expect(screen.getByText(/No equity data yet/i)).toBeInTheDocument()
   })
 
+  it('falls back to the live series when there are no closed orders (open position)', () => {
+    render(
+      <EquityCurve
+        orders={[]}
+        liveSeries={[
+          { timestamp: 1000, label: '', pnl: -1, delta: -1, equity: -1 },
+          { timestamp: 4000, label: '', pnl: -1.06, delta: -0.06, equity: -1.06 },
+        ]}
+      />,
+    )
+    expect(screen.queryByText(/No equity data yet/i)).not.toBeInTheDocument()
+    expect(screen.getByTestId('area-chart')).toBeInTheDocument()
+    expect(screen.getByText(/Live · marks to market/i)).toBeInTheDocument()
+  })
+
+  it('prefers the realized order curve over the live series when trades have closed', () => {
+    render(
+      <EquityCurve
+        orders={[{ created_at: '2026-01-01T00:00:00Z', pnl: 10 }]}
+        liveSeries={[{ timestamp: 1000, label: '', pnl: -1, delta: -1, equity: -1 }]}
+      />,
+    )
+    // The realized curve wins, so the live badge must not show.
+    expect(screen.queryByText(/Live · marks to market/i)).not.toBeInTheDocument()
+    expect(screen.getByText('Cumulative P&L')).toBeInTheDocument()
+  })
+
   it('renders chart scaffolding for valid data', () => {
     render(
       <EquityCurve
