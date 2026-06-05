@@ -90,10 +90,10 @@ class ReflectionAgent(MultiStreamAgent):
                 {
                     FieldName.SYMBOL: data.get(FieldName.SYMBOL),
                     FieldName.SIDE: data.get(FieldName.SIDE),
-                    "pnl": data.get(FieldName.PNL),
-                    "pnl_percent": data.get(FieldName.PNL_PERCENT),
-                    "fill_price": data.get(FieldName.FILL_PRICE),
-                    "filled_at": data.get(FieldName.FILLED_AT),
+                    FieldName.PNL: data.get(FieldName.PNL),
+                    FieldName.PNL_PERCENT: data.get(FieldName.PNL_PERCENT),
+                    FieldName.FILL_PRICE: data.get(FieldName.FILL_PRICE),
+                    FieldName.FILLED_AT: data.get(FieldName.FILLED_AT),
                     # Decision provenance carried on the fill events so the
                     # per-model reflection summary (_build_prompt) is populated.
                     FieldName.MODEL_USED: data.get(FieldName.MODEL_USED),
@@ -103,7 +103,7 @@ class ReflectionAgent(MultiStreamAgent):
         elif stream == STREAM_AGENT_GRADES:
             self._recent_grades.append(
                 {
-                    "grade": data.get(FieldName.GRADE),
+                    FieldName.GRADE: data.get(FieldName.GRADE),
                     FieldName.SCORE: data.get(FieldName.SCORE),
                     FieldName.METRICS: data.get(FieldName.METRICS, {}),
                     FieldName.TIMESTAMP: data.get(FieldName.TIMESTAMP),
@@ -155,13 +155,13 @@ class ReflectionAgent(MultiStreamAgent):
                 await self.bus.publish(
                     STREAM_NOTIFICATIONS,
                     {
-                        "msg_id": str(uuid.uuid4()),
-                        "source": SOURCE_REFLECTION,
-                        "type": "notification",
-                        "severity": Severity.WARNING,
-                        "notification_type": "reflection_skipped",
-                        "message": "Reflection skipped: daily LLM token budget exceeded",
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        FieldName.MSG_ID: str(uuid.uuid4()),
+                        FieldName.SOURCE: SOURCE_REFLECTION,
+                        FieldName.TYPE: "notification",
+                        FieldName.SEVERITY: Severity.WARNING,
+                        FieldName.NOTIFICATION_TYPE: "reflection_skipped",
+                        FieldName.MESSAGE: "Reflection skipped: daily LLM token budget exceeded",
+                        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
                     },
                 )
                 return
@@ -196,7 +196,7 @@ class ReflectionAgent(MultiStreamAgent):
             )
             reflection_data = {
                 **FALLBACK_REFLECTION,
-                "summary": f"LLM unavailable after {self._fills} fills.",
+                FieldName.SUMMARY: f"LLM unavailable after {self._fills} fills.",
             }
 
         # Evaluator-Optimizer: if the first pass produced too few actionable hypotheses,
@@ -230,12 +230,12 @@ class ReflectionAgent(MultiStreamAgent):
         quant = self._compute_quant_reflection()
 
         reflection_payload: dict[str, Any] = {
-            "msg_id": str(uuid.uuid4()),
-            "source": SOURCE_REFLECTION,
-            "type": "reflection_output",
-            "trace_id": trace_id,
+            FieldName.MSG_ID: str(uuid.uuid4()),
+            FieldName.SOURCE: SOURCE_REFLECTION,
+            FieldName.TYPE: "reflection_output",
+            FieldName.TRACE_ID: trace_id,
             FieldName.FILLS_ANALYZED: self._fills,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
             **reflection_data,
             # Merge quant fields — these override any LLM-generated equivalents
             FieldName.PATTERNS: quant[FieldName.PATTERNS],
@@ -254,14 +254,14 @@ class ReflectionAgent(MultiStreamAgent):
         await self.bus.publish(
             STREAM_NOTIFICATIONS,
             {
-                "msg_id": str(uuid.uuid4()),
-                "source": SOURCE_REFLECTION,
-                "type": "notification",
-                "severity": Severity.INFO,
-                "notification_type": "reflection",
-                "message": reflection_data.get(FieldName.SUMMARY, "Reflection completed."),
+                FieldName.MSG_ID: str(uuid.uuid4()),
+                FieldName.SOURCE: SOURCE_REFLECTION,
+                FieldName.TYPE: "notification",
+                FieldName.SEVERITY: Severity.INFO,
+                FieldName.NOTIFICATION_TYPE: "reflection",
+                FieldName.MESSAGE: reflection_data.get(FieldName.SUMMARY, "Reflection completed."),
                 FieldName.HYPOTHESIS_COUNT: len(reflection_data.get(FieldName.HYPOTHESES, [])),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
             },
         )
 
@@ -339,7 +339,7 @@ class ReflectionAgent(MultiStreamAgent):
             {
                 FieldName.FILLS_ANALYZED: len(recent_fills),
                 FieldName.TOTAL_PNL: round(total_pnl, 4),
-                "win_rate": round(win_rate, 4),
+                FieldName.WIN_RATE: round(win_rate, 4),
                 FieldName.RECENT_FILLS: recent_fills,
                 FieldName.RECENT_GRADES: list(self._recent_grades)[-5:],
                 FieldName.RECENT_IC_CHANGES: list(self._recent_ic)[-5:],
