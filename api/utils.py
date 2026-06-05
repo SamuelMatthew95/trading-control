@@ -90,3 +90,21 @@ def parse_agent_status(value: str | None) -> AgentStatus:
         return AgentStatus(str(value).strip().upper())
     except ValueError:
         return AgentStatus.UNKNOWN
+
+
+def cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Cosine similarity of two numeric vectors, truncated to the shorter length.
+
+    Returns ``0.0`` when either vector is empty or has zero magnitude (similarity
+    is undefined there). Pure math helper — no domain coupling.
+    """
+    n = min(len(a), len(b))
+    if n == 0:
+        return 0.0
+    a, b = a[:n], b[:n]
+    dot = sum(x * y for x, y in zip(a, b, strict=False))
+    norm_a = sum(x * x for x in a) ** 0.5
+    norm_b = sum(y * y for y in b) ** 0.5
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
