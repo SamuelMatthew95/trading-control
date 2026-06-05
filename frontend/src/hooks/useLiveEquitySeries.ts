@@ -12,9 +12,15 @@ import type { EquityPoint } from '@/components/dashboard/EquityCurve'
 const SAMPLE_INTERVAL_MS = 3000
 const MAX_POINTS = 200
 const STORAGE_KEY = 'codex.equityCurve'
-// Drop samples older than this when restoring after a reload, so a curve from a
-// previous session/day doesn't graft a misleading jump onto the current one.
+// Drop individual samples older than this when restoring after a reload.
 const MAX_AGE_MS = 60 * 60 * 1000
+// If the newest persisted sample is older than this, the tab was away too long
+// to draw a continuous line — restoring would splice a fabricated sloped segment
+// across the gap (e.g. -$1.15 30 min ago → +$5 now). Past it, start fresh.
+const CONTINUITY_THRESHOLD_MS = 2 * 60 * 1000
+// Persist on a fixed cadence (decoupled from the 3s sampling) so we don't
+// re-serialize the whole window to localStorage on every single sample.
+const PERSIST_INTERVAL_MS = 15000
 
 /**
  * Append one live-equity sample, pure + testable.
@@ -54,7 +60,7 @@ export function loadPersistedEquitySeries(now: number = Date.now()): EquityPoint
     const parsed: unknown = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
     const cutoff = now - MAX_AGE_MS
-    return parsed
+    const valid = parsed
       .filter(
         (p): p is EquityPoint =>
           !!p &&
@@ -63,6 +69,12 @@ export function loadPersistedEquitySeries(now: number = Date.now()): EquityPoint
           (p as EquityPoint).timestamp >= cutoff,
       )
       .slice(-MAX_POINTS)
+    // Only restore when the curve is still "current": if the newest sample is
+    // stale, the tab was away long enough that grafting new points would draw a
+    // misleading jump, so start fresh instead.
+    const newest = valid[valid.length - 1]?.timestamp
+    if (newest == null || now - newest > CONTINUITY_THRESHOLD_MS) return []
+    return valid
   } catch {
     return []
   }
@@ -83,6 +95,9 @@ export function useLiveEquitySeries(): EquityPoint[] {
   // Start empty so the server and first client render match (no SSR mismatch);
   // the persisted curve is restored in the mount effect below.
   const [series, setSeries] = useState<EquityPoint[]>([])
+  // Latest series for the throttled persister to read without re-arming.
+  const seriesRef = useRef(series)
+  seriesRef.current = series
 
   useEffect(() => {
     const restored = loadPersistedEquitySeries()
@@ -97,15 +112,24 @@ export function useLiveEquitySeries(): EquityPoint[] {
     return () => clearInterval(id)
   }, [])
 
-  // Persist so a reload restores the recent curve instead of resetting to a dot.
+  // Persist on a fixed cadence (not on every 3s sample) so a reload restores the
+  // recent curve instead of resetting to a dot, without thrashing localStorage.
   useEffect(() => {
-    if (typeof window === 'undefined' || series.length === 0) return
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(series))
-    } catch {
-      // Best-effort: ignore quota / serialization errors.
+    if (typeof window === 'undefined') return
+    const persist = () => {
+      if (seriesRef.current.length === 0) return
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seriesRef.current))
+      } catch {
+        // Best-effort: ignore quota / serialization errors.
+      }
     }
-  }, [series])
+    const id = setInterval(persist, PERSIST_INTERVAL_MS)
+    return () => {
+      clearInterval(id)
+      persist() // flush the latest window on unmount (e.g. SPA navigation)
+    }
+  }, [])
 
   return series
 }
