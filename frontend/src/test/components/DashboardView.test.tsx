@@ -114,10 +114,12 @@ describe('DashboardView — overview', () => {
 
     render(<DashboardView section="overview" />)
 
-    // Live total is unique to the headline (Performance card shows the realized
-    // $10 aggregate separately), proving realized $10 + unrealized $30 = $40.
+    // realized $10 + unrealized $30 = $40. The +$40.00 now appears both in the
+    // headline tile and as the live equity curve's endpoint (its Net == current
+    // total P&L) — both are correct, so assert it renders rather than that it is
+    // unique.
     expect(screen.getByText('Total P&L')).toBeInTheDocument()
-    expect(screen.getByText('+$40.00')).toBeInTheDocument()
+    expect(screen.getAllByText('+$40.00').length).toBeGreaterThan(0)
     // Breakdown renders as labelled mini-stats ("Realized"/"Unrealized" are
     // distinct from the Performance card's "Realized P&L").
     expect(screen.getByText('Realized')).toBeInTheDocument()
