@@ -377,21 +377,6 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
                   </p>
                 </div>
               </div>
-              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/70">
-                <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">What operators should check</p>
-                <ul className="mt-2 space-y-1.5 text-xs text-slate-500 dark:text-slate-400">
-                  {[
-                    'Are poor grades clustering by symbol or side?',
-                    'Did an approved proposal improve realized grades?',
-                    'Are traces attached to every graded execution?',
-                  ].map((item) => (
-                    <li key={item} className="flex items-start gap-2">
-                      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/50" />
-                      <span>{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
             </div>
           </aside>
 
