@@ -97,6 +97,7 @@ CLEAN_FILES: frozenset[str] = frozenset(
         "api/routes/dashboard_v2.py",
         "api/routes/decisions.py",
         "api/routes/dlq.py",
+        "api/services/dashboard/agent_performance.py",
         "api/services/dashboard/agents.py",
         "api/services/dashboard/control.py",
         "api/services/dashboard/events.py",
