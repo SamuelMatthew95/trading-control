@@ -141,6 +141,23 @@ describe('EquityCurve', () => {
     expect(domain[1]).toBeGreaterThanOrEqual(0)
   })
 
+  it('floors the step at $0.01 for sub-cent P&L (no all-zero or -$0.00 ticks)', () => {
+    // Extreme edge: equity ~3e-7 used to round every tick to 0 (toFixed(6)) and
+    // could emit a negative-zero tick rendering as "-$0.00".
+    const series = [
+      { timestamp: 1000, label: '', pnl: 3e-7, delta: 0, equity: 3e-7 },
+      { timestamp: 4000, label: '', pnl: 3e-7, delta: 0, equity: 3e-7 },
+    ]
+    const { ticks } = getNiceYAxis(series)
+    expect(ticks.length).toBeGreaterThan(1)
+    expect(new Set(ticks).size).toBe(ticks.length) // distinct, not all 0
+    for (const t of ticks) {
+      expect(Object.is(t, -0)).toBe(false) // no negative zero → no "-$0.00"
+      expect(Math.round(t * 100) / 100).toBe(t) // on the cent grid
+    }
+    expect(ticks).toContain(0)
+  })
+
   it('returns padded y-axis domain', () => {
     const series = buildEquitySeries([
       { created_at: '2026-01-01T00:00:00Z', pnl: 100 },
