@@ -1,6 +1,9 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 
-import { appendEquitySample } from '@/hooks/useLiveEquitySeries'
+import { appendEquitySample, loadPersistedEquitySeries } from '@/hooks/useLiveEquitySeries'
+
+const STORAGE_KEY = 'codex.equityCurve'
+const point = (timestamp: number, equity: number) => ({ timestamp, label: '', pnl: equity, delta: 0, equity })
 
 describe('appendEquitySample', () => {
   it('seeds the first point from a zero baseline (delta equals the total)', () => {
@@ -24,5 +27,38 @@ describe('appendEquitySample', () => {
     for (let i = 0; i < 5; i += 1) series = appendEquitySample(series, i, i * 1000, 3)
     expect(series).toHaveLength(3)
     expect(series.map((p) => p.equity)).toEqual([2, 3, 4])
+  })
+})
+
+describe('loadPersistedEquitySeries', () => {
+  beforeEach(() => window.localStorage.clear())
+
+  it('returns [] when nothing is stored', () => {
+    expect(loadPersistedEquitySeries()).toEqual([])
+  })
+
+  it('returns [] for malformed JSON', () => {
+    window.localStorage.setItem(STORAGE_KEY, 'not json{')
+    expect(loadPersistedEquitySeries()).toEqual([])
+  })
+
+  it('restores recent points and drops stale (> 1h) ones', () => {
+    const now = 10_000_000
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify([point(now - 2 * 60 * 60 * 1000, -1), point(now - 1000, -1.15)]),
+    )
+    const restored = loadPersistedEquitySeries(now)
+    expect(restored).toHaveLength(1)
+    expect(restored[0].equity).toBe(-1.15)
+  })
+
+  it('ignores malformed entries', () => {
+    const now = 10_000_000
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify([{ nope: true }, point(now - 1000, 5), { timestamp: 'x', equity: 1 }]),
+    )
+    expect(loadPersistedEquitySeries(now)).toHaveLength(1)
   })
 })
