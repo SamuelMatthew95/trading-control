@@ -29,6 +29,7 @@ import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
 import { ActivityTimeline } from './ActivityTimeline'
 import { KpiCard } from './KpiCard'
 import { AgentStatusTable } from './AgentStatusTable'
+import { AgentScorecards } from './AgentScorecards'
 import { AgentInstancesTable } from './AgentInstancesTable'
 import { SystemDiagnostics } from './SystemDiagnostics'
 import { GroupLabel, type WiringFreshness } from './shared'
@@ -178,6 +179,7 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
 
       <section className="space-y-2">
         <GroupLabel>Agents</GroupLabel>
+        <AgentScorecards />
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 xl:items-start">
           <AgentStatusTable realAgents={realAgents} showNoAgentDataMessage={showNoAgentDataMessage} />
           <AgentInstancesTable agentInstances={agentInstances} agentStatuses={agentStatuses} />
