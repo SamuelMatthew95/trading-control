@@ -45,7 +45,7 @@ class LearningService:
         created = [c for r in runs if (c := r.get(FieldName.CREATED_AT)) is not None]
         return {
             FieldName.AGENT_NAME: agent_name,
-            "total_runs": len(runs),
+            FieldName.TOTAL_RUNS: len(runs),
             FieldName.AVG_LATENCY_MS: round(sum(latencies) / len(latencies), 2)
             if latencies
             else None,
