@@ -74,9 +74,17 @@ adaptive directive is stored.
    down/throttled/over-budget the deterministic policy decides instead of
    rejecting, so trades keep flowing and the loop keeps turning. Default remains
    `reject_signal` (fail closed) — operators opt in. **This is the first slice.**
-2. **[NEXT] Promote the policy to primary** behind `DECISION_MODE`
-   (`llm` | `policy` | `hybrid`). In `policy`/`hybrid` the data plane decides
-   every signal; the LLM no longer blocks the path.
+2. **[DONE] Promote the policy to primary** behind `DECISION_MODE`
+   (`llm` | `policy` | `hybrid`), routed in `ReasoningAgent._produce_decision`:
+   - `policy`: the data plane decides every signal; `_call_llm` is never invoked
+     on the hot path (`model_used="policy"`).
+   - `hybrid`: LLM-primary, but `_degrade` falls to the deterministic policy on
+     any LLM failure — never goes dark, regardless of `LLM_FALLBACK_MODE`.
+   - `llm` (default, unchanged behavior): the LLM decides AND the policy runs in
+     **shadow** (`_shadow_compare_policy` logs `decision_shadow_compare` with
+     `agree`), so policy-vs-LLM agreement is measurable before flipping the
+     default. Params are read through `get_policy_params()` (the control-plane
+     seam). Default stays `llm` — opt in per deployment.
 3. **[NEXT] Close the control loop:** extend the directive-evolution machinery so
    the LLM (and the grade/reflection loop) updates `PolicyParams` on the slow
    loop, stored + versioned in Redis like the directive. The challenger system
