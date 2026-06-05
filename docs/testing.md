@@ -4,48 +4,70 @@
 
 ```
 tests/
-├── core/                        # Core unit tests
-│   ├── conftest.py
-│   ├── fake_session.py          # FakeAsyncSession for DB mocking
+├── core/                              # Foundation & guardrail tests
+│   ├── conftest.py                    # autouse InMemoryStore reset
+│   ├── fake_session.py                # FakeAsyncSession for DB mocking
 │   ├── async_sqlalchemy_mocks.py
-│   ├── test_api_modularization.py
-│   ├── test_basic.py
-│   ├── test_database_bootstrap.py
-│   ├── test_event_stack.py
-│   ├── test_logging_safety.py
-│   ├── test_mocks.py
-│   ├── test_redis_init.py
-│   ├── test_runtime_hardening.py
-│   ├── test_schema_mapping.py
-│   ├── test_signal_pipeline.py
-│   └── test_structlog_safety.py
-├── api/                         # API endpoint tests
+│   ├── test_production_schema_guardrails.py  # source-code schema inspection
+│   ├── test_field_name_guardrails.py         # FieldName enum CI enforcement
+│   ├── test_agent_constants.py               # Agent name & InMemoryStore keys
+│   ├── test_data_fetch_guardrails.py
+│   ├── test_cognitive_*.py
+│   ├── test_param_evolution.py
+│   ├── test_param_overrides.py
+│   └── ...
+├── api/                               # API endpoint tests
 │   ├── conftest.py
+│   ├── test_health_memory_mode.py
+│   ├── test_learning_routes.py
+│   ├── test_decisions_routes.py
+│   ├── test_notifications_routes.py
+│   ├── test_websocket_fixes.py
 │   ├── test_dlq_api.py
-│   └── test_websocket_fixes.py
-├── integration/                 # Integration tests
-├── test_embedding_validation.py
-├── test_no_unknown_ids.py
-└── test_stream_logic.py
+│   ├── test_llm_health_redis_metrics.py
+│   ├── test_tool_registry.py
+│   ├── test_prompt_evolution_endpoint.py
+│   ├── test_redis_store.py
+│   └── ...
+├── agents/                            # Per-agent tests (local only — not in CI)
+│   ├── test_signal_generator*.py (3)
+│   ├── test_reasoning_agent.py
+│   ├── test_execution_engine*.py (3)
+│   ├── test_grade_agent.py
+│   ├── test_ic_updater.py
+│   ├── test_reflection_agent.py
+│   ├── test_strategy_proposer.py
+│   ├── test_notification_agent.py
+│   ├── test_proposal_applier.py
+│   ├── test_challenger_agent.py
+│   ├── test_position_math.py          # 35 pure-function unit tests
+│   ├── test_in_memory_persistence.py
+│   └── ...
+└── integration/                       # End-to-end pipeline tests
 ```
 
 ## Run tests
 
+CI runs two separate commands — always mirror this locally:
+
 ```bash
-# Full suite (required before any merge)
-pytest tests/ -v --tb=short
+# Unit tests — mirrors CI step (run first)
+pytest tests/core tests/api -v --tb=short
 
-# With coverage report
-pytest tests/ -v --tb=short --cov=api --cov-report=term-missing
+# Integration tests — mirrors CI step (run second)
+pytest tests/integration -v --tb=short
 
-# Specific categories
-pytest tests/core/ -v      # Core unit tests
-pytest tests/api/ -v       # API endpoint tests
-pytest tests/integration/  # Integration tests
+# Agent tests — local only, not in CI, catch regressions before pushing
+pytest tests/agents -v --tb=short
 
 # Single file
 pytest tests/core/test_signal_pipeline.py -v
+
+# With coverage report
+pytest tests/core tests/api -v --tb=short --cov=api --cov-report=term-missing
 ```
+
+**Never run `pytest tests/` combined** — the CI pipeline runs two separate subset commands, so ordering-sensitive failures only appear when you run them split.
 
 ## Writing tests
 
@@ -133,14 +155,22 @@ await redis.xgroup_create(stream, group, id="$", mkstream=True)
 
 ## CI requirements
 
-All tests must pass before any merge. The CI runs:
+All tests must pass before any merge. CI runs Python 3.10 and 3.11 in parallel:
 
 ```bash
-pytest tests/core tests/api -v      # Unit tests
-pytest tests/integration -v         # Integration tests
+# Step 1 — Lint (ruff)
+ruff check . --fix
+ruff format --check .
+ruff check . --select=E9,F63,F7,F82
+
+# Step 2 — Unit tests
+pytest tests/core tests/api -v
+
+# Step 3 — Integration tests
+pytest tests/integration -v
 ```
 
-Zero failures required. No exceptions.
+`tests/agents/` is **not** in CI — run it locally before pushing to catch agent regressions. Zero failures required across all steps. No exceptions.
 
 ## Contributor expectations
 
