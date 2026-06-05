@@ -16,7 +16,7 @@ import { toFiniteNum as toFinite, parseTimestampMs as parseTimestamp } from '@/l
 
 type EquityOrder = Record<string, unknown>
 
-type EquityPoint = {
+export type EquityPoint = {
   timestamp: number
   label: string
   pnl: number
@@ -93,14 +93,26 @@ export const getPaddedDomain = (series: EquityPoint[]): [number, number] => {
 
 export function EquityCurve({
   orders,
+  liveSeries,
   isLoading = false,
   hasError = false,
 }: {
   orders: EquityOrder[]
+  /** Real-time mark-to-market series, used as a fallback when no trade has
+   *  closed yet so an open position still renders a curve (see useLiveEquitySeries). */
+  liveSeries?: EquityPoint[]
   isLoading?: boolean
   hasError?: boolean
 }) {
-  const series = useMemo(() => buildEquitySeries(orders), [orders])
+  const orderSeries = useMemo(() => buildEquitySeries(orders), [orders])
+  // Prefer the realized, order-derived curve. When no trade has closed yet, fall
+  // back to the live mark-to-market series so an open position shows a real-time
+  // curve instead of an empty "No equity data yet" state.
+  const series = useMemo(
+    () => (orderSeries.length > 0 ? orderSeries : (liveSeries ?? [])),
+    [orderSeries, liveSeries],
+  )
+  const isLiveSeries = orderSeries.length === 0 && (liveSeries?.length ?? 0) > 0
   const domain = useMemo(() => getPaddedDomain(series), [series])
   const stats = useMemo(() => {
     if (series.length === 0) return null
@@ -134,8 +146,16 @@ export function EquityCurve({
     <div className="rounded-xl border border-slate-200/90 bg-gradient-to-b from-white via-slate-50/60 to-white p-4 shadow-sm dark:border-slate-800 dark:from-slate-950 dark:via-slate-900/60 dark:to-slate-950">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Cumulative P&amp;L</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+            {isLiveSeries ? 'Live P&L (open position)' : 'Cumulative P&L'}
+          </p>
           <p className={cn('text-xl font-semibold tabular-nums', positive ? 'text-emerald-500' : 'text-rose-500')}>{formatUSD(last)}</p>
+          {isLiveSeries && (
+            <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-500">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+              Live · marks to market in real time
+            </span>
+          )}
         </div>
         <div className="grid grid-cols-2 gap-2 text-right sm:grid-cols-3">
           <div className="rounded-lg border border-slate-200 bg-white/70 px-2 py-1 dark:border-slate-800 dark:bg-slate-900/60">
