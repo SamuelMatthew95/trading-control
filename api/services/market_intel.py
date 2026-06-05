@@ -349,6 +349,25 @@ async def _fetch_bars(
     return closes
 
 
+def _correlation_map(
+    symbol: str, peers: list[str], closes: dict[str, list[float]]
+) -> dict[str, float]:
+    """Pairwise Pearson correlation of ``symbol`` vs each peer from a close-price map.
+
+    Returns ``{}`` when the base series — OR every peer series — is too sparse to
+    correlate, so the caller can decide whether to retry with a coarser timeframe.
+    """
+    base_returns = _returns(closes.get(symbol, []))
+    if len(base_returns) < _MIN_RETURNS:
+        return {}
+    correlations: dict[str, float] = {}
+    for peer in peers:
+        corr = _pearson(base_returns, _returns(closes.get(peer, [])))
+        if corr is not None:
+            correlations[peer] = corr
+    return correlations
+
+
 async def compute_cross_asset_correlation(symbol: str, redis) -> dict[str, Any]:
     """Pearson correlation of recent returns vs same-class peers, Redis-cached.
 
@@ -367,6 +386,7 @@ async def compute_cross_asset_correlation(symbol: str, redis) -> dict[str, Any]:
     peers = _peers(symbol)
     if not peers or not settings.ALPACA_API_KEY:
         return {}
+    correlations: dict[str, float] = {}
     try:
         async with _client() as client:
             closes = await _fetch_bars(
@@ -377,12 +397,14 @@ async def compute_cross_asset_correlation(symbol: str, redis) -> dict[str, Any]:
                 limit=_CORRELATION_BARS,
                 start_delta=timedelta(minutes=_CORRELATION_BARS * 4),
             )
-            base_returns = _returns(closes.get(symbol, []))
-            if len(base_returns) < _MIN_RETURNS:
-                # Intraday bars are sparse/absent (e.g. equities outside regular
-                # market hours) — the dominant reason this tool degraded to {} on
-                # every such call. Fall back to DAILY bars (available around the
-                # clock) so a real correlation is produced instead of nothing.
+            correlations = _correlation_map(symbol, peers, closes)
+            if not correlations:
+                # Intraday yielded NO correlation — the base OR every peer was too
+                # sparse (equities outside regular hours, or an illiquid peer even
+                # when the traded symbol itself is liquid). Retry with DAILY bars
+                # (available around the clock) before giving up. Triggering on the
+                # actual no-result condition — not just base-symbol sparsity — is
+                # what stops this tool degrading to {} on every call.
                 closes = await _fetch_bars(
                     client,
                     symbol,
@@ -391,21 +413,13 @@ async def compute_cross_asset_correlation(symbol: str, redis) -> dict[str, Any]:
                     limit=_CORRELATION_DAILY_BARS,
                     start_delta=timedelta(days=_CORRELATION_DAILY_BARS * 3),
                 )
-                base_returns = _returns(closes.get(symbol, []))
+                correlations = _correlation_map(symbol, peers, closes)
     except Exception:
         log_structured("warning", "correlation_fetch_failed", symbol=symbol, exc_info=True)
         return {}
 
-    if len(base_returns) < _MIN_RETURNS:
-        return {}
-    correlations: dict[str, float] = {}
-    for peer in peers:
-        corr = _pearson(base_returns, _returns(closes.get(peer, [])))
-        if corr is not None:
-            correlations[peer] = corr
     if not correlations:
         return {}
-
     most_correlated = max(correlations, key=lambda k: abs(correlations[k]))
     result = {
         FieldName.CORRELATIONS: correlations,
