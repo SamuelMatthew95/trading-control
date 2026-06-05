@@ -172,3 +172,34 @@ instead of 503-ing. Added `api/services/feedback_service.py` +
 **Regression test:** `tests/api/test_positions_pnl_routes.py`,
 `tests/api/test_feedback_performance_routes.py`,
 `tests/api/test_analyze_routes.py::test_analyze_valid_request_returns_200`
+
+## Redis "Too many connections" bursts across unrelated endpoints
+
+**Symptom:** Simultaneous `ConnectionError: Too many connections` warnings from
+endpoints that have nothing to do with each other — `positions_broker_read_failed`
+(`/positions`, `/pnl`), `redis_store_decision_stats_failed` (`/decisions`),
+`redis_store_notification_list_failed` (`/notifications`) — all at the same
+instant on a dashboard refresh. The traceback ends in redis-py
+`ConnectionPool.get_connection`, **not** at the Redis server.
+
+**Root cause:** Two compounding issues. (1) The shared pool was a plain
+`redis.asyncio.ConnectionPool` (`max_connections=20`), which raises
+`ConnectionError("Too many connections")` *immediately, client-side*, when every
+connection is checked out — it is not a Redis server limit. (2) The web process
+runs background blocking reads (`xread` / `xreadgroup`) that each hold a pooled
+connection for their block window, and `/positions` + `/pnl` each issued one
+`GET` per supported symbol (8 sequential round trips apiece). A dashboard refresh
+firing many endpoints at once drained the remaining connections and the pool
+raised instead of waiting.
+
+**Fix:** (1) `api/redis_client.py` builds a `BlockingConnectionPool` via
+`_build_pool()` — on exhaustion a caller WAITS up to
+`settings.REDIS_POOL_TIMEOUT_SECONDS` (5s) for a freed connection instead of
+raising; the cap stays at `REDIS_MAX_CONNECTIONS` so the Redis plan's client
+limit is never exceeded. (2) `PaperBroker.get_positions()` batches all symbols
+into one `MGET`; `api/routes/positions.py::_refresh_mirror_from_broker` uses it,
+cutting 8 round trips per request to 1.
+
+**Regression test:**
+`tests/core/test_redis_client.py::test_build_pool_returns_blocking_pool`,
+`tests/agents/test_paper_broker.py::test_get_positions_batches_into_single_mget`
