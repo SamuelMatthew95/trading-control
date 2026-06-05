@@ -25,6 +25,14 @@ export function LLMDegradedBanner() {
   const fallbackNote = data.llm_fallback_enabled
     ? 'Cloud fallback is enabled.'
     : 'Cloud fallback is disabled — reasoning fails closed (new signals are rejected, no naive trades).'
+  // Spell out the downstream cascade so an operator does not read the quiet
+  // pipeline as "everything is broken": while reasoning is degraded few/no
+  // trades close, so the learning agents stay idle — the wiring is intact, the
+  // pipeline is just waiting for the LLM to recover.
+  const cascade =
+    ' Knock-on: with reasoning degraded, few/no trades close, so the learning agents' +
+    ' (Grade · IC · Reflection · Proposer) sit idle until trading resumes — wiring is intact,' +
+    ' the pipeline is waiting on the LLM.'
 
   return (
     <AlertBanner
@@ -35,7 +43,7 @@ export function LLMDegradedBanner() {
           ? `Reasoning LLM down — running in fallback mode (provider: ${data.active_provider}).`
           : `Reasoning LLM degraded — decision quality reduced (provider: ${data.active_provider}).`
       }
-      detail={`LLM success rate ${successPct}% over the last window. ${fallbackNote}`}
+      detail={`LLM success rate ${successPct}% over the last window. ${fallbackNote}${cascade}`}
     />
   )
 }
