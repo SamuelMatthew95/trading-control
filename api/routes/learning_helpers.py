@@ -136,6 +136,19 @@ def _grade_record_to_trade(score: float | None, trade_id: str, created_at: Any) 
     }
 
 
+def _mem_trade_eval(entry: dict[str, Any]) -> dict[str, Any]:
+    """Normalize an InMemoryStore trade_evaluation to the DB response shape.
+
+    ``score_trade`` (the producer) sets ``trade_eval_id`` but no ``id``, while the
+    DB path's ``_row_to_trade_eval`` always emits ``id``. Backfill it so memory-mode
+    list/detail responses match DB mode — the UI keys and links rows on ``id``.
+    """
+    out = dict(entry)
+    if not out.get(FieldName.ID):
+        out[FieldName.ID] = str(entry.get(FieldName.TRADE_EVAL_ID) or "")
+    return out
+
+
 def _mem_grades_as_trades(store: Any, limit: int, offset: int) -> tuple[list[dict[str, Any]], int]:
     """DB-down path: project grade_history into trade_evaluation shape.
 
