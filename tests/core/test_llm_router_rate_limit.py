@@ -297,3 +297,67 @@ async def test_groq_non_rate_limit_error_does_not_fall_back(monkeypatch):
     with patch.dict("sys.modules", {"groq": _make_fake_groq_module(_create)}):
         with pytest.raises(Exception, match="authentication failed"):
             await llm_router._call_provider_raw("groq", "prompt", "system", "trace-3")
+
+
+@pytest.mark.asyncio
+async def test_groq_retries_with_backoff_when_both_tiers_throttled(monkeypatch):
+    """When BOTH the capable and instruct models are 429'd, Groq backs off and
+    retries the pair (parity with Gemini) instead of instantly raising → REJECT.
+
+    REGRESSION: a transient free-tier rate-limit on both tiers used to raise
+    immediately, turning ~87% of decisions into fallback:reject_signal and
+    starving the learning loop. Now it succeeds on a later attempt.
+    """
+    from unittest.mock import AsyncMock
+
+    from api.config import settings
+    from api.services import llm_router
+
+    monkeypatch.setattr(settings, "GROQ_MODEL", "llama-3.3-70b-versatile")
+    monkeypatch.setattr(settings, "GROQ_FALLBACK_MODEL", "llama-3.1-8b-instant")
+    monkeypatch.setattr(settings, "GROQ_API_KEY", "test-key")
+    monkeypatch.setattr(llm_router, "LLM_MAX_RETRIES", 2)
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(llm_router.asyncio, "sleep", sleep_mock)
+
+    calls = {"n": 0}
+
+    def _create(*args, **kwargs):
+        calls["n"] += 1
+        # First three create calls throttle (attempt-0 primary+fallback, then
+        # attempt-1 primary); the fourth (attempt-1 fallback) succeeds.
+        if calls["n"] <= 3:
+            raise Exception("Error code: 429 - rate limit exceeded")
+        return _make_groq_response("recovered-text")
+
+    with patch.dict("sys.modules", {"groq": _make_fake_groq_module(_create)}):
+        text, _tokens, _cost = await llm_router._call_provider_raw(
+            "groq", "prompt", "system", "trace-retry"
+        )
+
+    assert text == "recovered-text"
+    assert sleep_mock.await_count >= 1  # at least one backoff slept before recovery
+
+
+@pytest.mark.asyncio
+async def test_groq_raises_after_retries_exhausted_so_agent_fails_closed(monkeypatch):
+    """If every attempt is throttled, Groq still raises after the bounded retries
+    so the agent fails closed (REJECT) — backoff lifts success, never fabricates a
+    trade."""
+    from unittest.mock import AsyncMock
+
+    from api.config import settings
+    from api.services import llm_router
+
+    monkeypatch.setattr(settings, "GROQ_MODEL", "llama-3.3-70b-versatile")
+    monkeypatch.setattr(settings, "GROQ_FALLBACK_MODEL", "llama-3.1-8b-instant")
+    monkeypatch.setattr(settings, "GROQ_API_KEY", "test-key")
+    monkeypatch.setattr(llm_router, "LLM_MAX_RETRIES", 1)
+    monkeypatch.setattr(llm_router.asyncio, "sleep", AsyncMock())
+
+    def _create(*args, **kwargs):
+        raise Exception("Error code: 429 - rate limit exceeded")
+
+    with patch.dict("sys.modules", {"groq": _make_fake_groq_module(_create)}):
+        with pytest.raises(Exception, match="429"):
+            await llm_router._call_provider_raw("groq", "prompt", "system", "trace-exhaust")
