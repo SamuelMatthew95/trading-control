@@ -231,8 +231,12 @@ class TestDLQAPI:
         assert "REDIS_MAX_CONNECTIONS" in redis_source_code, (
             "Redis client max_connections should be driven by settings.REDIS_MAX_CONNECTIONS"
         )
-        assert "max_connections=_max_conn" in redis_source_code, (
-            "Redis client should pass _max_conn (from settings) to ConnectionPool"
+        assert "max_connections=settings.REDIS_MAX_CONNECTIONS" in redis_source_code, (
+            "Redis client should pass settings.REDIS_MAX_CONNECTIONS to the pool"
+        )
+        assert "BlockingConnectionPool" in redis_source_code, (
+            "Pool must block on exhaustion (wait for a free connection), not raise "
+            "'Too many connections' immediately"
         )
 
     @pytest.mark.asyncio
