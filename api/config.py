@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     # brain loses money. "use_last_reflection" (reuse the last LLM guidance) and
     # "skip_reasoning" (naive directional) remain opt-in for operators who want them.
     LLM_FALLBACK_MODE: str = "reject_signal"
+    # Level-3 data-plane / control-plane split — who decides per signal:
+    #   "llm" (default): the LLM decides; the deterministic policy runs in SHADOW
+    #         alongside it (agreement is logged) and is the outage fallback.
+    #   "policy": the deterministic data-plane policy decides every signal; the LLM
+    #         never blocks the critical path (it tunes params on the control plane).
+    #   "hybrid": LLM-primary, with the policy as the always-on safety net on any
+    #         LLM failure — never goes dark.
+    DECISION_MODE: str = "llm"
     ALLOW_FALLBACK_TRADES: bool = False
     MAX_FALLBACK_ORDER_QTY: float = 0.01
     MAX_SYMBOL_EXPOSURE: float = 1.0

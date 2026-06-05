@@ -118,3 +118,26 @@ that does NOT override `__str__`, so `str(MacroRegime.RISK_ON)` falls back to
 Redis-cached path returns.
 
 **Regression test:** `tests/api/test_market_intel.py::test_macro_regime_risk_on_when_benchmark_trends_up`
+
+## `check_cross_asset_correlation` shows 100% err on the tool-governance panel
+
+**Symptom:** The reasoning tool `check_cross_asset_correlation` reads as
+`38× · 0 ok · 100% err` on the Tool Governance panel, while every other
+perception tool (order book, news, macro) shows `0% err`. Looks like the tool
+is broken even though the Alpaca key works.
+
+**Root cause:** `_gather_market_intel()` recorded tool telemetry with
+`success=bool(result)` — so an **empty** result (`{}`) counted as a *failure*.
+`compute_cross_asset_correlation` legitimately returns `{}` when there are no
+correlatable peer bars this cycle (a data-availability fact, not an exception),
+so a perfectly-functioning best-effort tool was mislabeled 100% err. The memory
+tools (`get_ic_weights`, `query_similar_trades`) already used the correct
+"success == did not raise" convention; the market-intel path was the outlier.
+
+**Fix:** `api/services/agents/reasoning_agent.py::_gather_market_intel` now
+records `success = the call completed without raising`. Empty data no longer
+inflates the failure rate; a tool's *value* is still captured separately by its
+realized-PnL alpha. (The empty-result reality is unchanged — see the daily-bar
+fallback note above for why correlation can still be sparse.)
+
+**Regression test:** `tests/agents/test_reasoning_agent.py::test_market_intel_empty_result_records_success_not_error`

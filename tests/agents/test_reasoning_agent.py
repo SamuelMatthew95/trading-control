@@ -818,3 +818,225 @@ async def test_adaptive_directive_injected_into_decision_prompt(agent):
         assert "CHALLENGER VARIANT" in prompt  # placed beneath the constitution
     finally:
         set_prompt_store(None)
+
+
+# ---------------------------------------------------------------------------
+# Market-intel tool telemetry — empty result is NOT an error
+# ---------------------------------------------------------------------------
+
+
+async def test_market_intel_empty_result_records_success_not_error(agent, monkeypatch):
+    """A best-effort intel tool that returns {} (no data to report this cycle)
+    must record a SUCCESSFUL call, not a failure.
+
+    REGRESSION: ``check_cross_asset_correlation`` returned {} on every decision
+    (no correlatable peer bars), and the old ``success=bool(result)`` logic
+    counted each empty result as an error — so a perfectly-functioning tool read
+    as 100% err on the governance panel. Success now means "completed without
+    raising", matching the get_ic_weights / query_similar_trades convention.
+    """
+    import api.services.agents.reasoning_agent as ra
+    from api.constants import (
+        TOOL_CORRELATION_CHECK,
+        TOOL_MACRO_REGIME,
+        TOOL_NEWS_SENTIMENT,
+        TOOL_ORDER_BOOK_DEPTH,
+    )
+    from api.services.tool_registry import ToolRegistry, default_tools, set_tool_registry
+
+    reg = ToolRegistry()
+    reg.register_many(default_tools())
+    set_tool_registry(reg)
+    try:
+
+        async def _empty(*_a, **_k):
+            return {}
+
+        async def _boom(*_a, **_k):
+            raise RuntimeError("provider down")
+
+        # Correlation returns {} WITHOUT raising; order-book raises.
+        monkeypatch.setattr(ra, "compute_cross_asset_correlation", _empty)
+        monkeypatch.setattr(ra, "fetch_news_sentiment", _empty)
+        monkeypatch.setattr(ra, "fetch_macro_regime", _empty)
+        monkeypatch.setattr(ra, "fetch_order_book_depth", _boom)
+
+        await agent._gather_market_intel("BTC/USD", {})
+
+        corr = reg.get(TOOL_CORRELATION_CHECK)
+        news = reg.get(TOOL_NEWS_SENTIMENT)
+        macro = reg.get(TOOL_MACRO_REGIME)
+        book = reg.get(TOOL_ORDER_BOOK_DEPTH)
+
+        # Empty-but-no-exception → success, failure_rate stays 0.
+        assert corr.call_count == 1 and corr.success_count == 1
+        assert corr.failure_rate == 0.0
+        assert news.success_count == 1 and macro.success_count == 1
+        # A genuine exception → recorded as a failure.
+        assert book.call_count == 1 and book.success_count == 0
+        assert book.failure_rate > 0.0
+    finally:
+        set_tool_registry(None)
+
+
+# ---------------------------------------------------------------------------
+# Level-3 data plane — local_policy fallback decides instead of rejecting
+# ---------------------------------------------------------------------------
+
+
+async def test_local_policy_fallback_makes_a_real_decision_not_reject(agent, monkeypatch):
+    """With LLM_FALLBACK_MODE=local_policy, an LLM outage routes the signal to the
+    deterministic data-plane policy — a real BUY/SELL — instead of REJECT, so the
+    pipeline keeps trading and the learning loop never starves.
+    """
+    from api.config import settings
+    from api.constants import LLM_FALLBACK_MODE_LOCAL_POLICY, AgentAction, FieldName, MacroRegime
+
+    monkeypatch.setattr(settings, "LLM_FALLBACK_MODE", LLM_FALLBACK_MODE_LOCAL_POLICY)
+
+    data = {FieldName.DIRECTION: "bullish", FieldName.COMPOSITE_SCORE: 0.8}
+    context = {
+        FieldName.NEWS_SENTIMENT: {FieldName.SENTIMENT: 0.4},
+        # .value (plain string) mirrors production and avoids the 3.10 StrEnum
+        # str(member) footgun.
+        FieldName.MACRO_REGIME: {FieldName.REGIME: MacroRegime.RISK_ON.value},
+    }
+
+    out = await agent._apply_fallback(data, "trace-policy", reason="llm_down", context=context)
+
+    assert out[FieldName.ACTION] == AgentAction.BUY  # a real decision, not REJECT
+    assert out[FieldName.FALLBACK] is True
+    assert out[FieldName.PRIMARY_EDGE] == f"fallback:{LLM_FALLBACK_MODE_LOCAL_POLICY}"
+    assert "llm_down" in out[FieldName.RISK_FACTORS]  # outage reason recorded
+
+
+async def test_reject_mode_still_fails_closed(agent, monkeypatch):
+    """The default reject_signal mode is unchanged — still fails closed."""
+    from api.config import settings
+    from api.constants import LLM_FALLBACK_MODE_REJECT_SIGNAL, AgentAction, FieldName
+
+    monkeypatch.setattr(settings, "LLM_FALLBACK_MODE", LLM_FALLBACK_MODE_REJECT_SIGNAL)
+    out = await agent._apply_fallback(
+        {FieldName.DIRECTION: "bullish", FieldName.COMPOSITE_SCORE: 0.9},
+        "trace-reject",
+        reason="llm_down",
+    )
+    assert out[FieldName.ACTION] == AgentAction.REJECT
+
+
+# ---------------------------------------------------------------------------
+# Level-3 DECISION_MODE routing (data plane / control plane)
+# ---------------------------------------------------------------------------
+
+
+async def test_decision_mode_policy_decides_without_calling_the_llm(agent, monkeypatch):
+    """DECISION_MODE=policy: the deterministic data plane decides every signal and
+    the LLM is never called — liveness no longer depends on the provider."""
+    from api.config import settings
+    from api.constants import (
+        DECISION_MODE_POLICY,
+        MODEL_LABEL_POLICY,
+        AgentAction,
+        FieldName,
+    )
+
+    monkeypatch.setattr(settings, "DECISION_MODE", DECISION_MODE_POLICY)
+
+    async def _must_not_call(*_a, **_k):
+        raise AssertionError("LLM must not be called in policy mode")
+
+    monkeypatch.setattr(agent, "_call_llm", _must_not_call)
+
+    data = {FieldName.DIRECTION: "bullish", FieldName.COMPOSITE_SCORE: 0.8}
+    summary, tokens, cost, fallback_reason = await agent._produce_decision(
+        data, {}, [], "trace-policy-mode", budget_used=0
+    )
+
+    assert fallback_reason is None  # a real decision, not a fallback
+    assert summary[FieldName.ACTION] == AgentAction.BUY
+    assert (tokens, cost) == (0, 0.0)
+    assert agent._last_model_label == MODEL_LABEL_POLICY
+
+
+async def test_decision_mode_hybrid_falls_to_policy_on_llm_failure(agent, monkeypatch):
+    """DECISION_MODE=hybrid: LLM-primary, but a provider failure degrades to a REAL
+    policy decision (never dark), regardless of LLM_FALLBACK_MODE."""
+    from api.config import settings
+    from api.constants import (
+        DECISION_MODE_HYBRID,
+        LLM_FALLBACK_MODE_REJECT_SIGNAL,
+        AgentAction,
+        FieldName,
+    )
+
+    monkeypatch.setattr(settings, "DECISION_MODE", DECISION_MODE_HYBRID)
+    # Even with the fail-closed reject mode set, hybrid uses the policy.
+    monkeypatch.setattr(settings, "LLM_FALLBACK_MODE", LLM_FALLBACK_MODE_REJECT_SIGNAL)
+
+    async def _fail(*_a, **_k):
+        raise RuntimeError("provider down")
+
+    monkeypatch.setattr(agent, "_call_llm", _fail)
+
+    data = {FieldName.DIRECTION: "bullish", FieldName.COMPOSITE_SCORE: 0.8}
+    summary, _t, _c, fallback_reason = await agent._produce_decision(
+        data, {}, [], "trace-hybrid", budget_used=0
+    )
+
+    assert fallback_reason == "provider down"
+    assert summary[FieldName.ACTION] == AgentAction.BUY  # policy decided, not REJECT
+    assert summary[FieldName.FALLBACK] is True
+    assert str(summary[FieldName.PRIMARY_EDGE]).startswith("hybrid_fallback")
+
+
+async def test_decision_mode_llm_shadow_compares_the_policy(agent, monkeypatch):
+    """DECISION_MODE=llm (default): the LLM decides AND the policy runs in shadow
+    so agreement can be measured before trusting policy-primary."""
+    from api.config import settings
+    from api.constants import DECISION_MODE_LLM, FieldName
+
+    monkeypatch.setattr(settings, "DECISION_MODE", DECISION_MODE_LLM)
+
+    async def _ok(*_a, **_k):
+        return ({FieldName.ACTION: "buy", FieldName.CONFIDENCE: 0.7}, 120, 0.02)
+
+    monkeypatch.setattr(agent, "_call_llm", _ok)
+    shadow = {}
+    monkeypatch.setattr(agent, "_shadow_compare_policy", lambda *a, **k: shadow.update(ran=True))
+
+    summary, tokens, _c, fallback_reason = await agent._produce_decision(
+        {FieldName.DIRECTION: "bullish", FieldName.COMPOSITE_SCORE: 0.6}, {}, [], "trace-llm", 0
+    )
+
+    assert fallback_reason is None
+    assert tokens == 120
+    assert summary[FieldName.ACTION] == "buy"
+    assert shadow.get("ran") is True
+
+
+@patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
+@patch("api.services.agents.vector_helpers.embed_text")
+async def test_policy_mode_never_calls_the_llm_even_with_self_critique(
+    mock_embed, mock_call_llm, agent, mock_bus, mock_redis, monkeypatch
+):
+    """REGRESSION: in DECISION_MODE=policy the deterministic data plane must never
+    touch the LLM — not for the decision, and not for the self-critique pass even
+    when REASONING_SELF_CRITIQUE_ENABLED is on. Otherwise a confident policy buy/sell
+    would silently re-introduce the LLM onto the hot path."""
+    from api.constants import DECISION_MODE_POLICY, MODEL_LABEL_POLICY
+
+    monkeypatch.setattr(settings, "DECISION_MODE", DECISION_MODE_POLICY)
+    monkeypatch.setattr(settings, "REASONING_SELF_CRITIQUE_ENABLED", True)
+    mock_embed.return_value = [0.1] * 1536
+    mock_redis.get = AsyncMock(return_value=b"0")
+
+    with patch(
+        "api.services.agents.vector_helpers.search_vector_memory",
+        AsyncMock(return_value=[]),
+    ):
+        await agent.process(_make_signal("buy"))
+
+    mock_call_llm.assert_not_called()  # the whole point of policy mode
+    decision_call = next(c for c in mock_bus.publish.call_args_list if c.args[0] == "decisions")
+    assert decision_call.args[1]["model_used"] == MODEL_LABEL_POLICY

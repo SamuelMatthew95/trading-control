@@ -155,6 +155,7 @@ CLEAN_FILES: frozenset[str] = frozenset(
         "api/services/agents/vector_helpers.py",
         "api/services/circuit_breaker.py",
         "api/services/event_pipeline.py",
+        "api/services/decision_policy.py",
         "api/services/feedback_service.py",
         "api/services/learning_service.py",
         "api/services/execution/brokers/alpaca.py",

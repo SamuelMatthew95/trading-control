@@ -41,6 +41,22 @@ interface ToolRegistryResponse {
 // DAG phase order — perception → memory → risk → execution → optimization.
 const PHASE_ORDER = ['perception', 'memory', 'risk', 'execution', 'optimization'] as const
 
+// The reasoning LLM only ever gathers perception + memory tools. Risk/execution/
+// optimization tools live on downstream nodes, so they read as "unused" here by
+// design — not because they are broken.
+const REASONING_PHASES = new Set(['perception', 'memory'])
+
+// Plain-English WHY a tool has never been called, so "unused" is never a mystery.
+function unusedReason(tool: Tool): string {
+  if (!REASONING_PHASES.has(tool.phase)) {
+    return 'downstream tool — runs on a live order/risk event, not at reasoning time'
+  }
+  if (tool.required_state_flags.length > 0) {
+    return `gated — eligible only once ${tool.required_state_flags.join(', ')} is set`
+  }
+  return 'eligible — the reasoning LLM has not selected it yet'
+}
+
 function actionBadgeClass(action: string): string {
   if (action === 'disable') return 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
   if (action === 'prioritize') return 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
@@ -104,6 +120,11 @@ function ToolRow({ tool }: { tool: Tool }) {
         {tool.unlocks.length > 0 && (
           <p className="mt-0.5 truncate text-[10px] font-mono text-slate-400">
             → unlocks {tool.unlocks.join(', ')}
+          </p>
+        )}
+        {tool.call_count === 0 && (
+          <p className="mt-0.5 text-[10px] italic text-slate-400" title="why this tool is unused">
+            {unusedReason(tool)}
           </p>
         )}
       </div>
@@ -194,7 +215,9 @@ export function ToolGovernancePanel() {
       </div>
       <p className={cn(mutedClass, 'mb-3')}>
         Tools exposed per DAG phase — the reasoning LLM only ever sees the eligible subset for the
-        current phase/state. <span className="font-mono">N×</span> = times the LLM called the tool;{' '}
+        current phase/state. A <span className="text-emerald-500">green dot</span> = currently
+        enabled; a <span className="line-through">struck-through</span> grey name = disabled.{' '}
+        <span className="font-mono">N×</span> = times the LLM called the tool;{' '}
         <span className="font-mono">α</span> = realized-PnL attribution once closed trades inform it
         (a <span className="font-mono">prior</span> tag means the score is a seed, not yet earned).{' '}
         {exercisedCount}/{tools.length} exercised live.
@@ -203,7 +226,12 @@ export function ToolGovernancePanel() {
       {suggestions.length > 0 && (
         <div className="mb-3 space-y-1.5">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Runtime Suggestions
+            Governance Recommendations
+          </p>
+          <p className="text-[10px] leading-snug text-slate-400">
+            Suggested actions — <span className="font-semibold">nothing here is applied
+            automatically</span>; a human (or an approved TOOL_GOVERNANCE proposal) acts on them.
+            These are recommendations, not each tool&apos;s current state shown below.
           </p>
           {suggestions.map((s, i) => (
             <SuggestionRow key={`${s.tool}-${s.action}-${i}`} suggestion={s} />

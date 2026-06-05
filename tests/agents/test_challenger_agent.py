@@ -322,3 +322,62 @@ async def test_no_promotion_proposal_when_not_beating_baseline(mock_bus, mock_dl
 
     await agent._maybe_propose_shadow_promotion()
     assert not [c for c in mock_bus.publish.await_args_list if c.args[0] == STREAM_PROPOSALS]
+
+
+# ---------------------------------------------------------------------------
+# activity_snapshot — full, connected visibility for the dashboard
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_activity_snapshot_reports_liveness_threshold_and_flow(mock_bus, mock_dlq):
+    """The dashboard snapshot proves the challenger is ALIVE and shows the
+    promotion threshold + the live trade FLOW — not three frozen numbers."""
+    from api.constants import CHALLENGER_MIN_SHADOW_TRADES, FieldName
+
+    agent = ChallengerAgent(
+        mock_bus, mock_dlq, challenger_config={"strategy": "baseline_momentum"}, max_fills=10_000
+    )
+    price = 100.0
+    for _ in range(40):
+        price *= 1.001
+        await agent.process(STREAM_MARKET_EVENTS, "s", _tick(price))
+    for _ in range(12):
+        price *= 1.03
+        await agent.process(STREAM_MARKET_EVENTS, "s", _tick(price))
+    for _ in range(12):
+        price *= 0.97
+        await agent.process(STREAM_MARKET_EVENTS, "s", _tick(price))
+
+    snap = agent.activity_snapshot()
+    # Promotion threshold is exposed so the UI can show "N/25 to eligibility".
+    assert snap["min_shadow_trades"] == CHALLENGER_MIN_SHADOW_TRADES
+    # Liveness: it observed every tick we fed it.
+    assert snap["ticks_observed"] == 64
+    assert snap["last_tick_at"] is not None
+    assert "open_shadow_positions" in snap
+    # The strategy genuinely traded → flow + last-trade timestamp are populated.
+    assert agent._shadow.metrics.trades >= 1
+    assert snap["last_shadow_trade_at"] is not None
+    assert len(snap["recent_shadow_trades"]) >= 1
+    trade = snap["recent_shadow_trades"][0]
+    assert FieldName.SYMBOL in trade
+    assert FieldName.DIRECTION in trade
+    assert FieldName.PNL in trade
+
+
+@pytest.mark.asyncio
+async def test_activity_snapshot_threshold_present_before_any_trade(mock_bus, mock_dlq):
+    """Even before a single shadow trade closes, the snapshot carries the
+    threshold and a tick count, so a warming-up challenger reads as alive."""
+    from api.constants import CHALLENGER_MIN_SHADOW_TRADES
+
+    agent = ChallengerAgent(
+        mock_bus, mock_dlq, challenger_config={"strategy": "baseline_momentum"}, max_fills=10_000
+    )
+    await agent.process(STREAM_MARKET_EVENTS, "s", _tick(100.0))
+    snap = agent.activity_snapshot()
+    assert snap["min_shadow_trades"] == CHALLENGER_MIN_SHADOW_TRADES
+    assert snap["ticks_observed"] == 1
+    assert snap["last_tick_at"] is not None
+    assert snap["recent_shadow_trades"] == []

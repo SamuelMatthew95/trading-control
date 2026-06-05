@@ -50,8 +50,20 @@ type LearningLoopState = {
   timestamp: string
 }
 
+// One closed shadow round-trip — the live FLOW of what the strategy actually did.
+type ShadowTrade = {
+  symbol: string
+  direction: string
+  pnl: number
+  entry_price?: number
+  exit_price?: number
+  timestamp?: string
+}
+
 // A shadow ChallengerAgent (GET /dashboard/challengers). Carries the REAL
-// own-vs-baseline shadow evidence so the panel shows what the config actually did.
+// own-vs-baseline shadow evidence PLUS liveness, promotion progress and the
+// recent-trade flow, so the panel shows what the config is doing and WHY — not
+// just a fill counter and three frozen numbers.
 type ChallengerInfo = {
   challenger_id: string
   fills: number
@@ -61,7 +73,20 @@ type ChallengerInfo = {
   shadow_trades?: number
   shadow_win_rate?: number
   shadow_pnl?: number
+  shadow_sharpe?: number
   beats_baseline_shadow?: boolean
+  baseline_shadow_trades?: number
+  baseline_shadow_win_rate?: number
+  baseline_shadow_pnl?: number
+  // Liveness + promotion-progress + flow (added for full visibility).
+  min_shadow_trades?: number
+  shadow_proposal_emitted?: boolean
+  ticks_observed?: number
+  last_tick_at?: string | null
+  last_shadow_trade_at?: string | null
+  open_shadow_positions?: number
+  recent_shadow_trades?: ShadowTrade[]
+  latest_grade?: { win_rate?: number; avg_pnl?: number; fills?: number } | null
 }
 
 // A pending parameter-change PR artifact (GET /learning/pending-param-changes).
@@ -78,6 +103,32 @@ const fmtUSD = (n: number | null | undefined): string => {
   // Guard malformed API rows: a missing/non-finite pnl renders '--', never 'NaN'.
   if (n == null || !Number.isFinite(n)) return '--'
   return (n >= 0 ? '+' : '') + n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+}
+
+// Compact "12s ago" / "3m ago" / "2h ago" / "2d ago" — so stale challenger data
+// is obviously stale at a glance, not a mystery frozen number.
+const relTime = (iso: string | null | undefined): string => {
+  if (!iso) return 'never'
+  const then = new Date(iso).getTime()
+  if (!Number.isFinite(then)) return '--'
+  const secs = Math.max(0, Math.round((Date.now() - then) / 1000))
+  if (secs < 60) return `${secs}s ago`
+  const mins = Math.round(secs / 60)
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.round(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.round(hours / 24)}d ago`
+}
+
+// "live" while the challenger has observed a tick in the last STALE window —
+// shadow trades run off the raw price stream, so a live challenger should tick
+// every few seconds; longer means the stream (or the challenger) has stalled.
+const CHALLENGER_STALE_SECONDS = 120
+const isFresh = (iso: string | null | undefined): boolean => {
+  if (!iso) return false
+  const then = new Date(iso).getTime()
+  if (!Number.isFinite(then)) return false
+  return (Date.now() - then) / 1000 <= CHALLENGER_STALE_SECONDS
 }
 
 export function LearningLoopPanel() {
@@ -312,48 +363,156 @@ export function LearningLoopPanel() {
         {challengers.length === 0 ? (
           <p className="text-xs text-slate-500">No shadow challengers running.</p>
         ) : (
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             {challengers.map((c) => {
-              const hasShadow = (c.shadow_trades ?? 0) > 0
+              const shadowTrades = c.shadow_trades ?? 0
+              const minTrades = c.min_shadow_trades ?? 25
+              const hasShadow = shadowTrades > 0
+              const live = c.last_tick_at ? isFresh(c.last_tick_at) : c.running
+              const remaining = Math.max(0, minTrades - shadowTrades)
+              const progressPct = Math.min(100, Math.round((shadowTrades / minTrades) * 100))
+              const recent = c.recent_shadow_trades ?? []
+              const noFills = (c.fills ?? 0) === 0
+
+              // Connected status narrative — WHY it is where it is, in words.
+              let status: string
+              if (c.shadow_proposal_emitted) {
+                status = 'Promotion proposed — beat baseline over the shadow window; awaiting your approval.'
+              } else if (shadowTrades >= minTrades) {
+                status = c.beats_baseline_shadow
+                  ? 'Eligible — beating baseline; promotion proposal fires on the next confirming tick.'
+                  : 'Eligible but trailing baseline — no promotion proposal yet.'
+              } else if (hasShadow) {
+                status = `${remaining} more shadow trade${remaining === 1 ? '' : 's'} to promotion eligibility.`
+              } else {
+                status = 'Warming up — no shadow round-trips closed yet.'
+              }
+
               return (
                 <div
                   key={c.challenger_id}
                   className="rounded-lg border border-slate-300 px-3 py-2 dark:border-slate-800"
                 >
+                  {/* Header: liveness dot + strategy + badges · freshness + fills */}
                   <div className="flex items-center justify-between gap-3">
                     <span className="flex items-center gap-2 truncate">
                       <span
-                        className={`h-2 w-2 shrink-0 rounded-full ${c.running ? 'bg-emerald-500' : 'bg-slate-400'}`}
+                        className={`h-2 w-2 shrink-0 rounded-full ${live ? 'bg-emerald-500' : 'bg-slate-400'}`}
+                        title={live ? 'live — ticking' : 'stale — no recent tick'}
                       />
                       <span className="truncate font-mono text-xs text-slate-700 dark:text-slate-300">
                         {c.strategy || `challenger ${c.challenger_id}`}
                       </span>
-                      {c.beats_baseline_shadow ? (
+                      {c.shadow_proposal_emitted ? (
+                        <span className="shrink-0 rounded-full bg-violet-500/10 px-1.5 text-[10px] font-bold text-violet-500">
+                          promotion proposed
+                        </span>
+                      ) : c.beats_baseline_shadow ? (
                         <span className="shrink-0 rounded-full bg-emerald-500/10 px-1.5 text-[10px] font-bold text-emerald-500">
                           beats baseline
                         </span>
                       ) : null}
                     </span>
-                    <span className="shrink-0 font-mono text-xs tabular-nums text-slate-500 dark:text-slate-400">
-                      {c.fills}/{c.max_fills} fills
+                    <span className="shrink-0 font-mono text-[11px] tabular-nums text-slate-500 dark:text-slate-400">
+                      {relTime(c.last_tick_at)} · {c.fills}/{c.max_fills} fills
                     </span>
                   </div>
-                  {/* Real shadow-trade evidence — what the config actually did on live data. */}
+
+                  {/* Status narrative */}
+                  <p className="mt-1 pl-4 text-[11px] text-slate-500 dark:text-slate-400">{status}</p>
+
                   {hasShadow ? (
-                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 pl-4 font-mono text-[11px] text-slate-500 dark:text-slate-400">
-                      <span>shadow trades: {c.shadow_trades}</span>
-                      <span>
-                        win: {c.shadow_win_rate != null ? `${(c.shadow_win_rate * 100).toFixed(0)}%` : '--'}
-                      </span>
-                      <span className={(c.shadow_pnl ?? 0) < 0 ? 'text-rose-500' : 'text-emerald-500'}>
-                        pnl: {c.shadow_pnl != null ? fmtUSD(c.shadow_pnl) : '--'}
-                      </span>
-                    </div>
+                    <>
+                      {/* Primary shadow metrics */}
+                      <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 pl-4 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                        <span>trades: {shadowTrades}</span>
+                        <span>
+                          win: {c.shadow_win_rate != null ? `${(c.shadow_win_rate * 100).toFixed(0)}%` : '--'}
+                        </span>
+                        <span className={(c.shadow_pnl ?? 0) < 0 ? 'text-rose-500' : 'text-emerald-500'}>
+                          pnl: {c.shadow_pnl != null ? fmtUSD(c.shadow_pnl) : '--'}
+                        </span>
+                        {c.shadow_sharpe != null ? <span>sharpe: {c.shadow_sharpe.toFixed(2)}</span> : null}
+                        {c.open_shadow_positions != null ? (
+                          <span>open: {c.open_shadow_positions}</span>
+                        ) : null}
+                      </div>
+
+                      {/* vs baseline — the comparison that earns a promotion */}
+                      {c.baseline_shadow_trades != null ? (
+                        <div className="mt-0.5 flex flex-wrap gap-x-4 pl-4 font-mono text-[10px] text-slate-400">
+                          <span>
+                            vs baseline: {c.baseline_shadow_trades} trades,{' '}
+                            {c.baseline_shadow_win_rate != null
+                              ? `${(c.baseline_shadow_win_rate * 100).toFixed(0)}% win`
+                              : '--'}
+                            , {c.baseline_shadow_pnl != null ? fmtUSD(c.baseline_shadow_pnl) : '--'}
+                          </span>
+                        </div>
+                      ) : null}
+
+                      {/* Progress to promotion eligibility */}
+                      <div className="mt-1.5 pl-4">
+                        <div className="mb-0.5 flex justify-between font-mono text-[10px] text-slate-400">
+                          <span>promotion eligibility</span>
+                          <span>
+                            {Math.min(shadowTrades, minTrades)}/{minTrades}
+                          </span>
+                        </div>
+                        <div className="h-1 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+                          <div
+                            className={`h-full rounded-full ${progressPct >= 100 ? 'bg-violet-500' : 'bg-emerald-500'}`}
+                            style={{ width: `${progressPct}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Live trade flow — the last few shadow round-trips */}
+                      {recent.length > 0 ? (
+                        <div className="mt-1.5 pl-4">
+                          <p className="mb-0.5 font-mono text-[10px] uppercase tracking-wider text-slate-400">
+                            recent shadow trades
+                          </p>
+                          <div className="space-y-0.5 font-mono text-[11px]">
+                            {recent.slice(0, 5).map((t, i) => (
+                              <div
+                                key={`${t.symbol}-${t.timestamp ?? i}`}
+                                className="flex items-center justify-between gap-2 text-slate-500 dark:text-slate-400"
+                              >
+                                <span className="truncate">
+                                  {t.direction === 'long' ? '▲' : '▼'} {t.direction} {t.symbol}
+                                </span>
+                                <span className="shrink-0 tabular-nums">
+                                  <span className={t.pnl < 0 ? 'text-rose-500' : 'text-emerald-500'}>
+                                    {fmtUSD(t.pnl)}
+                                  </span>
+                                  <span className="text-slate-400"> · {relTime(t.timestamp)}</span>
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </>
                   ) : (
                     <p className="mt-1 pl-4 text-[11px] text-slate-400">
-                      warming up — no shadow trades yet
+                      observed {c.ticks_observed ?? 0} ticks{c.last_tick_at ? ` · last ${relTime(c.last_tick_at)}` : ''} — no shadow round-trips closed yet
                     </p>
                   )}
+
+                  {/* Connects the panel to the rest of the system: WHY there's no
+                      live grade. Live grading needs live fills, which need the
+                      pipeline to actually trade. */}
+                  {noFills ? (
+                    <p className="mt-1.5 pl-4 text-[10px] italic text-slate-400">
+                      Live grade pending — grading needs live fills; shadow trades above run on raw
+                      price ticks regardless of whether the live pipeline is trading.
+                    </p>
+                  ) : c.latest_grade ? (
+                    <p className="mt-1.5 pl-4 font-mono text-[10px] text-slate-400">
+                      live grade: {c.latest_grade.win_rate != null ? `${(c.latest_grade.win_rate * 100).toFixed(0)}% win` : '--'} over {c.latest_grade.fills ?? c.fills} fills
+                    </p>
+                  ) : null}
                 </div>
               )
             })}

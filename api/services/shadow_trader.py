@@ -107,6 +107,11 @@ class ShadowTradeEngine:
         self._index: int = 0
         self.metrics = ShadowMetrics()
 
+    @property
+    def open_position_count(self) -> int:
+        """How many symbols currently hold an open (non-flat) shadow position."""
+        return sum(1 for p in self._positions.values() if p.direction != _FLAT)
+
     def observe(self, symbol: str, price: float) -> ShadowTrade | None:
         """Feed one live price for ``symbol``; returns a ShadowTrade iff a position closed.
 
