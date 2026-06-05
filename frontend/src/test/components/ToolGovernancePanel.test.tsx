@@ -109,14 +109,28 @@ describe('ToolGovernancePanel', () => {
     expect(container.textContent).toContain('1/3 exercised live')
   })
 
-  it('renders runtime tool suggestions (which tools to keep/drop)', async () => {
+  it('frames recommendations as not-auto-applied, distinct from tool state', async () => {
     mockApiFetch.mockResolvedValue(REGISTRY)
     const { container } = render(<ToolGovernancePanel />)
 
-    expect(await screen.findByText('Runtime Suggestions')).toBeInTheDocument()
+    expect(await screen.findByText('Governance Recommendations')).toBeInTheDocument()
+    // The recommendation badges are present…
     expect(container.textContent).toContain('disable')
     expect(container.textContent).toContain('prioritize')
     expect(container.textContent).toContain('negative alpha')
+    // …but clearly framed as recommendations, not applied state.
+    expect(container.textContent).toContain('nothing here is applied')
+  })
+
+  it('explains WHY each unused tool is unused (no mystery dead tools)', async () => {
+    mockApiFetch.mockResolvedValue(REGISTRY)
+    const { container } = render(<ToolGovernancePanel />)
+
+    await screen.findByText('get_stream_confluence_metrics')
+    // An execution-phase tool reads as downstream, not broken.
+    expect(container.textContent).toContain('downstream tool')
+    // A perception tool with no gate is simply not selected yet.
+    expect(container.textContent).toContain('the reasoning LLM has not selected it yet')
   })
 
   it('degrades gracefully on fetch failure', async () => {
