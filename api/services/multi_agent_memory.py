@@ -12,6 +12,7 @@ from sqlalchemy import create_engine, text
 
 from api.constants import FieldName
 from api.services.multi_agent_models import _to_sync_db_url
+from api.utils import cosine_similarity
 
 
 class MemoryGuard:
@@ -41,7 +42,7 @@ class MemoryGuard:
         for row in rows:
             try:
                 candidate = json.loads(row.embedding_json)
-                similarity = self._cosine(probe_embedding, candidate)
+                similarity = cosine_similarity(probe_embedding, candidate)
                 if similarity > self.threshold:
                     metadata = json.loads(row.metadata_json) if row.metadata_json else {}
                     risk_key = f"{tool_name}:{hashlib.sha256(probe.encode('utf-8')).hexdigest()}"
@@ -66,19 +67,6 @@ class MemoryGuard:
     def _embed(self, text_input: str) -> list[float]:
         digest = hashlib.sha256(text_input.encode("utf-8")).digest()
         return [round(b / 255.0, 6) for b in digest[:16]]
-
-    def _cosine(self, a: list[float], b: list[float]) -> float:
-        n = min(len(a), len(b))
-        if n == 0:
-            return 0.0
-        a = a[:n]
-        b = b[:n]
-        dot = sum(x * y for x, y in zip(a, b, strict=False))
-        norm_a = sum(x * x for x in a) ** 0.5
-        norm_b = sum(y * y for y in b) ** 0.5
-        if norm_a == 0 or norm_b == 0:
-            return 0.0
-        return dot / (norm_a * norm_b)
 
 
 class ConversationMemory:
