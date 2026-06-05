@@ -857,9 +857,19 @@ class ReasoningAgent(BaseStreamConsumer):
                 continue
             t0 = time.monotonic()
             result: dict[str, Any] = {}
+            # success == the call COMPLETED without raising, NOT "returned data".
+            # These intel tools are best-effort: an empty dict means "no data to
+            # report this cycle" (e.g. no correlatable peer bars), a data-
+            # availability fact — not a tool failure. Counting empty-as-error made
+            # a perfectly-functioning tool read as 100% err on the governance panel.
+            # This mirrors the `search_ok` / `ic_ok` convention the memory tools
+            # above already use; the tool's *value* is captured separately by its
+            # realized-PnL alpha, not by the failure rate.
+            tool_ok = True
             try:
                 result = await coro
             except Exception:
+                tool_ok = False
                 log_structured(
                     "warning", "reasoning_market_intel_failed", tool=tool_name, exc_info=True
                 )
@@ -868,7 +878,7 @@ class ReasoningAgent(BaseStreamConsumer):
             self._record_tool(
                 tool_name,
                 latency_ms=(time.monotonic() - t0) * 1000,
-                success=bool(result),
+                success=tool_ok,
                 outputs=result,
             )
 
