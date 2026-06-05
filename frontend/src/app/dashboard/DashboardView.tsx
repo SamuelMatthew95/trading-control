@@ -49,7 +49,7 @@ const SECTION_META: Record<Section, { eyebrow: string; title: string; descriptio
   overview: {
     eyebrow: 'Operations overview',
     title: 'Portfolio and execution snapshot',
-    description: 'Live prices, P&L, agent status, and recent activity in the same operator frame.',
+    description: 'Live prices, P&L, agent status, and recent activity in one view.',
   },
   trading: {
     eyebrow: 'Execution',
@@ -74,7 +74,7 @@ const SECTION_META: Record<Section, { eyebrow: string; title: string; descriptio
   system: {
     eyebrow: 'Command Center',
     title: 'Decisions, risk, execution, and traceability',
-    description: 'Operator console for what the system is thinking, doing, and changing right now.',
+    description: 'A live view of what the system is thinking, doing, and changing right now.',
   },
 }
 
@@ -88,9 +88,6 @@ function SectionHeader({ section }: { section: Section }) {
           <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">{meta.title}</h1>
           <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500 dark:text-slate-400">{meta.description}</p>
         </div>
-        <span className="rounded-full border border-slate-200 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:border-slate-800 dark:text-slate-400">
-          Professional operator console
-        </span>
       </div>
     </section>
   )

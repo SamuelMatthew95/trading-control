@@ -276,7 +276,7 @@ function TradeDetailModal({
             <p className="text-xs text-slate-500">{fmtTime(trade.created_at)}</p>
           </div>
           <div className="text-right">
-            <span className={`text-3xl font-black font-mono ${gradeColor(trade.grade)}`}>
+            <span className={`text-3xl font-semibold font-mono ${gradeColor(trade.grade)}`}>
               {trade.grade ?? '--'}
             </span>
             <p className="text-xs font-mono text-slate-500 dark:text-slate-400">{fmtScore(trade.overall_score)}</p>

@@ -106,7 +106,7 @@ export function RecentDecisionsPanel({
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <span className={cn('rounded px-2 py-0.5 text-xs font-black uppercase', badgeClass)}>
+                    <span className={cn('rounded px-2 py-0.5 text-xs font-semibold uppercase', badgeClass)}>
                       {action || 'hold'}
                     </span>
                     <span className="font-mono text-sm font-semibold text-slate-900 dark:text-slate-100">
