@@ -97,7 +97,7 @@ function StatTile({
         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">{label}</p>
         <IconChip icon={icon} accent={accent} />
       </div>
-      <p className={cn('mt-2 font-mono text-2xl font-bold tabular-nums text-slate-900 dark:text-slate-100', valueTone)}>{value}</p>
+      <p className={cn('mt-2 font-mono text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100', valueTone)}>{value}</p>
       <p className="mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400">{note ?? '\u00A0'}</p>
     </div>
   )
@@ -362,7 +362,7 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
                     <Meter value={toPct(latestGrade.grade_score)} className="mt-2" />
                   </>
                 ) : (
-                  <p className="mt-1 font-mono text-sm text-slate-400 dark:text-slate-500">Waiting for first grade</p>
+                  <p className="mt-1 text-sm text-slate-400 dark:text-slate-500">Waiting for first grade</p>
                 )}
               </div>
               <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/70">
