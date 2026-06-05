@@ -213,6 +213,57 @@ async def test_correlation_falls_back_to_daily_bars_when_intraday_sparse(monkeyp
     assert "ETH/USD" in out[FieldName.CORRELATIONS]
 
 
+async def test_correlation_falls_back_to_daily_when_only_peers_are_sparse(monkeypatch):
+    """Regression: a LIQUID traded symbol (ample intraday bars) paired with a
+    SPARSE peer produced no intraday correlation, yet the old fallback fired only
+    on base-symbol sparsity — so the tool degraded to {} (and showed 100% err)
+    on every such call. The daily retry must trigger on the no-correlation
+    condition itself, not just when the base series is short."""
+    monkeypatch.setattr(market_intel.settings, "ALPACA_API_KEY", "k")
+    redis = AsyncMock()
+    redis.get = AsyncMock(return_value=None)
+
+    # Intraday: base BTC/USD is liquid (>= _MIN_RETURNS returns); peer ETH/USD has
+    # a single bar -> 0 returns -> no peer correlation computable.
+    resp_intraday = MagicMock()
+    resp_intraday.json.return_value = {
+        "bars": {
+            "BTC/USD": [{"c": 104}, {"c": 103}, {"c": 102}, {"c": 101}, {"c": 100}],
+            "ETH/USD": [{"c": 50}],
+        }
+    }
+    resp_intraday.raise_for_status = MagicMock()
+
+    resp_daily = MagicMock()
+    resp_daily.json.return_value = {
+        "bars": {
+            "BTC/USD": [{"c": 103}, {"c": 102}, {"c": 101}, {"c": 100}],
+            "ETH/USD": [{"c": 51.5}, {"c": 51}, {"c": 50.5}, {"c": 50}],
+        }
+    }
+    resp_daily.raise_for_status = MagicMock()
+
+    seen_timeframes: list = []
+
+    async def _get(path, params=None):
+        seen_timeframes.append((params or {}).get(FieldName.TIMEFRAME))
+        return resp_intraday if len(seen_timeframes) == 1 else resp_daily
+
+    client = MagicMock()
+    client.get = _get
+
+    @asynccontextmanager
+    async def _cm():
+        yield client
+
+    with patch.object(market_intel, "_client", lambda: _cm()):
+        out = await compute_cross_asset_correlation("BTC/USD", redis)
+
+    assert seen_timeframes == ["1Min", "1Day"]  # peer sparsity must trigger the daily retry
+    assert out  # a real correlation was produced from the daily bars
+    assert "ETH/USD" in out[FieldName.CORRELATIONS]
+
+
 # --- macro regime tool ------------------------------------------------------
 
 
