@@ -80,7 +80,7 @@ export function OpenPositionsPanel() {
                       {symbol}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={cn('rounded-md px-2 py-0.5 text-[11px] font-black', positionSideBadgeClass(side))}>
+                      <span className={cn('rounded-md px-2 py-0.5 text-[11px] font-semibold', positionSideBadgeClass(side))}>
                         {side || '--'}
                       </span>
                     </td>
@@ -98,7 +98,7 @@ export function OpenPositionsPanel() {
                         <LiveNumber
                           value={pnl}
                           className={cn(
-                            'font-black font-mono tabular-nums',
+                            'font-semibold font-mono tabular-nums',
                             isPos ? 'text-emerald-500' : 'text-rose-500',
                           )}
                         >
