@@ -114,6 +114,7 @@ CLEAN_FILES: frozenset[str] = frozenset(
         "api/routes/feedback.py",
         "api/routes/health.py",
         "api/routes/learning.py",
+        "api/routes/learning_helpers.py",
         "api/routes/llm_health.py",
         "api/routes/monitoring.py",
         "api/routes/notifications.py",
