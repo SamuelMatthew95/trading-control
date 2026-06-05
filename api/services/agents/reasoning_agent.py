@@ -251,11 +251,14 @@ class ReasoningAgent(BaseStreamConsumer):
         # ReAct Step 2: Self-critique for high-confidence actionable decisions.
         # This is a SECOND LLM call per actionable decision; REASONING_SELF_CRITIQUE_ENABLED
         # gates it so the extra spend can be turned off when provider budget is tight.
-        # Only runs when: enabled, not a fallback, action is buy/sell, confidence high enough.
+        # Only runs when: enabled, not a fallback, action is buy/sell, confidence high enough,
+        # and NOT in policy mode — the deterministic data plane must never touch the LLM, so a
+        # policy decision is never sent for an LLM self-critique.
         action = str(summary.get(FieldName.ACTION, "")).lower()
         confidence = float(summary.get(FieldName.CONFIDENCE) or 0.0)
         if (
             settings.REASONING_SELF_CRITIQUE_ENABLED
+            and settings.DECISION_MODE != DECISION_MODE_POLICY
             and not is_fallback
             and action not in NO_ORDER_ACTIONS
             and confidence >= REACT_CRITIQUE_CONFIDENCE_THRESHOLD
@@ -1338,7 +1341,16 @@ class ReasoningAgent(BaseStreamConsumer):
         if mode == DECISION_MODE_POLICY:
             self._last_model_label = MODEL_LABEL_POLICY
             summary = decide_policy(data, context, get_policy_params())
-            summary[FieldName.TRACE_ID] = trace_id
+            # Shape-complete the summary like the LLM/fallback paths so the decision
+            # record + dashboard are consistent (instant + free, a real decision).
+            summary.update(
+                {
+                    FieldName.TRACE_ID: trace_id,
+                    FieldName.LATENCY_MS: 0,
+                    FieldName.COST_USD: 0.0,
+                    FieldName.FALLBACK: False,
+                }
+            )
             return summary, 0, 0.0, None
 
         # Budget exhausted before any call — degrade per mode.
