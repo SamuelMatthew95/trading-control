@@ -897,7 +897,9 @@ async def test_local_policy_fallback_makes_a_real_decision_not_reject(agent, mon
     data = {FieldName.DIRECTION: "bullish", FieldName.COMPOSITE_SCORE: 0.8}
     context = {
         FieldName.NEWS_SENTIMENT: {FieldName.SENTIMENT: 0.4},
-        FieldName.MACRO_REGIME: {FieldName.REGIME: MacroRegime.RISK_ON},
+        # .value (plain string) mirrors production and avoids the 3.10 StrEnum
+        # str(member) footgun.
+        FieldName.MACRO_REGIME: {FieldName.REGIME: MacroRegime.RISK_ON.value},
     }
 
     out = await agent._apply_fallback(data, "trace-policy", reason="llm_down", context=context)
@@ -920,3 +922,93 @@ async def test_reject_mode_still_fails_closed(agent, monkeypatch):
         reason="llm_down",
     )
     assert out[FieldName.ACTION] == AgentAction.REJECT
+
+
+# ---------------------------------------------------------------------------
+# Level-3 DECISION_MODE routing (data plane / control plane)
+# ---------------------------------------------------------------------------
+
+
+async def test_decision_mode_policy_decides_without_calling_the_llm(agent, monkeypatch):
+    """DECISION_MODE=policy: the deterministic data plane decides every signal and
+    the LLM is never called — liveness no longer depends on the provider."""
+    from api.config import settings
+    from api.constants import (
+        DECISION_MODE_POLICY,
+        MODEL_LABEL_POLICY,
+        AgentAction,
+        FieldName,
+    )
+
+    monkeypatch.setattr(settings, "DECISION_MODE", DECISION_MODE_POLICY)
+
+    async def _must_not_call(*_a, **_k):
+        raise AssertionError("LLM must not be called in policy mode")
+
+    monkeypatch.setattr(agent, "_call_llm", _must_not_call)
+
+    data = {FieldName.DIRECTION: "bullish", FieldName.COMPOSITE_SCORE: 0.8}
+    summary, tokens, cost, fallback_reason = await agent._produce_decision(
+        data, {}, [], "trace-policy-mode", budget_used=0
+    )
+
+    assert fallback_reason is None  # a real decision, not a fallback
+    assert summary[FieldName.ACTION] == AgentAction.BUY
+    assert (tokens, cost) == (0, 0.0)
+    assert agent._last_model_label == MODEL_LABEL_POLICY
+
+
+async def test_decision_mode_hybrid_falls_to_policy_on_llm_failure(agent, monkeypatch):
+    """DECISION_MODE=hybrid: LLM-primary, but a provider failure degrades to a REAL
+    policy decision (never dark), regardless of LLM_FALLBACK_MODE."""
+    from api.config import settings
+    from api.constants import (
+        DECISION_MODE_HYBRID,
+        LLM_FALLBACK_MODE_REJECT_SIGNAL,
+        AgentAction,
+        FieldName,
+    )
+
+    monkeypatch.setattr(settings, "DECISION_MODE", DECISION_MODE_HYBRID)
+    # Even with the fail-closed reject mode set, hybrid uses the policy.
+    monkeypatch.setattr(settings, "LLM_FALLBACK_MODE", LLM_FALLBACK_MODE_REJECT_SIGNAL)
+
+    async def _fail(*_a, **_k):
+        raise RuntimeError("provider down")
+
+    monkeypatch.setattr(agent, "_call_llm", _fail)
+
+    data = {FieldName.DIRECTION: "bullish", FieldName.COMPOSITE_SCORE: 0.8}
+    summary, _t, _c, fallback_reason = await agent._produce_decision(
+        data, {}, [], "trace-hybrid", budget_used=0
+    )
+
+    assert fallback_reason == "provider down"
+    assert summary[FieldName.ACTION] == AgentAction.BUY  # policy decided, not REJECT
+    assert summary[FieldName.FALLBACK] is True
+    assert str(summary[FieldName.PRIMARY_EDGE]).startswith("hybrid_fallback")
+
+
+async def test_decision_mode_llm_shadow_compares_the_policy(agent, monkeypatch):
+    """DECISION_MODE=llm (default): the LLM decides AND the policy runs in shadow
+    so agreement can be measured before trusting policy-primary."""
+    from api.config import settings
+    from api.constants import DECISION_MODE_LLM, FieldName
+
+    monkeypatch.setattr(settings, "DECISION_MODE", DECISION_MODE_LLM)
+
+    async def _ok(*_a, **_k):
+        return ({FieldName.ACTION: "buy", FieldName.CONFIDENCE: 0.7}, 120, 0.02)
+
+    monkeypatch.setattr(agent, "_call_llm", _ok)
+    shadow = {}
+    monkeypatch.setattr(agent, "_shadow_compare_policy", lambda *a, **k: shadow.update(ran=True))
+
+    summary, tokens, _c, fallback_reason = await agent._produce_decision(
+        {FieldName.DIRECTION: "bullish", FieldName.COMPOSITE_SCORE: 0.6}, {}, [], "trace-llm", 0
+    )
+
+    assert fallback_reason is None
+    assert tokens == 120
+    assert summary[FieldName.ACTION] == "buy"
+    assert shadow.get("ran") is True
