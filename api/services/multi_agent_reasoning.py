@@ -44,7 +44,7 @@ class AnthropicReasoningModel:
                     model=self.model_name,
                     max_tokens=1024,
                     system=system_prompt,
-                    messages=[{FieldName.ROLE: "user", "content": json.dumps(payload)}],
+                    messages=[{FieldName.ROLE: "user", FieldName.CONTENT: json.dumps(payload)}],
                 )
                 text = response.content[0].text
                 return json.loads(text)
@@ -70,9 +70,9 @@ class DeterministicReasoningModel:
             )
             return [
                 {
-                    "source": "heuristic",
-                    "direction": direction,
-                    "confidence": 0.7,
+                    FieldName.SOURCE: "heuristic",
+                    FieldName.DIRECTION: direction,
+                    FieldName.CONFIDENCE: 0.7,
                     FieldName.TIMEFRAME: payload[FieldName.TIMEFRAME],
                 }
             ]
@@ -80,7 +80,7 @@ class DeterministicReasoningModel:
             signals = payload.get(FieldName.SIGNALS, [])
             if not signals:
                 return {
-                    "direction": "FLAT",
+                    FieldName.DIRECTION: "FLAT",
                     FieldName.AGREEMENT_RATIO: 0.0,
                     FieldName.SIGNAL_STRENGTH: 0.0,
                 }
@@ -90,7 +90,7 @@ class DeterministicReasoningModel:
             )
             confidence = sum(float(s.get(FieldName.CONFIDENCE, 0)) for s in signals) / len(signals)
             return {
-                "direction": direction,
+                FieldName.DIRECTION: direction,
                 FieldName.AGREEMENT_RATIO: agreement,
                 FieldName.SIGNAL_STRENGTH: round(agreement * confidence, 3),
             }
@@ -113,5 +113,5 @@ class DeterministicReasoningModel:
             FieldName.ENTRY: price,
             FieldName.STOP: max(0.01, price - atr),
             FieldName.TARGET: price + atr * 2,
-            "rr_ratio": 2.0,
+            FieldName.RR_RATIO: 2.0,
         }
