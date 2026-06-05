@@ -61,4 +61,15 @@ describe('loadPersistedEquitySeries', () => {
     )
     expect(loadPersistedEquitySeries(now)).toHaveLength(1)
   })
+
+  it('starts fresh when the newest point is stale (avoids a fabricated reload jump)', () => {
+    const now = 10_000_000
+    // Both points are < 1h old but the newest is 4 min old — past the continuity
+    // window, so grafting new live points would draw a misleading sloped segment.
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify([point(now - 5 * 60 * 1000, -1), point(now - 4 * 60 * 1000, -1.1)]),
+    )
+    expect(loadPersistedEquitySeries(now)).toEqual([])
+  })
 })
