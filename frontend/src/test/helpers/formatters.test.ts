@@ -10,6 +10,7 @@ import {
   formatQuantity,
   positionCostBasis,
   positionMarketValue,
+  reconciledMarketValue,
   toFiniteNum,
   getField,
   getStr,
@@ -227,6 +228,28 @@ describe('positionMarketValue', () => {
 
   it('returns null when no price is available', () => {
     expect(positionMarketValue({ symbol: 'X', quantity: 1 })).toBeNull()
+  })
+})
+
+describe('reconciledMarketValue', () => {
+  it('makes the row tie out at 2dp: invested − value === −pnl', () => {
+    // The real bug: invested 11.2818 ($11.28), pnl -1.1454 (-$1.15). Naively
+    // current×qty = 10.1364 ($10.14), but 11.28 − 10.14 reads as 1.14, not 1.15.
+    const invested = 11.2818
+    const pnl = -1.1454
+    const value = reconciledMarketValue(invested, pnl)
+    expect(value).toBeCloseTo(10.13, 10)
+    // Both sides rounded to cents reconcile exactly.
+    const r = (n: number) => Math.round(n * 100) / 100
+    expect(r(invested) - r(value)).toBeCloseTo(-r(pnl), 10)
+  })
+
+  it('handles a gain', () => {
+    expect(reconciledMarketValue(100, 25.5)).toBeCloseTo(125.5, 10)
+  })
+
+  it('rounds each input to cents before summing', () => {
+    expect(reconciledMarketValue(11.289, -1.151)).toBeCloseTo(11.29 - 1.15, 10)
   })
 })
 
