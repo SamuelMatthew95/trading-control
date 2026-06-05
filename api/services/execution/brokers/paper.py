@@ -98,17 +98,45 @@ class PaperBroker:
         )
         return order_payload
 
+    @staticmethod
+    def _flat_position(symbol: str) -> dict[str, Any]:
+        """Zero/flat position shape returned when a symbol has no Redis entry."""
+        return {
+            FieldName.SYMBOL: symbol,
+            FieldName.SIDE: PositionSide.FLAT,
+            FieldName.QTY: 0.0,
+            FieldName.ENTRY_PRICE: 0.0,
+            FieldName.CURRENT_PRICE: 0.0,
+        }
+
     async def get_position(self, symbol: str) -> dict[str, Any]:
         raw = await self.redis.get(REDIS_KEY_PAPER_POSITION.format(symbol=symbol))
         if not raw:
-            return {
-                FieldName.SYMBOL: symbol,
-                FieldName.SIDE: PositionSide.FLAT,
-                FieldName.QTY: 0.0,
-                FieldName.ENTRY_PRICE: 0.0,
-                FieldName.CURRENT_PRICE: 0.0,
-            }
+            return self._flat_position(symbol)
         return json.loads(raw)
+
+    async def get_positions(self, symbols: list[str]) -> dict[str, dict[str, Any]]:
+        """Batch-read positions for many symbols in a single MGET round trip.
+
+        Replaces N sequential GETs (one per symbol) so a dashboard refresh does
+        not hold N pooled Redis connections in series — the pattern that drained
+        the pool and surfaced as "Too many connections" warnings on /positions
+        and /pnl.
+        """
+        if not symbols:
+            return {}
+        keys = [REDIS_KEY_PAPER_POSITION.format(symbol=s) for s in symbols]
+        raws = await self.redis.mget(keys)
+        out: dict[str, dict[str, Any]] = {}
+        for symbol, raw in zip(symbols, raws, strict=True):
+            if raw:
+                try:
+                    out[symbol] = json.loads(raw)
+                    continue
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            out[symbol] = self._flat_position(symbol)
+        return out
 
     async def get_cash(self) -> float:
         await self.redis.setnx(REDIS_KEY_PAPER_CASH, DEFAULT_PAPER_CASH)
