@@ -3,9 +3,20 @@
 import { useEffect, useState } from 'react'
 import { useCodexStore, type ProposalStatus, type ProposalType } from '@/stores/useCodexStore'
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
+import { pricesFreshnessMs } from '@/lib/formatters'
 
 const POLL_SLOW_MS = 30_000
 const POLL_FAST_MS = 15_000
+
+// Price-staleness watchdog (only runs while the WebSocket is connected). When
+// WS is live we rely on its market_tick stream for prices and skip REST price
+// polling. But if that stream goes silent, `prices` — and every mark-to-market
+// number derived from it (Total P&L, open-position P&L) — freezes. The watchdog
+// re-fetches prices from REST only when the freshest price is older than
+// PRICE_STALE_REFETCH_MS, so live WS ticks are never overwritten by a slower
+// REST read.
+const PRICE_WATCHDOG_MS = 8_000
+const PRICE_STALE_REFETCH_MS = 20_000
 
 // Backend proposals carry `content` as either a string or an object (often an
 // empty `{}` in memory mode). Stringify only non-empty objects so the proposal
@@ -133,7 +144,19 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
   // slow refresh for them even while WS is connected.
   if (wsConnected) {
     const tp = setInterval(fetchPositionsAndPnl, POLL_SLOW_MS)
-    return () => clearInterval(tp)
+    // Resume REST price fetches only when the WS tick stream has gone silent,
+    // so prices (and all live P&L derived from them) never freeze on a stalled
+    // stream — without clobbering fresh ticks during normal operation.
+    const pw = setInterval(() => {
+      const age = pricesFreshnessMs(useCodexStore.getState().prices)
+      if (age == null || age > PRICE_STALE_REFETCH_MS) {
+        useCodexStore.getState().fetchPrices()
+      }
+    }, PRICE_WATCHDOG_MS)
+    return () => {
+      clearInterval(tp)
+      clearInterval(pw)
+    }
   }
     const t = setInterval(() => {
       fetchDashboardState()
