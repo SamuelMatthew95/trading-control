@@ -113,19 +113,19 @@ class StrategyProposer(MultiStreamAgent):
                 await self.bus.publish(
                     STREAM_GITHUB_PRS,
                     {
-                        "msg_id": str(uuid.uuid4()),
-                        "source": SOURCE_STRATEGY_PROPOSER,
-                        "type": "pr_request",
-                        "title": f"Strategy rule proposal: {hypothesis.get(FieldName.DESCRIPTION, '')[:80]}",
-                        "body": json.dumps(
+                        FieldName.MSG_ID: str(uuid.uuid4()),
+                        FieldName.SOURCE: SOURCE_STRATEGY_PROPOSER,
+                        FieldName.TYPE: "pr_request",
+                        FieldName.TITLE: f"Strategy rule proposal: {hypothesis.get(FieldName.DESCRIPTION, '')[:80]}",
+                        FieldName.BODY: json.dumps(
                             {
                                 FieldName.HYPOTHESIS: hypothesis,
-                                "reflection_trace_id": data.get(FieldName.TRACE_ID),
+                                FieldName.REFLECTION_TRACE_ID: data.get(FieldName.TRACE_ID),
                                 FieldName.FILLS_ANALYZED: data.get(FieldName.FILLS_ANALYZED),
                             },
                             default=str,
                         ),
-                        "timestamp": now_iso,
+                        FieldName.TIMESTAMP: now_iso,
                     },
                 )
 
@@ -135,7 +135,7 @@ class StrategyProposer(MultiStreamAgent):
             await persist_strategy_record(
                 {
                     FieldName.RULES: proposal.get(FieldName.CONTENT, {}),
-                    "description": hypothesis.get(FieldName.DESCRIPTION, ""),
+                    FieldName.DESCRIPTION: hypothesis.get(FieldName.DESCRIPTION, ""),
                     FieldName.EXPECTED_IMPROVEMENT: float(
                         hypothesis.get(FieldName.CONFIDENCE) or 0
                     ),
@@ -146,17 +146,17 @@ class StrategyProposer(MultiStreamAgent):
             await self.bus.publish(
                 STREAM_NOTIFICATIONS,
                 {
-                    "msg_id": str(uuid.uuid4()),
-                    "source": SOURCE_STRATEGY_PROPOSER,
-                    "type": "notification",
-                    "severity": Severity.INFO,
-                    "notification_type": "proposal",
-                    "message": (
+                    FieldName.MSG_ID: str(uuid.uuid4()),
+                    FieldName.SOURCE: SOURCE_STRATEGY_PROPOSER,
+                    FieldName.TYPE: "notification",
+                    FieldName.SEVERITY: Severity.INFO,
+                    FieldName.NOTIFICATION_TYPE: "proposal",
+                    FieldName.MESSAGE: (
                         f"New {proposal[FieldName.PROPOSAL_TYPE]} proposal "
                         f"(confidence={float(hypothesis.get(FieldName.CONFIDENCE) or 0):.0%}): "
                         f"{hypothesis.get(FieldName.DESCRIPTION, '')[:100]}"
                     ),
-                    "timestamp": now_iso,
+                    FieldName.TIMESTAMP: now_iso,
                 },
             )
             created += 1
@@ -235,14 +235,14 @@ class StrategyProposer(MultiStreamAgent):
             return
 
         proposal = {
-            "msg_id": str(uuid.uuid4()),
-            "source": SOURCE_STRATEGY_PROPOSER,
-            "type": "proposal",
+            FieldName.MSG_ID: str(uuid.uuid4()),
+            FieldName.SOURCE: SOURCE_STRATEGY_PROPOSER,
+            FieldName.TYPE: "proposal",
             FieldName.PROPOSAL_TYPE: ProposalType.PROMPT_EVOLUTION,
             FieldName.REQUIRES_APPROVAL: not settings.PROMPT_EVOLUTION_AUTO_APPLY,
-            "reflection_trace_id": reflection_data.get(FieldName.TRACE_ID),
-            "trace_id": trace_id,
-            "timestamp": now_iso,
+            FieldName.REFLECTION_TRACE_ID: reflection_data.get(FieldName.TRACE_ID),
+            FieldName.TRACE_ID: trace_id,
+            FieldName.TIMESTAMP: now_iso,
             FieldName.CONTENT: {
                 FieldName.NODE: REASONING_NODE,
                 FieldName.TEXT: proposed,
@@ -262,13 +262,13 @@ class StrategyProposer(MultiStreamAgent):
         await self.bus.publish(
             STREAM_NOTIFICATIONS,
             {
-                "msg_id": str(uuid.uuid4()),
-                "source": SOURCE_STRATEGY_PROPOSER,
-                "type": "notification",
-                "severity": Severity.INFO,
-                "notification_type": "proposal",
-                "message": f"Prompt-evolution proposal for {REASONING_NODE}: {rationale[:100]}",
-                "timestamp": now_iso,
+                FieldName.MSG_ID: str(uuid.uuid4()),
+                FieldName.SOURCE: SOURCE_STRATEGY_PROPOSER,
+                FieldName.TYPE: "notification",
+                FieldName.SEVERITY: Severity.INFO,
+                FieldName.NOTIFICATION_TYPE: "proposal",
+                FieldName.MESSAGE: f"Prompt-evolution proposal for {REASONING_NODE}: {rationale[:100]}",
+                FieldName.TIMESTAMP: now_iso,
             },
         )
         log_structured(
@@ -348,15 +348,15 @@ class StrategyProposer(MultiStreamAgent):
         confidence = float(hypothesis.get(FieldName.CONFIDENCE) or 0)
 
         base = {
-            "msg_id": str(uuid.uuid4()),
-            "source": SOURCE_STRATEGY_PROPOSER,
-            "type": "proposal",
-            "requires_approval": True,
-            "reflection_trace_id": reflection_data.get(FieldName.TRACE_ID),
-            "timestamp": now_iso,
-            "content": {
-                "description": description,
-                "confidence": confidence,
+            FieldName.MSG_ID: str(uuid.uuid4()),
+            FieldName.SOURCE: SOURCE_STRATEGY_PROPOSER,
+            FieldName.TYPE: "proposal",
+            FieldName.REQUIRES_APPROVAL: True,
+            FieldName.REFLECTION_TRACE_ID: reflection_data.get(FieldName.TRACE_ID),
+            FieldName.TIMESTAMP: now_iso,
+            FieldName.CONTENT: {
+                FieldName.DESCRIPTION: description,
+                FieldName.CONFIDENCE: confidence,
                 FieldName.HYPOTHESIS_TYPE: hyp_type,
             },
         }
