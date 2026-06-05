@@ -13,8 +13,8 @@
 # Backend (all runtime + dev/test deps in one file)
 pip install -r requirements.txt
 
-# Frontend
-cd frontend && npm install
+# Frontend (uses pnpm 9)
+cd frontend && pnpm install
 ```
 
 ## 2. Configure environment
@@ -65,21 +65,26 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 
 ```bash
 cd frontend
-npm run dev
+pnpm dev
 # Opens at http://localhost:3000
 ```
 
 ## 5. Run tests
 
-```bash
-# Full suite
-pytest tests/ -v --tb=short
+CI runs two separate commands — always mirror this locally:
 
-# Specific categories
-pytest tests/core/ -v      # Core unit tests
-pytest tests/api/ -v       # API endpoint tests
-pytest tests/integration/  # Integration tests
+```bash
+# Unit tests (mirrors CI step 1)
+pytest tests/core tests/api -v --tb=short
+
+# Integration tests (mirrors CI step 2)
+pytest tests/integration -v --tb=short
+
+# Agent tests (local only — not in CI, but catches regressions before push)
+pytest tests/agents -v --tb=short
 ```
+
+**Never run `pytest tests/` as a single command** — the CI pipeline runs them split, so ordering-sensitive failures only surface when you run the subsets separately.
 
 ## 6. Lint and format
 
