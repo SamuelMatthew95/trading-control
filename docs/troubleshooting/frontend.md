@@ -652,3 +652,26 @@ frame carries no subject, so non-market events are unaffected.
 
 **Regression test:** `frontend/src/test/helpers/activity-timeline.test.ts` —
 `shows the symbol + price + direction for a market event (no more bare rows)`.
+
+## Equity Curve shows "No equity data yet" while a position is open
+
+**Symptom:** With an open position (live unrealized P&L moving every tick) the
+Overview's Equity Curve still rendered "No equity data yet". It never reflected
+the open position and was not real-time.
+
+**Root cause:** `EquityCurve` built its series solely from filled `orders`'
+realized `pnl` (`buildEquitySeries`). In memory mode / before any trade closes
+there are no filled orders, so the series was empty — the open position's live
+mark-to-market P&L was never plotted.
+
+**Fix:** New `useLiveEquitySeries` hook samples the live total P&L
+(`useLivePnl`, realized + mark-to-market unrealized) every 3s into a rolling,
+capped window (pure `appendEquitySample`). `EquityCurve` takes an optional
+`liveSeries` and falls back to it when the order-derived curve is empty, with a
+"Live · marks to market in real time" badge. `DashboardView` wires the hook in.
+A `ResizeObserver` stub was added to `src/test/setup.ts` because the chart now
+renders in tests (recharts' ResponsiveContainer needs it in jsdom).
+
+**Regression test:** `frontend/src/test/helpers/live-equity-series.test.ts`
+(`appendEquitySample`) + `frontend/src/test/components/EquityCurve.test.tsx`
+(`falls back to the live series when there are no closed orders`).
