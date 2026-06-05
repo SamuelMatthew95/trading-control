@@ -259,9 +259,9 @@ class GradeAgent(MultiStreamAgent):
             FieldName.TYPE: "agent_grade",
             FieldName.SOURCE: SOURCE_GRADE,
             FieldName.AGENT: AGENT_GRADE,
-            "agent_name": AGENT_GRADE,
+            FieldName.AGENT_NAME: AGENT_GRADE,
             FieldName.TRACE_ID: trace_id,
-            "grade": grade,
+            FieldName.GRADE: grade,
             FieldName.SCORE: score,
             FieldName.CONFIDENCE_SCORE: round(score * 100, 2),
             FieldName.REASONING: (
@@ -675,12 +675,12 @@ class GradeAgent(MultiStreamAgent):
                 FieldName.MSG_ID: str(uuid.uuid4()),
                 FieldName.SOURCE: SOURCE_GRADE,
                 FieldName.TYPE: "proposal",
-                "proposal_type": ProposalType.PARAMETER_CHANGE,
-                "content": {
+                FieldName.PROPOSAL_TYPE: ProposalType.PARAMETER_CHANGE,
+                FieldName.CONTENT: {
                     FieldName.PARAMETER: "LLM_CALL_DELAY_MS",
                     FieldName.PREVIOUS_VALUE: current_delay,
                     FieldName.NEW_VALUE: new_delay,
-                    "reason": (
+                    FieldName.REASON: (
                         f"GradeAgent detected {rate_limited} rate-limited calls "
                         f"in the last 5-minute window (threshold={LLM_RATE_LIMIT_GRADE_THRESHOLD})"
                     ),
@@ -700,9 +700,9 @@ class GradeAgent(MultiStreamAgent):
                     FieldName.MSG_ID: str(uuid.uuid4()),
                     FieldName.SOURCE: SOURCE_GRADE,
                     FieldName.TYPE: "notification",
-                    "severity": severity,
-                    "notification_type": "agent_grade",
-                    "message": (
+                    FieldName.SEVERITY: severity,
+                    FieldName.NOTIFICATION_TYPE: "agent_grade",
+                    FieldName.MESSAGE: (
                         f"Agent grade {grade} ({payload[FieldName.SCORE_PCT]}%) — "
                         f"accuracy={payload[FieldName.METRICS][FieldName.ACCURACY]:.1%} "
                         f"IC={payload[FieldName.METRICS][FieldName.IC]:+.3f}"
@@ -716,18 +716,18 @@ class GradeAgent(MultiStreamAgent):
             await self.bus.publish(
                 STREAM_PROPOSALS,
                 {
-                    "msg_id": str(uuid.uuid4()),
-                    "source": SOURCE_GRADE,
-                    "type": "proposal",
-                    "proposal_type": ProposalType.SIGNAL_WEIGHT_REDUCTION,
-                    "content": {
-                        "action": "reduce_signal_weight",
+                    FieldName.MSG_ID: str(uuid.uuid4()),
+                    FieldName.SOURCE: SOURCE_GRADE,
+                    FieldName.TYPE: "proposal",
+                    FieldName.PROPOSAL_TYPE: ProposalType.SIGNAL_WEIGHT_REDUCTION,
+                    FieldName.CONTENT: {
+                        FieldName.ACTION: "reduce_signal_weight",
                         FieldName.REDUCTION_PCT: 30,
-                        "reason": f"Grade {grade}: score {payload[FieldName.SCORE_PCT]}%",
+                        FieldName.REASON: f"Grade {grade}: score {payload[FieldName.SCORE_PCT]}%",
                         FieldName.GRADE_PAYLOAD: payload,
                         FieldName.BACKTEST: self._recent_backtest_evidence(),
                     },
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
                 },
             )
             self._consecutive_low_grades += 1
@@ -738,17 +738,17 @@ class GradeAgent(MultiStreamAgent):
                 await self.bus.publish(
                     STREAM_PROPOSALS,
                     {
-                        "msg_id": str(uuid.uuid4()),
-                        "source": SOURCE_GRADE,
-                        "type": "proposal",
-                        "proposal_type": ProposalType.AGENT_SUSPENSION,
-                        "content": {
-                            "action": "suspend_from_live_stream",
+                        FieldName.MSG_ID: str(uuid.uuid4()),
+                        FieldName.SOURCE: SOURCE_GRADE,
+                        FieldName.TYPE: "proposal",
+                        FieldName.PROPOSAL_TYPE: ProposalType.AGENT_SUSPENSION,
+                        FieldName.CONTENT: {
+                            FieldName.ACTION: "suspend_from_live_stream",
                             FieldName.CONSECUTIVE_LOW_GRADES: self._consecutive_low_grades,
-                            "reason": f"{self._consecutive_low_grades} consecutive D grades",
+                            FieldName.REASON: f"{self._consecutive_low_grades} consecutive D grades",
                             FieldName.BACKTEST: self._recent_backtest_evidence(),
                         },
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
                     },
                 )
 
@@ -757,16 +757,16 @@ class GradeAgent(MultiStreamAgent):
             await self.bus.publish(
                 STREAM_PROPOSALS,
                 {
-                    "msg_id": str(uuid.uuid4()),
-                    "source": SOURCE_GRADE,
-                    "type": "proposal",
-                    "proposal_type": ProposalType.AGENT_RETIREMENT,
-                    "content": {
-                        "action": "retire_immediately",
-                        "reason": f"Grade F: score {payload[FieldName.SCORE_PCT]}%",
+                    FieldName.MSG_ID: str(uuid.uuid4()),
+                    FieldName.SOURCE: SOURCE_GRADE,
+                    FieldName.TYPE: "proposal",
+                    FieldName.PROPOSAL_TYPE: ProposalType.AGENT_RETIREMENT,
+                    FieldName.CONTENT: {
+                        FieldName.ACTION: "retire_immediately",
+                        FieldName.REASON: f"Grade F: score {payload[FieldName.SCORE_PCT]}%",
                         FieldName.BACKTEST: self._recent_backtest_evidence(),
                     },
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
                 },
             )
 
