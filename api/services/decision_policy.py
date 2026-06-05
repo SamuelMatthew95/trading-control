@@ -56,6 +56,23 @@ class PolicyParams:
 # The seed params the data plane runs until the control plane evolves them.
 DEFAULT_POLICY_PARAMS = PolicyParams()
 
+# Active params for the data plane. The control plane (LLM deliberation on the
+# slow loop) replaces this via set_policy_params(); the hot path only ever reads
+# it through get_policy_params(). This is the seam Step 3 wires to Redis so an
+# evolved param set survives a restart, mirroring the adaptive-directive store.
+_active_policy_params: PolicyParams = DEFAULT_POLICY_PARAMS
+
+
+def get_policy_params() -> PolicyParams:
+    """The params the data plane currently decides with (seed until evolved)."""
+    return _active_policy_params
+
+
+def set_policy_params(params: PolicyParams | None) -> None:
+    """Install a new param set (control plane); ``None`` resets to the seed."""
+    global _active_policy_params
+    _active_policy_params = params or DEFAULT_POLICY_PARAMS
+
 
 def _direction_sign(data: dict[str, Any]) -> tuple[float, str]:
     """Momentum direction in {-1, 0, +1} from the signal's direction/action/move."""
