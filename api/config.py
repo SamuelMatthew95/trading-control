@@ -197,6 +197,10 @@ class Settings(BaseSettings):
 
     # Redis connection pool (tune for Render Redis plan limits)
     REDIS_MAX_CONNECTIONS: int = 20
+    # Max seconds a caller waits for a free pooled connection before erroring.
+    # With a BlockingConnectionPool this replaces the plain pool's immediate
+    # ConnectionError("Too many connections") under a request burst.
+    REDIS_POOL_TIMEOUT_SECONDS: float = 5.0
 
     model_config = SettingsConfigDict(
         env_file=".env",
