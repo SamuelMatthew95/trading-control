@@ -13,7 +13,7 @@ vi.mock('recharts', () => ({
   Area: () => <div data-testid="area" />,
 }))
 
-import { EquityCurve, buildEquitySeries, getPaddedDomain } from '@/components/dashboard/EquityCurve'
+import { EquityCurve, buildEquitySeries, getPaddedDomain, getNiceYAxis } from '@/components/dashboard/EquityCurve'
 
 describe('EquityCurve', () => {
   it('renders empty state with no data', () => {
@@ -119,6 +119,26 @@ describe('EquityCurve', () => {
     const netLabel = screen.getByText('Net')
     expect(netLabel.nextElementSibling).toHaveTextContent('+$50.00')
     expect(netLabel.nextElementSibling).toHaveClass('text-emerald-500')
+  })
+
+  it('produces clean, nicely-stepped y-axis ticks for small P&L (no -$6.15 junk)', () => {
+    // A position worth a couple of dollars sitting at -$1.15 used to get a
+    // domain like [-6.15, 5] with junk labels (-0.15, -3.15, -6.15). Ticks must
+    // now sit on a 0-anchored grid of a single nice step.
+    const series = [
+      { timestamp: 1000, label: '', pnl: -1.15, delta: -1.15, equity: -1.15 },
+      { timestamp: 4000, label: '', pnl: -1.15, delta: 0, equity: -1.15 },
+    ]
+    const { domain, ticks } = getNiceYAxis(series)
+    const gaps = ticks.slice(1).map((t, i) => Number((t - ticks[i]).toFixed(6)))
+    expect(new Set(gaps).size).toBe(1) // evenly spaced
+    const step = gaps[0]
+    expect(step).toBeGreaterThan(0)
+    // Each tick is an integer multiple of the step (the -0.15/-3.15 junk was not).
+    for (const t of ticks) expect(Number.isInteger(Number((t / step).toFixed(6)))).toBe(true)
+    expect(ticks).toContain(0)
+    expect(domain[0]).toBeLessThan(-1.15)
+    expect(domain[1]).toBeGreaterThanOrEqual(0)
   })
 
   it('returns padded y-axis domain', () => {
