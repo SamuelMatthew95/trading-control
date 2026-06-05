@@ -36,12 +36,14 @@ async def _refresh_mirror_from_broker() -> str:
     if broker is None:
         return "in_memory"
     store = get_runtime_store()
-    for symbol in VALID_SYMBOLS:
-        try:
-            position = await broker.get_position(symbol)
-        except Exception:
-            log_structured("warning", "positions_broker_read_failed", symbol=symbol, exc_info=True)
-            continue
+    try:
+        # One MGET for every symbol instead of a GET per symbol — keeps the
+        # request from holding many pooled Redis connections in series.
+        positions = await broker.get_positions(list(VALID_SYMBOLS))
+    except Exception:
+        log_structured("warning", "positions_broker_read_failed", exc_info=True)
+        return "in_memory"
+    for symbol, position in positions.items():
         store.mirror_broker_position(symbol, position)
     return "paper_broker"
 
