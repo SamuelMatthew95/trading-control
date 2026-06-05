@@ -22,6 +22,7 @@ from api.config import settings
 from api.constants import (
     AGENT_REASONING,
     KELLY_FRACTION_SCALE,
+    LLM_FALLBACK_MODE_LOCAL_POLICY,
     LLM_FALLBACK_MODE_REJECT_SIGNAL,
     LLM_FALLBACK_MODE_USE_LAST_REFLECTION,
     LLM_TASK_PRICE_ANALYSIS,
@@ -78,6 +79,7 @@ from api.services.agents.vector_helpers import (
     embed_text,
     search_vector_memory,
 )
+from api.services.decision_policy import DEFAULT_POLICY_PARAMS, decide_policy
 from api.services.execution.brokers.paper import PaperBroker
 from api.services.llm_router import active_model_label, call_llm_with_system
 from api.services.market_intel import (
@@ -240,7 +242,9 @@ class ReasoningAgent(BaseStreamConsumer):
         fallback_reason: str | None = None
         if budget_used >= settings.ANTHROPIC_DAILY_TOKEN_BUDGET:
             fallback_reason = "budget_exceeded"
-            summary = await self._apply_fallback(data, trace_id, reason=fallback_reason)
+            summary = await self._apply_fallback(
+                data, trace_id, reason=fallback_reason, context=context
+            )
             tokens_used, cost_usd = 0, 0.0
         else:
             try:
@@ -256,11 +260,15 @@ class ReasoningAgent(BaseStreamConsumer):
                     trace_id=trace_id,
                     timeout=LLM_TIMEOUT_SECONDS,
                 )
-                summary = await self._apply_fallback(data, trace_id, reason=fallback_reason)
+                summary = await self._apply_fallback(
+                    data, trace_id, reason=fallback_reason, context=context
+                )
                 tokens_used, cost_usd = 0, 0.0
             except Exception as exc:  # noqa: BLE001
                 fallback_reason = str(exc)
-                summary = await self._apply_fallback(data, trace_id, reason=fallback_reason)
+                summary = await self._apply_fallback(
+                    data, trace_id, reason=fallback_reason, context=context
+                )
                 tokens_used, cost_usd = 0, 0.0
 
         is_fallback = fallback_reason is not None
@@ -1330,8 +1338,34 @@ class ReasoningAgent(BaseStreamConsumer):
         return direction in {AgentAction.SELL, AgentAction.HOLD, "short", "flat"}
 
     async def _apply_fallback(
-        self, data: dict[str, Any], trace_id: str, reason: str
+        self,
+        data: dict[str, Any],
+        trace_id: str,
+        reason: str,
+        context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        # Level-3 data plane: when configured, the deterministic local policy
+        # decides instead of rejecting — so the LLM being down/throttled stops
+        # taking the whole pipeline dark. The policy is fast, explainable, and
+        # always available; the LLM's role moves to tuning its params (control
+        # plane), off this critical path.
+        if settings.LLM_FALLBACK_MODE == LLM_FALLBACK_MODE_LOCAL_POLICY:
+            decision = decide_policy(data, context or {}, DEFAULT_POLICY_PARAMS)
+            decision[FieldName.RISK_FACTORS] = [
+                *decision.get(FieldName.RISK_FACTORS, []),
+                reason,
+            ]
+            decision[FieldName.PRIMARY_EDGE] = f"fallback:{LLM_FALLBACK_MODE_LOCAL_POLICY}"
+            decision.update(
+                {
+                    FieldName.LATENCY_MS: 0,
+                    FieldName.COST_USD: 0.0,
+                    FieldName.TRACE_ID: trace_id,
+                    FieldName.FALLBACK: True,
+                }
+            )
+            return decision
+
         base_action = str(
             data.get(FieldName.ACTION) or data.get(FieldName.SIGNAL) or AgentAction.HOLD
         ).lower()
