@@ -362,7 +362,7 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
                     <Meter value={toPct(latestGrade.grade_score)} className="mt-2" />
                   </>
                 ) : (
-                  <p className="mt-1 text-sm text-slate-400 dark:text-slate-500">Waiting for first grade</p>
+                  <p className="mt-1.5 font-mono text-sm text-slate-400 dark:text-slate-500">--</p>
                 )}
               </div>
               <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/70">
