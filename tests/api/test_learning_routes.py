@@ -13,7 +13,7 @@ from api.constants import FieldName
 from api.in_memory_store import InMemoryStore
 from api.main import app
 from api.routes import learning as learning_module
-from api.routes.learning import (
+from api.routes.learning_helpers import (
     _grade_from_score,
     _grade_record_to_trade,
     _iso,
