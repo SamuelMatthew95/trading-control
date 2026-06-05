@@ -106,7 +106,10 @@ export function OpenPositionsPanel() {
                 // ties out at the 2dp the user sees (Invested − Value === −P&L).
                 // Three independently-rounded numbers otherwise fail the eyeball
                 // subtraction (11.28 − 10.14 reads as 1.14 while P&L shows 1.15).
-                // P&L stays anchored to the live value shown in the header.
+                // P&L stays anchored to the live value shown in the header. For a
+                // LONG this equals current×qty exactly; for a SHORT it is
+                // cost-basis + P&L (the row still ties out) rather than the buy-back
+                // market value — an accepted trade-off for an internally consistent row.
                 const marketValue =
                   invested != null && pnl != null ? reconciledMarketValue(invested, pnl) : positionMarketValue(pos)
 
