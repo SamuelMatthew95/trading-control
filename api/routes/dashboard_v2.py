@@ -9,6 +9,11 @@ from typing import Any
 
 from fastapi import APIRouter, Body, HTTPException, Request
 
+from api.constants import FieldName
+from api.services.dashboard.agent_performance import (
+    get_agent_detail_payload,
+    get_agent_performance_payload,
+)
 from api.services.dashboard.agents import (
     get_agent_instances_payload,
     get_agent_metrics_payload,
@@ -116,6 +121,21 @@ async def get_prices() -> dict[str, Any]:
 @router.get("/agents/status")
 async def get_agents_status() -> dict[str, Any]:
     return await get_agents_status_payload()
+
+
+@router.get("/agents/performance")
+async def get_agent_performance() -> dict[str, Any]:
+    """Per-agent grades, tiers, and learnings — the agent scorecard overview."""
+    return await get_agent_performance_payload()
+
+
+@router.get("/agents/{agent_name}/detail")
+async def get_agent_detail(agent_name: str) -> dict[str, Any]:
+    """Drill-in for one agent: grade, dimensions, learnings, recent activity."""
+    payload = await get_agent_detail_payload(agent_name)
+    if payload.get(FieldName.ERROR):
+        raise HTTPException(status_code=404, detail="unknown_agent") from None
+    return payload
 
 
 @router.get("/system/metrics")
