@@ -151,7 +151,7 @@ export function LearningLoopPanel() {
       <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-4">
         <div className="rounded-lg border border-slate-300 p-3 dark:border-slate-800">
           <p className="text-xs text-slate-500 dark:text-slate-400">Latest Grade</p>
-          <p className={`text-2xl font-mono font-black ${gradeColor(grade?.grade ?? null)}`}>
+          <p className={`text-2xl font-mono font-semibold ${gradeColor(grade?.grade ?? null)}`}>
             {grade?.grade ?? '--'}
           </p>
           <p className="text-xs font-mono text-slate-500">
