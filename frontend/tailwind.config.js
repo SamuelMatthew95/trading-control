@@ -9,7 +9,7 @@ const config = {
     extend: {
       fontFamily: {
         sans: ['var(--font-sans)', 'Inter', 'system-ui', 'sans-serif'],
-        mono: ['var(--font-mono)', 'JetBrains Mono', 'Fira Code', 'monospace'],
+        mono: ['var(--font-mono)', 'IBM Plex Mono', 'SFMono-Regular', 'Menlo', 'monospace'],
       },
       colors: {
         background: 'hsl(var(--background))',
