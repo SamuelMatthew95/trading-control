@@ -129,7 +129,7 @@ class ICUpdater(MultiStreamAgent):
         momentum_ic = spearman_correlation(momentum_signals, pnls)
 
         raw_factors: dict[str, float] = {
-            "composite_score": composite_ic,
+            FieldName.COMPOSITE_SCORE: composite_ic,
             FieldName.MOMENTUM: momentum_ic,
         }
 
@@ -138,7 +138,7 @@ class ICUpdater(MultiStreamAgent):
 
         total = sum(active.values())
         weights: dict[str, float] = (
-            {"composite_score": 1.0}
+            {FieldName.COMPOSITE_SCORE: 1.0}
             if total <= 0
             else {k: round(v / total, 6) for k, v in active.items()}
         )
@@ -161,14 +161,14 @@ class ICUpdater(MultiStreamAgent):
             await self.bus.publish(
                 STREAM_FACTOR_IC_HISTORY,
                 {
-                    "msg_id": str(uuid.uuid4()),
-                    "source": SOURCE_IC_UPDATER,
-                    "type": "ic_update",
-                    "factor_name": factor,
+                    FieldName.MSG_ID: str(uuid.uuid4()),
+                    FieldName.SOURCE: SOURCE_IC_UPDATER,
+                    FieldName.TYPE: "ic_update",
+                    FieldName.FACTOR_NAME: factor,
                     FieldName.IC_SCORE: round(ic_val, 6),
                     FieldName.WEIGHT: weights.get(factor, 0.0),
                     FieldName.FILLS: self._fills,
-                    "timestamp": now_iso,
+                    FieldName.TIMESTAMP: now_iso,
                 },
             )
             await persist_factor_ic(factor, ic_val, now_iso)
@@ -176,17 +176,17 @@ class ICUpdater(MultiStreamAgent):
         await self.bus.publish(
             STREAM_NOTIFICATIONS,
             {
-                "msg_id": str(uuid.uuid4()),
-                "source": SOURCE_IC_UPDATER,
-                "type": "notification",
-                "severity": Severity.INFO,
-                "notification_type": "ic_update",
-                "message": (
+                FieldName.MSG_ID: str(uuid.uuid4()),
+                FieldName.SOURCE: SOURCE_IC_UPDATER,
+                FieldName.TYPE: "notification",
+                FieldName.SEVERITY: Severity.INFO,
+                FieldName.NOTIFICATION_TYPE: "ic_update",
+                FieldName.MESSAGE: (
                     f"IC weights updated after {self._fills} fills — "
                     f"composite={composite_ic:+.3f} momentum={momentum_ic:+.3f}"
                 ),
                 FieldName.WEIGHTS: weights,
-                "timestamp": now_iso,
+                FieldName.TIMESTAMP: now_iso,
             },
         )
 
