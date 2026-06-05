@@ -99,65 +99,6 @@ class NotificationAgent(MultiStreamAgent):
         self._dedup_window_secs = NOTIFICATION_DEDUP_TTL_SECONDS
         self._session_pnl: float = 0.0
 
-    # ------------------------------------------------------------------
-    # Rich per-stream message builders
-    # ------------------------------------------------------------------
-
-    def _msg_trade_performance(self, data: dict[str, Any]) -> str:
-        symbol = str(data.get(FieldName.SYMBOL) or "?")
-        side = str(data.get(FieldName.SIDE) or "").upper()
-        exit_price = float(data.get(FieldName.EXIT_PRICE) or data.get(FieldName.FILL_PRICE) or 0)
-        entry_price = float(data.get(FieldName.ENTRY_PRICE) or exit_price)
-        pnl = float(data.get(FieldName.PNL) or 0)
-        pnl_pct = float(data.get(FieldName.PNL_PERCENT) or 0)
-
-        if pnl == 0.0:
-            # Opening fill — no realized PnL yet
-            qty = float(data.get(FieldName.QTY) or 0)
-            return f"OPENED — {symbol} ({side}) · Price: ${exit_price:,.2f} | Qty: {qty:.4g}"
-
-        sign = "+" if pnl >= 0 else ""
-        return (
-            f"CLOSED — {symbol} ({side}) · "
-            f"Exit: ${exit_price:,.2f} | Entry: ${entry_price:,.2f} · "
-            f"Trade PnL: {sign}${pnl:,.2f} ({sign}{pnl_pct:.2f}%) | "
-            f"Session: {'+' if self._session_pnl >= 0 else ''}${self._session_pnl:,.2f}"
-        )
-
-    def _msg_signal(self, data: dict[str, Any]) -> str:
-        symbol = str(data.get(FieldName.SYMBOL) or "?")
-        sig_type = str(data.get(FieldName.TYPE) or data.get(FieldName.SIGNAL_TYPE) or "signal")
-        price = float(data.get(FieldName.PRICE) or data.get(FieldName.LAST_PRICE) or 0)
-        score = float(data.get(FieldName.COMPOSITE_SCORE) or data.get(FieldName.SCORE) or 0)
-
-        parts = [f"SIGNAL — {symbol} | {sig_type}"]
-        if price > 0:
-            parts.append(f"Price: ${price:,.2f}")
-        if score:
-            parts.append(f"Score: {score:.1f}")
-        return " · ".join(parts)
-
-    def _msg_risk_alert(self, data: dict[str, Any]) -> str:
-        symbol = str(data.get(FieldName.SYMBOL) or "?")
-        reason = str(data.get(FieldName.REASON) or data.get(FieldName.MESSAGE) or "risk event")
-        return f"RISK ALERT — {symbol} · {reason}"
-
-    def _msg_decision(self, data: dict[str, Any]) -> str:
-        symbol = str(data.get(FieldName.SYMBOL) or "?")
-        action = str(data.get(FieldName.ACTION) or "?").upper()
-        score = float(data.get(FieldName.REASONING_SCORE) or 0)
-        edge = str(data.get(FieldName.PRIMARY_EDGE) or "")
-        rr = float(data.get(FieldName.RR_RATIO) or 0)
-
-        parts = [f"DECISION — {symbol} | {action}"]
-        if score:
-            parts.append(f"Score: {score:.2f}")
-        if edge:
-            parts.append(f"Edge: {edge[:40]}")
-        if rr:
-            parts.append(f"R/R: {rr:.1f}x")
-        return " · ".join(parts)
-
     # User-facing notifications are restricted to actual executed buy/sell
     # fills. Other streams (signals, decisions, grades, reflections, risk
     # alerts, proposals) are still consumed for internal state (e.g. session
