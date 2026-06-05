@@ -105,11 +105,14 @@ export const getNiceYAxis = (series: EquityPoint[]): { domain: [number, number];
     min -= 1
     max += 1
   }
-  const step = niceStep(max - min)
+  const step = Math.max(niceStep(max - min), 0.01)
   const lo = Math.floor(min / step) * step - step
   const hi = Math.ceil(max / step) * step + step
   const ticks: number[] = []
-  for (let v = lo; v <= hi + step / 2; v += step) ticks.push(Number(v.toFixed(6)))
+  // `+ 0` normalizes a -0 (or a sub-µ tick that toFixed renders as "-0.000000")
+  // to +0, so the axis never shows a spurious "-$0.00" label. The $0.01 step
+  // floor above keeps sub-cent P&L from collapsing every tick to 0.
+  for (let v = lo; v <= hi + step / 2; v += step) ticks.push(Number(v.toFixed(6)) + 0)
   return { domain: [lo, hi], ticks }
 }
 
