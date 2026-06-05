@@ -126,3 +126,45 @@ async def test_full_close_marks_position_flat(broker):
     assert abs(float(pos["qty"])) < 1e-6
     assert pos["side"] == "flat"
     assert float(pos["entry_price"]) == 0.0
+
+
+async def test_get_positions_batches_into_single_mget(broker, redis):
+    """get_positions reads every symbol in ONE MGET, not a GET per symbol — the
+    fix for /positions and /pnl draining the Redis pool with N sequential GETs
+    (which surfaced as "Too many connections")."""
+    await broker.place_order(symbol="BTC/USD", side="buy", qty=1.0, price=50000.0)
+
+    calls = {"mget": 0, "get": 0}
+    orig_mget, orig_get = redis.mget, redis.get
+
+    async def _count_mget(keys):
+        calls["mget"] += 1
+        return await orig_mget(keys)
+
+    async def _count_get(key):
+        calls["get"] += 1
+        return await orig_get(key)
+
+    redis.mget, redis.get = _count_mget, _count_get
+    symbols = ["BTC/USD", "ETH/USD", "AAPL", "MSFT"]
+    positions = await broker.get_positions(symbols)
+
+    assert calls["mget"] == 1, "must batch into a single MGET"
+    assert calls["get"] == 0, "must not fall back to per-symbol GETs"
+    assert set(positions) == set(symbols)
+    assert float(positions["BTC/USD"]["qty"]) > 0.0  # seeded position survived
+    assert positions["AAPL"]["side"] == "flat"  # absent symbol -> flat default
+
+
+async def test_get_positions_empty_symbols_is_no_op(broker, redis):
+    """No symbols means no Redis round trip at all."""
+    calls = {"mget": 0}
+    orig_mget = redis.mget
+
+    async def _count_mget(keys):
+        calls["mget"] += 1
+        return await orig_mget(keys)
+
+    redis.mget = _count_mget
+    assert await broker.get_positions([]) == {}
+    assert calls["mget"] == 0

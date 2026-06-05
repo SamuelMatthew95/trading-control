@@ -1404,6 +1404,3 @@ class ExecutionEngine(BaseStreamConsumer):
             qty=qty,
             fill_price=fill_price,
         )
-
-    async def _insert_audit_log(self, session, event_type: str, payload: dict) -> None:
-        await insert_audit_log(session, event_type=event_type, payload=payload)

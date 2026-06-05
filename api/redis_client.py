@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from redis.asyncio import ConnectionPool, Redis
+from redis.asyncio import BlockingConnectionPool, ConnectionPool, Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
@@ -11,6 +11,32 @@ from api.observability import log_structured
 
 _redis_client: Redis | None = None
 _redis_pool: ConnectionPool | None = None
+
+
+def _build_pool(redis_url: str) -> BlockingConnectionPool:
+    """Build the shared async Redis pool.
+
+    A ``BlockingConnectionPool`` makes a caller WAIT up to
+    ``REDIS_POOL_TIMEOUT_SECONDS`` for a free connection when the pool is
+    saturated, instead of the plain ``ConnectionPool``'s immediate
+    ``ConnectionError("Too many connections")``. Background blocking reads
+    (``xread`` / ``xreadgroup``) hold pooled connections during their block
+    window, so a dashboard refresh firing many REST endpoints at once would
+    otherwise drain the pool and raise. The cap stays at
+    ``REDIS_MAX_CONNECTIONS`` so the Redis plan's client limit is never exceeded.
+    """
+    return BlockingConnectionPool.from_url(
+        redis_url,
+        encoding="utf-8",
+        decode_responses=True,
+        max_connections=settings.REDIS_MAX_CONNECTIONS,
+        timeout=settings.REDIS_POOL_TIMEOUT_SECONDS,
+        socket_connect_timeout=5,
+        socket_timeout=5,
+        health_check_interval=30,
+        retry_on_timeout=True,
+        retry_on_error=[RedisConnectionError],
+    )
 
 
 def _mask_redis_url(url: str) -> str:
@@ -31,24 +57,7 @@ async def get_redis() -> Redis:
             log_structured("error", "redis_url_missing", event_name="redis_url_missing")
             raise RuntimeError("Missing REDIS_URL")
 
-        try:
-            from api.config import settings as _s  # noqa: PLC0415
-
-            _max_conn = _s.REDIS_MAX_CONNECTIONS
-        except Exception:
-            _max_conn = 20
-
-        _redis_pool = ConnectionPool.from_url(
-            redis_url,
-            encoding="utf-8",
-            decode_responses=True,
-            max_connections=_max_conn,
-            socket_connect_timeout=5,
-            socket_timeout=5,
-            health_check_interval=30,
-            retry_on_timeout=True,
-            retry_on_error=[RedisConnectionError],
-        )
+        _redis_pool = _build_pool(redis_url)
         _redis_client = Redis(connection_pool=_redis_pool)
 
         try:

@@ -183,7 +183,7 @@ async def test_emits_prompt_evolution_proposal(strategy_proposer, mock_bus, monk
     from api.constants import STREAM_PROPOSALS, FieldName, ProposalType
 
     monkeypatch.setattr(settings, "PROMPT_EVOLUTION_ENABLED", True)
-    monkeypatch.setattr("api.services.agents.pipeline_agents.persist_proposal", AsyncMock())
+    monkeypatch.setattr("api.services.agents.strategy_proposer.persist_proposal", AsyncMock())
     monkeypatch.setattr(
         "api.services.llm_router.call_llm_with_system",
         AsyncMock(

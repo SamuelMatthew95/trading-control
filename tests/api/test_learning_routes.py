@@ -13,7 +13,7 @@ from api.constants import FieldName
 from api.in_memory_store import InMemoryStore
 from api.main import app
 from api.routes import learning as learning_module
-from api.routes.learning import (
+from api.routes.learning_helpers import (
     _grade_from_score,
     _grade_record_to_trade,
     _iso,
@@ -219,6 +219,33 @@ async def test_list_trades_db_down_with_trade_evaluations(client):
     assert data["mode"] == "memory"
     assert data["total"] == 1
     assert data["trades"][0][FieldName.TRADE_EVAL_ID] == "eval-1"
+    # Regression: score_trade() stores trade_eval_id but no `id`, while the DB
+    # path's _row_to_trade_eval always emits `id`. Memory mode must backfill it
+    # so the list shape matches DB mode (the UI keys/links rows on `id`).
+    assert data["trades"][0][FieldName.ID] == "eval-1"
+
+
+@pytest.mark.asyncio
+async def test_trade_detail_db_down_backfills_id(client):
+    """The single-trade memory path must also return the DB-consistent `id`."""
+    store = InMemoryStore()
+    store.add_trade_evaluation(
+        {
+            FieldName.TRADE_EVAL_ID: "eval-1",
+            FieldName.OVERALL_SCORE: 0.9,
+            FieldName.GRADE: "A",
+            "created_at": time.time(),
+        }
+    )
+    set_runtime_store(store)
+    set_db_available(False)
+
+    resp = await client.get("/learning/trades/eval-1")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["mode"] == "memory"
+    assert data["trade"][FieldName.ID] == "eval-1"
+    assert data["trade"][FieldName.TRADE_EVAL_ID] == "eval-1"
 
 
 @pytest.mark.asyncio

@@ -186,8 +186,8 @@ async def test_adjust_llm_call_rate_no_repeat_ratchet():
     base_delay = isolated.get_call_delay_ms()
 
     # First call — count exceeded threshold and is higher than last recorded (0)
-    # Patch the module-level singleton inside pipeline_agents
-    import api.services.agents.pipeline_agents as _pa
+    # Patch the module-level singleton inside grade_agent
+    import api.services.agents.grade_agent as _pa
 
     original = _pa._llm_metrics
     _pa._llm_metrics = isolated
@@ -217,7 +217,7 @@ async def test_adjust_llm_call_rate_new_burst_after_reset():
     """After count drops below threshold (reset), a new burst triggers again."""
     import unittest.mock as mock
 
-    import api.services.agents.pipeline_agents as _pa
+    import api.services.agents.grade_agent as _pa
     from api.events.bus import EventBus
     from api.events.dlq import DLQManager
     from api.services.agents.pipeline_agents import GradeAgent

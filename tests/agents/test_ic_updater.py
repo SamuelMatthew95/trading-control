@@ -102,7 +102,7 @@ def ic_updater(mock_bus, mock_dlq, agent_state, fake_redis):
 # ---------------------------------------------------------------------------
 
 
-@patch("api.services.agents.pipeline_agents.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.ic_updater.AsyncSessionFactory", _MockSessionFactory())
 async def test_accumulates_score_pnl_buffer(ic_updater):
     """Each trade_performance event adds a (score, pnl) pair to the buffer."""
     await ic_updater.process("trade_performance", "id-1", {"pnl": 5.0, "trace_id": None})
@@ -117,7 +117,7 @@ async def test_accumulates_score_pnl_buffer(ic_updater):
 # ---------------------------------------------------------------------------
 
 
-@patch("api.services.agents.pipeline_agents.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.ic_updater.AsyncSessionFactory", _MockSessionFactory())
 async def test_insufficient_data_skips_recompute(ic_updater):
     """With fewer than IC_UPDATE_EVERY_N_FILLS fills, _recompute_and_publish is not called."""
     # Default IC_UPDATE_EVERY_N_FILLS = 10; send only 9 fills
@@ -132,7 +132,7 @@ async def test_insufficient_data_skips_recompute(ic_updater):
         mock_recompute.assert_not_called()
 
 
-@patch("api.services.agents.pipeline_agents.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.ic_updater.AsyncSessionFactory", _MockSessionFactory())
 async def test_spearman_ic_computed(ic_updater):
     """At exactly IC_UPDATE_EVERY_N_FILLS fills, _recompute_and_publish is called once."""
     with patch.object(
@@ -151,7 +151,7 @@ async def test_spearman_ic_computed(ic_updater):
 # ---------------------------------------------------------------------------
 
 
-@patch("api.services.agents.pipeline_agents.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.ic_updater.AsyncSessionFactory", _MockSessionFactory())
 async def test_factor_below_threshold_zeroed(ic_updater, fake_redis):
     """Factors whose abs(IC) <= IC_ZERO_THRESHOLD receive a weight of 0.0.
 
@@ -164,7 +164,7 @@ async def test_factor_below_threshold_zeroed(ic_updater, fake_redis):
         ic_updater._score_pnl_buffer.append((float(i) / 10, float(i)))
 
     with patch(
-        "api.services.agents.pipeline_agents.spearman_correlation",
+        "api.services.agents.ic_updater.spearman_correlation",
         return_value=0.0,
     ):
         await ic_updater._recompute_and_publish()
@@ -177,7 +177,7 @@ async def test_factor_below_threshold_zeroed(ic_updater, fake_redis):
     assert weights == {"composite_score": 1.0}
 
 
-@patch("api.services.agents.pipeline_agents.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.ic_updater.AsyncSessionFactory", _MockSessionFactory())
 async def test_weights_normalize_to_one(ic_updater, fake_redis):
     """When multiple factors have IC above threshold, their weights sum to 1.0."""
     # Create pairs that yield a clear positive correlation for composite_score
@@ -196,7 +196,7 @@ async def test_weights_normalize_to_one(ic_updater, fake_redis):
     assert total == pytest.approx(1.0, abs=1e-5)
 
 
-@patch("api.services.agents.pipeline_agents.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.ic_updater.AsyncSessionFactory", _MockSessionFactory())
 async def test_redis_set_called(ic_updater, fake_redis):
     """After trigger, the "alpha:ic_weights" key must be written to Redis."""
     for i in range(10):
@@ -208,7 +208,7 @@ async def test_redis_set_called(ic_updater, fake_redis):
     assert stored is not None, "Expected 'alpha:ic_weights' to be set in Redis"
 
 
-@patch("api.services.agents.pipeline_agents.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.ic_updater.AsyncSessionFactory", _MockSessionFactory())
 async def test_publishes_to_factor_ic_history(ic_updater, mock_bus, fake_redis):
     """After recompute, bus.publish must be called with 'factor_ic_history' stream."""
     for i in range(10):

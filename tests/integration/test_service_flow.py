@@ -380,10 +380,10 @@ async def test_dashboard_ws_closes_without_redis_client():
 
 @pytest.mark.asyncio
 async def test_full_chain_runs_from_signal_to_execution_grade_and_reflection(monkeypatch):
-    import api.services.agents.pipeline_agents as pipeline_module
     import api.services.agents.reasoning_agent as reasoning_module
     import api.services.execution.execution_engine as execution_module
     import api.services.llm_router as llm_router_module
+    from api.config import settings
 
     redis = FakeRedis()
     bus = RecordingBus(redis)
@@ -404,8 +404,8 @@ async def test_full_chain_runs_from_signal_to_execution_grade_and_reflection(mon
             )
         ),
     )
-    monkeypatch.setattr(pipeline_module.settings, "GRADE_EVERY_N_FILLS", 1)
-    monkeypatch.setattr(pipeline_module.settings, "REFLECT_EVERY_N_FILLS", 1)
+    monkeypatch.setattr(settings, "GRADE_EVERY_N_FILLS", 1)
+    monkeypatch.setattr(settings, "REFLECT_EVERY_N_FILLS", 1)
     monkeypatch.setattr(
         llm_router_module,
         "call_llm_with_system",

@@ -40,7 +40,7 @@ class TestRedisConnectionFixes:
     async def test_get_redis_with_health_check(self):
         """Test Redis client creation with health check interval."""
         with (
-            patch("api.redis_client.ConnectionPool") as mock_pool_class,
+            patch("api.redis_client.BlockingConnectionPool") as mock_pool_class,
             patch("api.redis_client.Redis") as mock_redis_class,
         ):
             mock_pool = AsyncMock()
@@ -51,14 +51,18 @@ class TestRedisConnectionFixes:
             # Mock settings
             with patch("api.redis_client.settings") as mock_settings:
                 mock_settings.REDIS_URL = "redis://localhost:6379/0"
+                mock_settings.REDIS_MAX_CONNECTIONS = 20
+                mock_settings.REDIS_POOL_TIMEOUT_SECONDS = 5.0
 
                 await get_redis()
 
-                # Verify connection pool was created with health_check_interval
+                # Verify the BLOCKING pool was created with the wait timeout plus
+                # the health-check / socket settings.
                 mock_pool_class.from_url.assert_called_once()
                 call_kwargs = mock_pool_class.from_url.call_args[1]
 
                 assert call_kwargs["max_connections"] == 20
+                assert call_kwargs["timeout"] == 5.0
                 assert call_kwargs["health_check_interval"] == 30
                 assert call_kwargs["socket_timeout"] == 5
                 assert call_kwargs["socket_connect_timeout"] == 5
@@ -68,7 +72,7 @@ class TestRedisConnectionFixes:
     async def test_get_redis_connection_error_handling(self):
         """Test Redis connection error handling."""
         with (
-            patch("api.redis_client.ConnectionPool"),
+            patch("api.redis_client.BlockingConnectionPool"),
             patch("api.redis_client.Redis") as mock_redis_class,
             patch("api.redis_client.log_structured") as mock_log,
             patch("api.redis_client.close_redis") as mock_close,

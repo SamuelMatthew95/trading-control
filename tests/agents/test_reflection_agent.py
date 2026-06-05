@@ -193,7 +193,7 @@ async def test_no_reflection_before_threshold(agent, mock_bus):
         mock_reflect.assert_not_called()
 
 
-@patch("api.services.agents.pipeline_agents.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.db_helpers.AsyncSessionFactory", _MockSessionFactory())
 async def test_reflection_triggers_at_threshold(agent, mock_bus):
     """Sending exactly REFLECT_EVERY_N_FILLS fills with enough data triggers reflection."""
     trigger = max(int(settings.REFLECT_EVERY_N_FILLS), 1)
@@ -262,7 +262,7 @@ def test_quant_reflection_includes_model_performance(agent):
 # ---------------------------------------------------------------------------
 
 
-@patch("api.services.agents.pipeline_agents.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.db_helpers.AsyncSessionFactory", _MockSessionFactory())
 async def test_fallback_reflection_used_on_llm_failure(agent, mock_bus):
     """When call_llm_with_system raises, reflection still publishes using fallback data."""
     # Pre-load sufficient fills
@@ -274,12 +274,12 @@ async def test_fallback_reflection_used_on_llm_failure(agent, mock_bus):
 
     with (
         patch(
-            "api.services.agents.pipeline_agents.AsyncSessionFactory",
+            "api.services.agents.db_helpers.AsyncSessionFactory",
             _MockSessionFactory(),
         ),
         patch("api.redis_client.get_redis", AsyncMock(return_value=mock_redis)),
         patch(
-            "api.services.agents.pipeline_agents.ReflectionAgent._run_reflection",
+            "api.services.agents.reflection_agent.ReflectionAgent._run_reflection",
             new=ReflectionAgent._run_reflection,  # use real method
         ),
         patch(
@@ -301,7 +301,7 @@ async def test_fallback_reflection_used_on_llm_failure(agent, mock_bus):
     assert payload["hypotheses"] == []
 
 
-@patch("api.services.agents.pipeline_agents.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.db_helpers.AsyncSessionFactory", _MockSessionFactory())
 async def test_publishes_reflection_output(agent, mock_bus):
     """When LLM returns valid JSON, reflection_outputs stream is published."""
     for _ in range(5):
@@ -312,7 +312,7 @@ async def test_publishes_reflection_output(agent, mock_bus):
 
     with (
         patch(
-            "api.services.agents.pipeline_agents.AsyncSessionFactory",
+            "api.services.agents.db_helpers.AsyncSessionFactory",
             _MockSessionFactory(),
         ),
         patch("api.redis_client.get_redis", AsyncMock(return_value=mock_redis)),
@@ -337,7 +337,7 @@ async def test_publishes_reflection_output(agent, mock_bus):
     assert "summary" in payload
 
 
-@patch("api.services.agents.pipeline_agents.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.db_helpers.AsyncSessionFactory", _MockSessionFactory())
 async def test_budget_check_skips_reflection(agent, mock_bus):
     """When token budget is exhausted, _run_reflection publishes a warning notification and returns early."""
     for _ in range(5):

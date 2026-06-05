@@ -59,30 +59,6 @@ def _safe_numeric(value: Any) -> float | None:
     return parsed if math.isfinite(parsed) else None
 
 
-def _performance_trends_empty_payload(
-    *, source: str | None = None, error: str | None = None
-) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "summary": {
-            FieldName.TOTAL_PNL: 0.0,
-            FieldName.TOTAL_TRADES: 0,
-            "win_rate": 0.0,
-            FieldName.AVG_WIN: 0.0,
-            FieldName.AVG_LOSS: 0.0,
-            FieldName.BEST_TRADE: 0.0,
-            FieldName.WORST_TRADE: 0.0,
-        },
-        FieldName.DAILY_PNL: [],
-        FieldName.GRADE_TREND: [],
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-    if source:
-        payload[FieldName.SOURCE] = source
-    if error:
-        payload[FieldName.ERROR] = error
-    return payload
-
-
 def _normalize_in_memory_trade_row(raw: dict[str, Any]) -> dict[str, Any] | None:
     """Normalize one in-memory trade row to the /trade-feed response contract.
 

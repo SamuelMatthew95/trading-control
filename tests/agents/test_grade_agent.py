@@ -106,7 +106,7 @@ def grade_agent(mock_bus, mock_dlq, agent_state):
 
 
 @pytest.mark.asyncio
-@patch("api.services.agents.pipeline_agents.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
 async def test_accumulates_fills_from_trade_performance(grade_agent):
     """Each trade_performance event increments _fills and populates _pnl_buffer."""
     await grade_agent.process("trade_performance", "id-1", {"pnl": 10.0})
@@ -118,7 +118,7 @@ async def test_accumulates_fills_from_trade_performance(grade_agent):
 
 
 @pytest.mark.asyncio
-@patch("api.services.agents.pipeline_agents.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
 async def test_accumulates_confidence_from_executions(grade_agent):
     """Each executions event populates _confidence_buffer from the confidence field."""
     await grade_agent.process("executions", "id-1", {"confidence": 0.9})
@@ -133,7 +133,7 @@ async def test_accumulates_confidence_from_executions(grade_agent):
 
 
 @pytest.mark.asyncio
-@patch("api.services.agents.pipeline_agents.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
 async def test_no_grade_before_trigger(grade_agent, mock_bus):
     """Fewer than GRADE_EVERY_N_FILLS fills should not trigger _compute_and_publish_grade."""
     # Default GRADE_EVERY_N_FILLS = 5; send 4 fills — should not trigger
@@ -148,7 +148,7 @@ async def test_no_grade_before_trigger(grade_agent, mock_bus):
 
 
 @pytest.mark.asyncio
-@patch("api.services.agents.pipeline_agents.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
 async def test_grade_triggers_at_n_fills(grade_agent):
     """Exactly GRADE_EVERY_N_FILLS fills should call _compute_and_publish_grade once."""
     with patch.object(
@@ -235,7 +235,7 @@ def test_compute_accuracy_empty_buffer(grade_agent):
 
 
 @pytest.mark.asyncio
-@patch("api.services.agents.pipeline_agents.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
 async def test_consecutive_low_grades_tracked(grade_agent):
     """Three D-grade actions should increment _consecutive_low_grades to 3."""
     grade_payload_d = {
@@ -251,7 +251,7 @@ async def test_consecutive_low_grades_tracked(grade_agent):
 
 
 @pytest.mark.asyncio
-@patch("api.services.agents.pipeline_agents.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
 async def test_consecutive_low_grades_reset_on_good_grade(grade_agent):
     """A grade of B or better resets the consecutive low-grade counter."""
     grade_payload = {"score_pct": 38.0, "metrics": {"accuracy": 0.4, "ic": -0.1}}
@@ -336,8 +336,8 @@ async def test_emit_alert_is_noop_when_healthy(grade_agent, mock_bus):
 
 @pytest.mark.asyncio
 @patch("api.redis_client.get_redis", new_callable=AsyncMock)
-@patch("api.services.agents.pipeline_agents._write_heartbeat", new_callable=AsyncMock)
-@patch("api.services.agents.pipeline_agents.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.grade_agent._write_heartbeat", new_callable=AsyncMock)
+@patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
 async def test_grade_payload_embeds_self_correction(_hb, _redis, grade_agent, mock_bus):
     """The published agent_grades payload carries the self-correction diagnostic."""
     for _ in range(10):
@@ -408,7 +408,7 @@ async def test_tool_governance_emits_proposal_for_actionable_suggestions(grade_a
         _suggestion("top_tool", "prioritize", severity="info", reason="highest alpha"),
     ]
     with patch(
-        "api.services.agents.pipeline_agents.get_tool_registry",
+        "api.services.agents.grade_agent.get_tool_registry",
         return_value=MagicMock(suggest_tool_changes=MagicMock(return_value=suggestions)),
     ):
         await grade_agent._emit_tool_governance("trace-tg")
@@ -432,7 +432,7 @@ async def test_tool_governance_noop_when_only_informational(grade_agent, mock_bu
     from api.constants import STREAM_PROPOSALS
 
     with patch(
-        "api.services.agents.pipeline_agents.get_tool_registry",
+        "api.services.agents.grade_agent.get_tool_registry",
         return_value=MagicMock(
             suggest_tool_changes=MagicMock(return_value=[_suggestion("t", "prioritize", "info")])
         ),
@@ -451,7 +451,7 @@ async def test_tool_governance_is_edge_triggered(grade_agent, mock_bus):
 
     suggestions = [_suggestion("dead_tool", "disable")]
     registry = MagicMock(suggest_tool_changes=MagicMock(return_value=suggestions))
-    with patch("api.services.agents.pipeline_agents.get_tool_registry", return_value=registry):
+    with patch("api.services.agents.grade_agent.get_tool_registry", return_value=registry):
         await grade_agent._emit_tool_governance("trace-1")
         await grade_agent._emit_tool_governance("trace-2")  # same set — skipped
 

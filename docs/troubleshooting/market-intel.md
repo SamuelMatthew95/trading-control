@@ -31,6 +31,28 @@ malformed.
 
 **Regression test:** `tests/api/test_market_intel.py::test_correlation_request_uses_recent_start_window`
 
+## `check_cross_asset_correlation` STILL 100% err — daily fallback only checked the base symbol
+
+**Symptom:** Even after the `start`-window fix and the daily-bar fallback, the
+tool read `41× · 0 ok · 100% err` on the governance panel while the sibling
+Alpaca tools showed `41 ok`. Latency was non-trivial, so it was fetching — not
+failing on a missing key.
+
+**Root cause:** The daily-bar fallback was gated on **base-symbol** sparsity
+(`len(base_returns) < _MIN_RETURNS`). The real failure is the opposite case: the
+traded symbol is liquid (ample intraday bars) but a **peer** is sparse/illiquid,
+so every `_pearson(base, peer)` returns `None` → no correlations → `{}`. Because
+the base series looked fine, the daily retry never fired, and the reasoning node
+records `success=bool(result)`, so the empty result counted as a hard error on
+every call.
+
+**Fix:** `api/services/market_intel.py` — extract `_correlation_map(symbol, peers,
+closes)` and trigger the daily fallback on the actual no-result condition
+(`if not correlations:`) instead of base-symbol sparsity, so a liquid base with
+sparse peers still retries on around-the-clock daily bars.
+
+**Regression test:** `tests/api/test_market_intel.py::test_correlation_falls_back_to_daily_when_only_peers_are_sparse`
+
 ## `fetch_macro_regime` was advertised to the LLM but never ran (no `×` count)
 
 **Symptom:** Tool governance listed `fetch_macro_regime` under "TOOLS THE AI MAY
