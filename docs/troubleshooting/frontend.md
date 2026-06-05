@@ -528,3 +528,28 @@ operation; a silent stream can no longer freeze the dashboard.
 
 **Regression test:** covered indirectly by `frontend/src/test/helpers/live-pnl.test.ts`
 (`pricesFreshnessMs` staleness math, which gates the watchdog).
+
+## Daily Change % read 0.00% while the account was underwater
+
+**Symptom:** The Overview "Daily Change %" tile showed `0.00%` even though Total
+P&L was negative (e.g. -$0.64) and an open position was clearly down — the two
+KPIs, side by side, contradicted each other and the tile never moved.
+
+**Root cause:** Daily Change was computed from realized order PnL only
+(`dailyPnlNumeric = Σ order.pnl`) over the equity base. With an open position and
+no closed trades the numerator was 0, so it pinned to 0.00% and never moved with
+the market — unlike the Total P&L headline, which includes unrealized.
+
+**Fix:** `DashboardView.tsx` — Daily Change now uses the live total P&L
+(`useLivePnl().total`, realized + mark-to-market unrealized) over the equity base
+(`portfolio_value`/`account_equity`/`equity`/`starting_equity` metric, else the
+`DEFAULT_PAPER_EQUITY` $100k fallback mirroring the backend paper capital). The
+`summary` memo now depends on `livePnl`, so it recomputes every tick; the backend
+realized-only `daily_change_pct` is used only as a no-live-data fallback.
+`formatDailyChange` dead-bands `|x| < 0.005%` to a clean `0.00%` (no `-0.00%`
+artifact) and the trend arrow uses the same dead-band. This is an account-level
+return: a single small position on a $100k paper account is correctly a small %
+(the position's own return shows in the Open Positions "P&L %" column).
+
+**Regression test:** `frontend/src/test/components/DashboardView.test.tsx` —
+`Daily Change % reflects live unrealized P&L, not realized-only (no longer frozen at 0.00%)`.
