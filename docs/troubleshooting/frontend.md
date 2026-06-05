@@ -607,3 +607,134 @@ return: a single small position on a $100k paper account is correctly a small %
 
 **Regression test:** `frontend/src/test/components/DashboardView.test.tsx` —
 `Daily Change % reflects live unrealized P&L, not realized-only (no longer frozen at 0.00%)`.
+
+## Open Positions: raw float quantity + no "amount invested"
+
+**Symptom:** The Open Positions row showed an unreadable quantity
+(`0.0001681861435210638`) and never displayed how much cash was put in or what
+the position is worth now — only Qty / Entry / Current / P&L. Operators could not
+tell what they had invested, so a small `-$1.06` loss read as untrustworthy noise.
+
+**Root cause:** `OpenPositionsPanel.tsx` rendered `positionQty(pos)` verbatim and
+had no cost-basis / market-value columns. Entry × Qty (the cash invested) and
+Current × Qty (current value) were never surfaced anywhere on the page.
+
+**Fix:** `formatters.ts` adds `formatQuantity` (magnitude-aware precision:
+≥1 → 4 dp, <1 → 8 dp, trailing zeros trimmed), `positionCostBasis`
+(entry × |qty|) and `positionMarketValue` (live price × |qty|).
+`OpenPositionsPanel.tsx` now formats the quantity and adds `Invested` and `Value`
+columns with `title` tooltips spelling out each formula. Positions are already
+live-marked, so the row is arithmetic-consistent: Value − Invested == P&L.
+
+**Regression test:** `frontend/src/test/helpers/formatters.test.ts` —
+`formatQuantity`, `positionCostBasis`, `positionMarketValue` suites (incl. the
+`0.0001681861435210638` → `0.00016819` case and the $11.28 cost-basis case).
+
+## Live Activity feed: every row reads "Market event" with no detail
+
+**Symptom:** The Live Activity feed showed dozens of identical, indistinguishable
+rows — `MARKET · Market event` with no symbol, price, or direction — making the
+feed look random and untrustworthy ("what event happened?").
+
+**Root cause:** `useCodexStore.trackWsMessage` only persisted
+`{ stream, msgId, timestamp }` onto `RecentEvent`, discarding the `symbol` /
+`price` / `change` that the backend already broadcasts on every `market_events`
+frame (`websocket_broadcaster._transform_payload` → `type=price_update`).
+`buildActivityTimeline` then had nothing to render, so it hard-coded
+`detail: null` for every market row.
+
+**Fix:** `RecentEvent` gains optional `symbol` / `price` / `change` / `eventType`;
+`useGlobalWebSocket` extracts them from the frame (top-level for market frames,
+nested `data`/`payload` otherwise) and passes them through `trackWsMessage`;
+`activity-timeline.ts` adds `marketEventDetail` so a market row now reads
+`BTC/USD · $60,781.58 · ▼ 12.30`. Falls back to `null` (prior behaviour) when a
+frame carries no subject, so non-market events are unaffected.
+
+**Regression test:** `frontend/src/test/helpers/activity-timeline.test.ts` —
+`shows the symbol + price + direction for a market event (no more bare rows)`.
+
+## Equity Curve shows "No equity data yet" while a position is open
+
+**Symptom:** With an open position (live unrealized P&L moving every tick) the
+Overview's Equity Curve still rendered "No equity data yet". It never reflected
+the open position and was not real-time.
+
+**Root cause:** `EquityCurve` built its series solely from filled `orders`'
+realized `pnl` (`buildEquitySeries`). In memory mode / before any trade closes
+there are no filled orders, so the series was empty — the open position's live
+mark-to-market P&L was never plotted.
+
+**Fix:** New `useLiveEquitySeries` hook samples the live total P&L
+(`useLivePnl`, realized + mark-to-market unrealized) every 3s into a rolling,
+capped window (pure `appendEquitySample`). `EquityCurve` takes an optional
+`liveSeries` and falls back to it when the order-derived curve is empty, with a
+"Live · marks to market in real time" badge. `DashboardView` wires the hook in.
+A `ResizeObserver` stub was added to `src/test/setup.ts` because the chart now
+renders in tests (recharts' ResponsiveContainer needs it in jsdom).
+
+**Regression test:** `frontend/src/test/helpers/live-equity-series.test.ts`
+(`appendEquitySample`) + `frontend/src/test/components/EquityCurve.test.tsx`
+(`falls back to the live series when there are no closed orders`).
+
+## Open Positions row doesn't tie out: Invested − Value ≠ P&L (off by a cent)
+
+**Symptom:** A row showed Invested $11.28, Value $10.14, P&L −$1.15. Eyeballing
+it, 11.28 − 10.14 = 1.14, not 1.15 — so the row read as "all wrong" / untrustworthy.
+
+**Root cause:** Invested (entry×qty = 11.2818), Value (current×qty = 10.1364) and
+P&L (−1.1454) are each *correctly* rounded to 2dp independently, but three
+independently-rounded values don't satisfy `invested − value === −pnl` at display
+precision.
+
+**Fix:** `formatters.reconciledMarketValue(invested, pnl)` returns
+`round(invested) + round(pnl)`, and `OpenPositionsPanel` uses it for the Value
+column. P&L stays anchored to the live value shown in the header; Value is
+derived so the row always ties out (11.28 − 10.13 = 1.15). Value tooltip updated
+to "Invested + P&L".
+
+**Regression test:** `frontend/src/test/helpers/formatters.test.ts` →
+`reconciledMarketValue` ("makes the row tie out at 2dp").
+
+## Equity Curve axes unreadable: repeated "11:25 AM" + junk Y labels; resets on reload
+
+**Symptom:** The live equity curve's X-axis showed "11:25 AM" four times (all
+samples within one minute), the Y-axis showed junk like -$0.15 / -$3.15 / -$6.15,
+and a page reload wiped the curve back to a single dot.
+
+**Root cause:** (1) X tick formatter was fixed HH:MM, so a sub-minute span
+rendered identical labels. (2) `getPaddedDomain` padded with `max(range*0.12, 5)`
+— a $5 floor around a −$1.15 value produced an oversized, un-rounded domain
+([-6.15, 5]) and Recharts labelled it with junk. (3) The live series lived only
+in component state, so a reload started it over.
+
+**Fix:** `EquityCurve` — `getNiceYAxis` snaps the domain + explicit `ticks` to a
+nice 1/2/5×10ⁿ step that always spans $0; the X formatter shows HH:MM:SS while
+the span is < 5 min, then HH:MM. `useLiveEquitySeries` persists the rolling
+window to `localStorage` (`codex.equityCurve`) and restores recent (< 1h) points
+on mount via `loadPersistedEquitySeries`, so a reload keeps the curve.
+
+**Regression test:** `frontend/src/test/components/EquityCurve.test.tsx`
+(`produces clean, nicely-stepped y-axis ticks`) +
+`frontend/src/test/helpers/live-equity-series.test.ts` (`loadPersistedEquitySeries`).
+
+## Equity Curve hardening (review follow-ups)
+
+**Symptom / risks found in review:** (1) reloading after the tab was away for
+minutes spliced the old equity tail onto the new live point, drawing a fabricated
+sloped segment across the gap; (2) the curve was re-serialized to localStorage on
+every 3s sample; (3) sub-cent P&L (≈1e-7) could collapse every Y tick to 0 and
+emit a negative-zero "-$0.00" label.
+
+**Fix:** `useLiveEquitySeries` — `loadPersistedEquitySeries` now only restores when
+the newest persisted sample is within `CONTINUITY_THRESHOLD_MS` (2 min); past
+that it starts fresh, so a reload either continues a current curve or begins a
+clean one (never a fabricated jump). Persistence moved to a fixed 15s cadence
+(`PERSIST_INTERVAL_MS`) plus a flush on unmount, instead of writing on every
+sample. `EquityCurve.getNiceYAxis` floors the tick step at $0.01 and normalizes
+`-0` to `0`. The Open Positions `Value` column documents that for shorts it shows
+cost-basis + P&L (the tie-out) rather than buy-back market value.
+
+**Regression tests:** `frontend/src/test/helpers/live-equity-series.test.ts`
+(`starts fresh when the newest point is stale`) +
+`frontend/src/test/components/EquityCurve.test.tsx` (`floors the step at $0.01…`) +
+`frontend/src/test/store/recent-events.test.ts` (WS detail threading).

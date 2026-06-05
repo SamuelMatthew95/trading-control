@@ -65,3 +65,25 @@ Note: notification delivery and PnL summary charts are separate paths. A notific
 - `tests/agents/test_notification_agent.py`
 - `tests/core/test_websocket_stream_offsets.py::test_websocket_stream_offsets_match_supported_streams`
 - `tests/core/test_websocket_broadcaster.py::test_broadcast_noop_when_no_connections`
+
+## Notification timestamp renders as a raw epoch float ("1780634112.7714157")
+
+**Symptom:** The Notifications panel header and some rows (e.g. the "startup"
+in-memory-fallback notice) showed a raw number like `1780634112.7714157` instead
+of a relative time. Other notifications with ISO timestamps showed "12h ago"
+correctly, so the panel looked half-broken / untrustworthy.
+
+**Root cause:** `NotificationFeed.formatRelativeTime` parsed strings with
+`Date.parse`, which returns `NaN` for a float epoch-seconds string. The
+`if (!isFinite(ts)) return value` guard then returned the **raw value**, which
+rendered verbatim. (Producers are inconsistent: some emit ISO strings, the
+startup notice emits `time.time()` epoch seconds.)
+
+**Fix:** `NotificationFeed.tsx` — `formatRelativeTime` now routes through the
+shared `parseTimestampMs` (handles epoch-seconds / epoch-ms / numeric-string /
+ISO via the `EPOCH_MS_THRESHOLD` boundary) and collapses unparseable/missing
+input to the `--` fallback instead of echoing the raw value. Function exported
+for regression testing.
+
+**Regression test:** `frontend/src/test/components/notification-feed.test.ts` —
+`renders a float epoch-seconds string as relative time, not the raw value`.

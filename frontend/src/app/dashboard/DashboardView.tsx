@@ -6,6 +6,7 @@ import { useSystemStatus } from '@/hooks/useSystemStatus'
 import { useRestPoll } from '@/hooks/useRestPoll'
 import { useLivePnl } from '@/hooks/useLivePnl'
 import { useLivePositions } from '@/hooks/useLivePositions'
+import { useLiveEquitySeries } from '@/hooks/useLiveEquitySeries'
 import { cn } from '@/lib/utils'
 import { formatUSD, signedUSD, formatTimeAgo, toFiniteNum as toFiniteNumber, sanitizeValue, formatTimestamp, isActivePosition, pricesFreshnessMs } from '@/lib/formatters'
 import { EquityCurve } from '@/components/dashboard/EquityCurve'
@@ -395,6 +396,9 @@ export function DashboardView({ section }: { section: Section }) {
   // the same source the header chip uses, so the two headline numbers agree.
   const livePnl = useLivePnl()
   const livePositions = useLivePositions()
+  // Real-time equity samples so an open position renders a moving curve even
+  // before any trade closes (no filled orders → order-derived curve is empty).
+  const liveEquitySeries = useLiveEquitySeries()
   const pricesAgeMs = pricesFreshnessMs(prices)
   const pricesLive = pricesAgeMs != null && pricesAgeMs <= PRICE_FRESHNESS_MS
 
@@ -727,7 +731,7 @@ export function DashboardView({ section }: { section: Section }) {
               <div className="mb-3 flex items-center justify-between">
                 <p className={sectionTitleClass}>Equity Curve</p>
               </div>
-              <EquityCurve orders={orders} />
+              <EquityCurve orders={orders} liveSeries={liveEquitySeries} />
             </div>
             <div className={cn(cardClass, 'sm:col-span-2 lg:col-span-2')}>
               <div className="mb-3 flex items-center justify-between">

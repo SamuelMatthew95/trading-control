@@ -275,6 +275,12 @@ export interface RecentEvent {
   stream: string
   msgId: string
   timestamp: string
+  // What the event was *about* — carried through so the Live Activity feed can
+  // show "BTC/USD · $60,781.58" instead of a bare, indistinguishable row.
+  symbol?: string | null
+  price?: number | null
+  change?: number | null
+  eventType?: string | null
 }
 
 type DashboardData = {
@@ -443,7 +449,15 @@ type CodexState = {
   setKillSwitch: (active: boolean) => void
   setWsConnected: (connected: boolean) => void
   setWsDiagnostics: (diagnostics: Partial<WsDiagnostics>) => void
-  trackWsMessage: (event: { stream?: string | null; msgId?: string | null; timestamp?: string | null }) => void
+  trackWsMessage: (event: {
+    stream?: string | null
+    msgId?: string | null
+    timestamp?: string | null
+    symbol?: string | null
+    price?: number | null
+    change?: number | null
+    eventType?: string | null
+  }) => void
   trackMarketTick: (symbol?: string | null) => void
   hydrateDashboard: (data: DashboardData) => void
   hydrateFromLocalStorage: () => void
@@ -707,7 +721,7 @@ export const useCodexStore = create<CodexState>((set) => ({
   setWsDiagnostics: (diagnostics) => set((state) => ({
     wsDiagnostics: { ...state.wsDiagnostics, ...diagnostics }
   })),
-  trackWsMessage: ({ stream, msgId, timestamp }) =>
+  trackWsMessage: ({ stream, msgId, timestamp, symbol, price, change, eventType }) =>
     set((state) => {
       if (msgId && state.recentEvents.some((event) => event.msgId === msgId)) {
         return state
@@ -719,6 +733,10 @@ export const useCodexStore = create<CodexState>((set) => ({
         stream: resolvedStream,
         msgId: msgId || 'n/a',
         timestamp: resolvedTimestamp,
+        symbol: symbol ?? null,
+        price: price ?? null,
+        change: change ?? null,
+        eventType: eventType ?? null,
       }
       return {
         wsMessageCount: state.wsMessageCount + 1,

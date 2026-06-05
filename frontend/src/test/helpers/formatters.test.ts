@@ -7,6 +7,10 @@ import {
   signedUSD,
   formatTimeAgo,
   formatPercent,
+  formatQuantity,
+  positionCostBasis,
+  positionMarketValue,
+  reconciledMarketValue,
   toFiniteNum,
   getField,
   getStr,
@@ -161,6 +165,91 @@ describe('formatPercent', () => {
 
   it('coerces numeric strings via toFiniteNum', () => {
     expect(formatPercent('0.5')).toBe('50.0%')
+  })
+})
+
+describe('formatQuantity', () => {
+  it('returns -- for null / undefined / non-finite', () => {
+    expect(formatQuantity(null)).toBe('--')
+    expect(formatQuantity(undefined)).toBe('--')
+    expect(formatQuantity(NaN)).toBe('--')
+    expect(formatQuantity(Infinity)).toBe('--')
+  })
+
+  it('renders a tiny fractional-crypto qty readably instead of a raw float', () => {
+    // The bug: 0.0001681861435210638 rendered verbatim in the positions table.
+    expect(formatQuantity(0.0001681861435210638)).toBe('0.00016819')
+  })
+
+  it('trims trailing zeros and caps small values at 8 dp', () => {
+    expect(formatQuantity(0.5)).toBe('0.5')
+    expect(formatQuantity(0.001)).toBe('0.001')
+  })
+
+  it('uses up to 4 dp for whole/large quantities', () => {
+    expect(formatQuantity(100)).toBe('100')
+    expect(formatQuantity(12.3456789)).toBe('12.3457')
+  })
+
+  it('formats zero as 0', () => {
+    expect(formatQuantity(0)).toBe('0')
+  })
+})
+
+describe('positionCostBasis', () => {
+  it('is entry price × absolute quantity (the cash put in)', () => {
+    expect(positionCostBasis({ entry_price: 67079.29, quantity: 0.0001681861435210638 })).toBeCloseTo(11.28, 2)
+  })
+
+  it('uses absolute quantity so a short reports its opening notional', () => {
+    expect(positionCostBasis({ entry_price: 100, quantity: -2 })).toBe(200)
+  })
+
+  it('reads the qty alias (paper-broker Redis state)', () => {
+    expect(positionCostBasis({ entry_price: 10, qty: 3 })).toBe(30)
+  })
+
+  it('returns null when entry price is missing', () => {
+    expect(positionCostBasis({ quantity: 1 })).toBeNull()
+  })
+})
+
+describe('positionMarketValue', () => {
+  it('is the live price × absolute quantity', () => {
+    const pos = { symbol: 'BTC/USD', entry_price: 67079.29, current_price: 60781.58, quantity: 0.0001681861435210638 }
+    expect(positionMarketValue(pos)).toBeCloseTo(10.22, 2)
+  })
+
+  it('prefers the live price stream over the stored current_price', () => {
+    const pos = { symbol: 'BTC/USD', current_price: 100, quantity: 2 }
+    const prices = { 'BTC/USD': { price: 150 } }
+    expect(positionMarketValue(pos, prices)).toBe(300)
+  })
+
+  it('returns null when no price is available', () => {
+    expect(positionMarketValue({ symbol: 'X', quantity: 1 })).toBeNull()
+  })
+})
+
+describe('reconciledMarketValue', () => {
+  it('makes the row tie out at 2dp: invested − value === −pnl', () => {
+    // The real bug: invested 11.2818 ($11.28), pnl -1.1454 (-$1.15). Naively
+    // current×qty = 10.1364 ($10.14), but 11.28 − 10.14 reads as 1.14, not 1.15.
+    const invested = 11.2818
+    const pnl = -1.1454
+    const value = reconciledMarketValue(invested, pnl)
+    expect(value).toBeCloseTo(10.13, 10)
+    // Both sides rounded to cents reconcile exactly.
+    const r = (n: number) => Math.round(n * 100) / 100
+    expect(r(invested) - r(value)).toBeCloseTo(-r(pnl), 10)
+  })
+
+  it('handles a gain', () => {
+    expect(reconciledMarketValue(100, 25.5)).toBeCloseTo(125.5, 10)
+  })
+
+  it('rounds each input to cents before summing', () => {
+    expect(reconciledMarketValue(11.289, -1.151)).toBeCloseTo(11.29 - 1.15, 10)
   })
 })
 
