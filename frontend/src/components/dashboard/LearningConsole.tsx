@@ -1,7 +1,7 @@
 'use client'
 
-import type { ComponentType, ReactNode } from 'react'
-import { Activity, ArrowUpRight, Brain, Gauge, Lightbulb, TrendingDown, TrendingUp } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { Activity, ArrowUpRight, Brain, Gauge, Lightbulb, TrendingDown, TrendingUp, type LucideIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { formatPercent, formatTimeAgo, signedUSD, toFiniteNum as toFiniteNumber } from '@/lib/formatters'
@@ -25,6 +25,11 @@ const ACCENT_CHIP: Record<Accent, string> = {
   neutral: 'bg-slate-100 text-slate-500 dark:bg-slate-800/60 dark:text-slate-400',
 }
 
+// Icons are decorative throughout this view (every one sits beside a text
+// label) and are rendered with `aria-hidden` to keep them out of the
+// accessibility tree. LucideIcon is the shared icon-component type.
+type IconType = LucideIcon
+
 function proposalLabel(proposal: Proposal): string {
   return proposal.content || proposal.strategy_name || proposal.proposal_type.replace(/_/g, ' ')
 }
@@ -36,10 +41,10 @@ function toPct(value: unknown): number | null {
   return Math.abs(n) <= 1 ? n * 100 : n
 }
 
-function IconChip({ icon: Icon, accent = 'primary' }: { icon: ComponentType<{ className?: string }>; accent?: Accent }) {
+function IconChip({ icon: Icon, accent = 'primary' }: { icon: IconType; accent?: Accent }) {
   return (
     <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', ACCENT_CHIP[accent])}>
-      <Icon className="h-3.5 w-3.5" />
+      <Icon className="h-3.5 w-3.5" aria-hidden />
     </span>
   )
 }
@@ -51,7 +56,7 @@ function PanelHeader({
   subtitle,
   right,
 }: {
-  icon: ComponentType<{ className?: string }>
+  icon: IconType
   accent?: Accent
   title: string
   subtitle?: string
@@ -82,7 +87,7 @@ function StatTile({
   label: string
   value: string
   note?: string
-  icon: ComponentType<{ className?: string }>
+  icon: IconType
   accent?: Accent
   valueTone?: string
 }) {
@@ -156,7 +161,7 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
         <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-start gap-3">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <Brain className="h-5 w-5" />
+              <Brain className="h-5 w-5" aria-hidden />
             </span>
             <div>
               <p className={sectionTitleClass}>Learning Control Plane</p>
@@ -261,7 +266,14 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
                           <td className="px-3 py-2">
                             <span className={cn('rounded border px-2 py-1 font-mono text-[10px] uppercase', gradeTone(trade.grade))}>{trade.grade ?? 'NR'}</span>
                           </td>
-                          <td className="px-3 py-2 font-mono text-slate-500 dark:text-slate-400">{formatPercent(trade.grade_score, { decimals: 0 })}</td>
+                          <td className="px-3 py-2">
+                            <span className="font-mono text-slate-500 dark:text-slate-400">{formatPercent(trade.grade_score, { decimals: 0 })}</span>
+                            {toPct(trade.grade_score) != null ? (
+                              <div className="mt-1.5 w-16">
+                                <Meter value={toPct(trade.grade_score)} />
+                              </div>
+                            ) : null}
+                          </td>
                           <td className="px-3 py-2 text-slate-500 dark:text-slate-400">
                             filled {trade.filled_at ? formatTimeAgo(trade.filled_at) : '--'} · graded {trade.graded_at ? formatTimeAgo(trade.graded_at) : '--'}
                           </td>
@@ -273,7 +285,7 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
                                 className="inline-flex items-center gap-1 font-mono text-[11px] text-slate-500 transition-colors hover:text-primary dark:text-slate-400 dark:hover:text-primary"
                               >
                                 {traceId.slice(0, 10)}…
-                                <ArrowUpRight className="h-3 w-3" />
+                                <ArrowUpRight className="h-3 w-3" aria-hidden />
                               </button>
                             ) : (
                               <span className="text-slate-400 dark:text-slate-600">--</span>
@@ -314,7 +326,7 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
                     {sortedByTime(proposals).slice(0, 8).map((proposal) => (
                       <tr key={proposal.id} className="text-slate-600 transition-colors hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900/40">
                         <td className="max-w-[340px] px-3 py-2">
-                          <p className="line-clamp-2 font-medium text-slate-900 dark:text-slate-100">{proposalLabel(proposal)}</p>
+                          <p className="line-clamp-2 font-medium text-slate-900 dark:text-slate-100" title={proposalLabel(proposal)}>{proposalLabel(proposal)}</p>
                           <p className="mt-1 font-mono text-[11px] text-slate-400 dark:text-slate-600">{proposal.proposal_type.replace(/_/g, ' ')}</p>
                         </td>
                         <td className="px-3 py-2 font-mono text-slate-500 dark:text-slate-400">{formatPercent(proposal.confidence, { decimals: 0 })}</td>
@@ -356,8 +368,11 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
               <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/70">
                 <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Latest Proposal</p>
                 <div className="mt-1.5 flex items-start gap-2">
-                  <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
-                  <p className="line-clamp-2 text-sm text-slate-600 dark:text-slate-300">
+                  <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden />
+                  <p
+                    className="line-clamp-2 text-sm text-slate-600 dark:text-slate-300"
+                    title={latestProposal ? proposalLabel(latestProposal) : undefined}
+                  >
                     {latestProposal ? proposalLabel(latestProposal) : 'No proposal generated yet'}
                   </p>
                 </div>
@@ -397,13 +412,17 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
                     <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary/60" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="truncate font-semibold text-slate-700 dark:text-slate-200">{String(log.agent_name ?? log.agent ?? 'Agent')}</p>
+                        <p className="truncate font-semibold text-slate-700 dark:text-slate-200" title={String(log.agent_name ?? log.agent ?? 'Agent')}>
+                          {String(log.agent_name ?? log.agent ?? 'Agent')}
+                        </p>
                         <span className="shrink-0 font-mono text-[10px] text-slate-400 dark:text-slate-500">{log.timestamp ? formatTimeAgo(log.timestamp) : '--'}</span>
                       </div>
                       <span className="mt-1 inline-block rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
                         {log.event_type ?? 'learning_event'}
                       </span>
-                      <p className="mt-1 line-clamp-2 text-slate-500 dark:text-slate-400">{log.message ?? log.primary_edge ?? 'No message provided.'}</p>
+                      <p className="mt-1 line-clamp-2 text-slate-500 dark:text-slate-400" title={log.message ?? log.primary_edge ?? undefined}>
+                        {log.message ?? log.primary_edge ?? 'No message provided.'}
+                      </p>
                     </div>
                   </div>
                 ))}
