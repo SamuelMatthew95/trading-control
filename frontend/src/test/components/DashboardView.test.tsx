@@ -124,6 +124,25 @@ describe('DashboardView — overview', () => {
     expect(screen.getByText('Unrealized')).toBeInTheDocument()
   })
 
+  it('Daily Change % reflects live unrealized P&L, not realized-only (no longer frozen at 0.00%)', () => {
+    // Regression: Daily Change came from realized order PnL only, so it read 0.00%
+    // while an open position was underwater — contradicting the Total P&L tile. It
+    // now uses the live total P&L (realized + mark-to-market unrealized) over the
+    // equity base, so it moves with the market and agrees in sign with Total P&L.
+    mockStore.orders = []
+    mockStore.positions = [
+      { symbol: 'BTC/USD', side: 'long', quantity: 100, entry_price: 100, current_price: 100, pnl: 0 },
+    ]
+    // Live price marks the position down: (90 - 100) * 100 = -1000 unrealized.
+    mockStore.prices = { 'BTC/USD': { price: 90, updatedAt: new Date().toISOString() } }
+
+    render(<DashboardView section="overview" />)
+
+    // -1000 / 100_000 (default paper equity) * 100 = -1.00%. The old realized-only
+    // logic would have shown 0.00% here.
+    expect(screen.getByText('-1.00%')).toBeInTheDocument()
+  })
+
   it('explains tiny positive best trade values on overview', () => {
     mockStore.performanceSummary = {
       total_pnl: -5,
