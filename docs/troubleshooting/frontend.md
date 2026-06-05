@@ -716,3 +716,25 @@ on mount via `loadPersistedEquitySeries`, so a reload keeps the curve.
 **Regression test:** `frontend/src/test/components/EquityCurve.test.tsx`
 (`produces clean, nicely-stepped y-axis ticks`) +
 `frontend/src/test/helpers/live-equity-series.test.ts` (`loadPersistedEquitySeries`).
+
+## Equity Curve hardening (review follow-ups)
+
+**Symptom / risks found in review:** (1) reloading after the tab was away for
+minutes spliced the old equity tail onto the new live point, drawing a fabricated
+sloped segment across the gap; (2) the curve was re-serialized to localStorage on
+every 3s sample; (3) sub-cent P&L (≈1e-7) could collapse every Y tick to 0 and
+emit a negative-zero "-$0.00" label.
+
+**Fix:** `useLiveEquitySeries` — `loadPersistedEquitySeries` now only restores when
+the newest persisted sample is within `CONTINUITY_THRESHOLD_MS` (2 min); past
+that it starts fresh, so a reload either continues a current curve or begins a
+clean one (never a fabricated jump). Persistence moved to a fixed 15s cadence
+(`PERSIST_INTERVAL_MS`) plus a flush on unmount, instead of writing on every
+sample. `EquityCurve.getNiceYAxis` floors the tick step at $0.01 and normalizes
+`-0` to `0`. The Open Positions `Value` column documents that for shorts it shows
+cost-basis + P&L (the tie-out) rather than buy-back market value.
+
+**Regression tests:** `frontend/src/test/helpers/live-equity-series.test.ts`
+(`starts fresh when the newest point is stale`) +
+`frontend/src/test/components/EquityCurve.test.tsx` (`floors the step at $0.01…`) +
+`frontend/src/test/store/recent-events.test.ts` (WS detail threading).
