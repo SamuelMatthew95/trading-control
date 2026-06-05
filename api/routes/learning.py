@@ -41,6 +41,7 @@ from api.routes.learning_helpers import (
     _grade_record_to_trade,
     _iso,
     _mem_grades_as_trades,
+    _mem_trade_eval,
     _row_to_trade_eval,
     _trade_eval_has_provenance,
 )
@@ -85,7 +86,7 @@ async def list_trade_evaluations(
         all_evals = list(reversed(store.trade_evaluations))
         if all_evals:
             total = len(all_evals)
-            page = all_evals[offset : offset + limit]
+            page = [_mem_trade_eval(e) for e in all_evals[offset : offset + limit]]
         else:
             # No trade_evaluations yet — bridge from grade_history with correct pagination
             page, total = _mem_grades_as_trades(store, limit, offset)
@@ -156,7 +157,7 @@ async def get_trade_evaluation(trade_id: str) -> dict[str, Any]:
         store = get_runtime_store()
         for ev in reversed(store.trade_evaluations):
             if str(ev.get(FieldName.TRADE_EVAL_ID)) == trade_id:
-                return {"trade": ev, FieldName.MODE: "memory"}
+                return {"trade": _mem_trade_eval(ev), FieldName.MODE: "memory"}
         # trade_evaluations empty — IDs may come from the grade_history bridge;
         # search the full list directly to avoid the 200-entry cap of _mem_grades_as_trades
         if not store.trade_evaluations:
