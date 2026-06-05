@@ -88,6 +88,14 @@ class ChallengerAgent(MultiStreamAgent):
         self._pnl_buffer: deque[float] = deque(maxlen=100)
         self._grade_history: list[dict[str, Any]] = []
         self._lifecycle_registered = False
+        # Liveness + flow telemetry for the dashboard. Live fills can stay 0 for
+        # hours (pipeline idle / reasoning LLM in fallback), so these prove the
+        # challenger is alive on the raw price stream and let the panel show its
+        # shadow trades FLOWING rather than three frozen numbers.
+        self._last_tick_at: str | None = None
+        self._last_shadow_trade_at: str | None = None
+        self._ticks_observed = 0
+        self._recent_shadow_trades: deque[dict[str, Any]] = deque(maxlen=10)
         # Shadow engines: this challenger's configured strategy AND the baseline,
         # both fed the SAME live signals so we can A/B their real performance on
         # live data and propose promotion only when the challenger beats baseline.
@@ -191,7 +199,24 @@ class ChallengerAgent(MultiStreamAgent):
             return
         if not symbol or price <= 0:
             return
-        self._shadow.observe(symbol, price)
+        now = datetime.now(timezone.utc).isoformat()
+        self._last_tick_at = now
+        self._ticks_observed += 1
+        closed = self._shadow.observe(symbol, price)
+        if closed is not None:
+            # A shadow round-trip just realized — record it so the dashboard can
+            # show the live FLOW of what the strategy actually did, with PnL.
+            self._last_shadow_trade_at = now
+            self._recent_shadow_trades.appendleft(
+                {
+                    FieldName.SYMBOL: closed.symbol,
+                    FieldName.DIRECTION: closed.direction,
+                    FieldName.PNL: round(closed.pnl, 4),
+                    FieldName.ENTRY_PRICE: round(closed.entry_price, 4),
+                    FieldName.EXIT_PRICE: round(closed.exit_price, 4),
+                    FieldName.TIMESTAMP: now,
+                }
+            )
         if self._baseline_shadow is not None:
             self._baseline_shadow.observe(symbol, price)
 
@@ -217,6 +242,32 @@ class ChallengerAgent(MultiStreamAgent):
             summary["baseline_shadow_pnl"] = round(b.realized_pnl, 4)
             summary["beats_baseline_shadow"] = m.realized_pnl > b.realized_pnl
         return summary
+
+    def activity_snapshot(self) -> dict[str, Any]:
+        """Full, connected challenger state for the dashboard.
+
+        Bundles the raw shadow performance (``_shadow_summary``) with the context
+        an operator needs to read it: how alive it is (last tick / last trade /
+        ticks seen), how close it is to a promotion proposal (``min_shadow_trades``
+        threshold + whether one already fired), its live self-grade if any, and a
+        rolling window of recent shadow round-trips so the trades visibly FLOW
+        instead of reading as three frozen numbers. These are challenger-report
+        fields, not payload keys — they ride in the dashboard challenger list.
+        """
+        snap: dict[str, Any] = dict(self._shadow_summary())
+        snap["min_shadow_trades"] = CHALLENGER_MIN_SHADOW_TRADES
+        snap["shadow_proposal_emitted"] = self._shadow_proposal_emitted
+        snap["ticks_observed"] = self._ticks_observed
+        snap["last_tick_at"] = self._last_tick_at
+        snap["last_shadow_trade_at"] = self._last_shadow_trade_at
+        snap["recent_shadow_trades"] = list(self._recent_shadow_trades)
+        if self._shadow is not None:
+            snap["open_shadow_positions"] = self._shadow.open_position_count
+        if self._grade_history:
+            # The most recent LIVE self-grade (needs live fills — absent while the
+            # pipeline is idle, which the frontend explains rather than hides).
+            snap[FieldName.LATEST_GRADE] = self._grade_history[-1]
+        return snap
 
     async def _maybe_propose_shadow_promotion(self) -> None:
         """Emit a human-approvable promotion proposal when this challenger beats
