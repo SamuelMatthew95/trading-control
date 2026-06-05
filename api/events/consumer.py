@@ -203,34 +203,6 @@ class BaseStreamConsumer(ABC):
             raise RuntimeError(f"Missing msg_id in {self.stream}")
         return msg_id
 
-    async def _run_once(self) -> None:
-        """Run a single iteration of the consumer loop for testing."""
-        try:
-            # Claim pending messages (PEL recovery)
-            reclaimed = await self._safe_reclaim_stale()
-            for msg_id, data in reclaimed:
-                if not self._running:
-                    break
-                await self._handle_message(msg_id, data)
-        except Exception:
-            log_structured("warning", "Redis reclaim failed, skipping", exc_info=True)
-
-        # Try to consume new messages with non-blocking call
-        try:
-            messages = await self.bus.consume(
-                self.stream,
-                self.group,
-                self.consumer,
-                count=10,
-                block_ms=0,  # Non-blocking
-            )
-            for msg_id, data in messages:
-                if not self._running:
-                    break
-                await self._handle_message(msg_id, data)
-        except Exception:
-            log_structured("warning", "Consumer iteration failed", stream=self.stream)
-
     async def _run(self) -> None:
         """Main consumer loop with responsive shutdown and non-blocking operations."""
         log_structured("info", "Consumer loop starting", stream=self.stream)
