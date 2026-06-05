@@ -1550,6 +1550,12 @@ LLM_FALLBACK_MODE_USE_LAST_REFLECTION: Final[str] = "use_last_reflection"
 LLM_FALLBACK_MODE_LOCAL_POLICY: Final[str] = "local_policy"
 LLM_FALLBACK_MODE: Final[str] = LLM_FALLBACK_MODE_REJECT_SIGNAL  # fail closed — no naive trades
 
+# Decision mode (Level-3 data-plane / control-plane split) — who decides per signal.
+DECISION_MODE_LLM: Final[str] = "llm"  # LLM decides; policy runs in shadow + is fallback
+DECISION_MODE_POLICY: Final[str] = "policy"  # deterministic policy decides; LLM off the hot path
+DECISION_MODE_HYBRID: Final[str] = "hybrid"  # LLM primary; policy is the always-on safety net
+MODEL_LABEL_POLICY: Final[str] = "policy"  # model_used stamp when the data-plane policy decided
+
 # Alpaca HTTP transport hardening — price_poller fetch layer
 # Root cause addressed: SSLZeroReturnError(6) from stale keepalive reuse under Render NAT.
 # keepalive_expiry (20 s) intentionally below Render NAT idle timeout (~60 s) so connections
