@@ -8,6 +8,7 @@ from api.constants import AgentStatus, FieldName, Source
 from api.core import defaults, enums
 from api.core.payload_keys import PayloadKey
 from api.utils import (
+    cosine_similarity,
     get_dict,
     get_nested,
     get_required_str,
@@ -148,3 +149,19 @@ class TestCoreFacadeModules:
     def test_defaults_reexport_canonical(self):
         assert defaults.DEFAULT_TRACE_ID == "unknown-trace"
         assert defaults.UNKNOWN_VALUE == "unknown"
+
+
+class TestCosineSimilarity:
+    def test_identical_vectors_are_one(self):
+        assert round(cosine_similarity([1.0, 2.0, 3.0], [1.0, 2.0, 3.0]), 6) == 1.0
+
+    def test_orthogonal_vectors_are_zero(self):
+        assert cosine_similarity([1.0, 0.0], [0.0, 1.0]) == 0.0
+
+    def test_empty_or_zero_magnitude_is_zero(self):
+        assert cosine_similarity([], [1.0]) == 0.0
+        assert cosine_similarity([0.0, 0.0], [1.0, 2.0]) == 0.0
+
+    def test_truncates_to_shorter_length(self):
+        # extra trailing element on the second vector is ignored
+        assert round(cosine_similarity([1.0, 1.0], [1.0, 1.0, 99.0]), 6) == 1.0
