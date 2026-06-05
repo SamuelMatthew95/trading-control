@@ -49,10 +49,13 @@ async def list_challengers_payload(agents: list[Any]) -> dict[str, Any]:
                     FieldName.CONFIG: c._config,
                     FieldName.STRATEGY: c._config.get(FieldName.STRATEGY) or "",
                     FieldName.RUNNING: c._running,
-                    # Real own-vs-baseline shadow evidence (empty until it trades).
-                    # Lets the dashboard show what the challenger's CONFIG actually
-                    # did on live data, not just a fill counter.
-                    **c._shadow_summary(),
+                    # Full connected challenger state: own-vs-baseline shadow
+                    # evidence + liveness (last tick / last trade / ticks seen),
+                    # promotion progress (min_shadow_trades threshold), recent
+                    # shadow-trade flow, and the live self-grade if any. Lets the
+                    # dashboard show what the CONFIG is doing and WHY — not just a
+                    # fill counter and three frozen numbers.
+                    **c.activity_snapshot(),
                 }
                 for c in challengers
             ],
