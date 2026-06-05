@@ -99,6 +99,7 @@ export const API_ENDPOINTS = {
   
   // Agents
   AGENTS_STATUS: "/dashboard/agents/status",
+  AGENTS_PERFORMANCE: "/dashboard/agents/performance",
   
   // Events
   EVENTS_RECENT: "/dashboard/events/recent",
