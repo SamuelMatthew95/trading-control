@@ -294,10 +294,10 @@ class ChallengerAgent(MultiStreamAgent):
             FieldName.CHALLENGER_ID: self._challenger_id,
             FieldName.INSTANCE_ID: self._instance_id,
             FieldName.FILLS: self._fills,
-            "win_rate": round(win_rate, 4),
+            FieldName.WIN_RATE: round(win_rate, 4),
             FieldName.AVG_PNL: round(avg_pnl, 4),
             FieldName.CONFIG: self._config,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
             # Real shadow-strategy evidence (own vs baseline) on live data.
             **self._shadow_summary(),
         }
@@ -306,15 +306,15 @@ class ChallengerAgent(MultiStreamAgent):
         await self.bus.publish(
             STREAM_AGENT_GRADES,
             {
-                "msg_id": str(uuid.uuid4()),
-                "type": "challenger_grade",
-                "source": f"challenger-{self._challenger_id}",
-                "agent": "challenger",
-                "grade": Grade.B if win_rate >= 0.5 else Grade.C,
-                "score": win_rate,
-                "score_pct": round(win_rate * 100, 1),
-                "metrics": grade_result,
-                "timestamp": grade_result[FieldName.TIMESTAMP],
+                FieldName.MSG_ID: str(uuid.uuid4()),
+                FieldName.TYPE: "challenger_grade",
+                FieldName.SOURCE: f"challenger-{self._challenger_id}",
+                FieldName.AGENT: "challenger",
+                FieldName.GRADE: Grade.B if win_rate >= 0.5 else Grade.C,
+                FieldName.SCORE: win_rate,
+                FieldName.SCORE_PCT: round(win_rate * 100, 1),
+                FieldName.METRICS: grade_result,
+                FieldName.TIMESTAMP: grade_result[FieldName.TIMESTAMP],
             },
         )
         log_structured(
@@ -335,17 +335,17 @@ class ChallengerAgent(MultiStreamAgent):
             else 0.0
         )
         summary = {
-            "msg_id": str(uuid.uuid4()),
-            "type": "challenger_summary",
-            "source": f"challenger-{self._challenger_id}",
+            FieldName.MSG_ID: str(uuid.uuid4()),
+            FieldName.TYPE: "challenger_summary",
+            FieldName.SOURCE: f"challenger-{self._challenger_id}",
             FieldName.CHALLENGER_ID: self._challenger_id,
             FieldName.INSTANCE_ID: self._instance_id,
             FieldName.TOTAL_FILLS: self._fills,
             FieldName.TOTAL_PNL: round(total_pnl, 4),
-            "win_rate": round(win_rate, 4),
+            FieldName.WIN_RATE: round(win_rate, 4),
             FieldName.CONFIG: self._config,
             FieldName.GRADE_HISTORY: self._grade_history[-5:],
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
             # Real shadow-strategy evidence (own vs baseline) on live data.
             **self._shadow_summary(),
         }
@@ -353,15 +353,15 @@ class ChallengerAgent(MultiStreamAgent):
             STREAM_PROPOSALS,
             {
                 **summary,
-                "proposal_type": "challenger_result",
-                "requires_approval": False,
-                "content": {
-                    "description": (
+                FieldName.PROPOSAL_TYPE: "challenger_result",
+                FieldName.REQUIRES_APPROVAL: False,
+                FieldName.CONTENT: {
+                    FieldName.DESCRIPTION: (
                         f"Challenger {self._challenger_id} completed {self._fills} fills. "
                         f"Win rate: {win_rate:.0%}, Total PnL: {total_pnl:+.2f}."
                         f"{self._backtest_verdict()}"
                     ),
-                    "confidence": win_rate,
+                    FieldName.CONFIDENCE: win_rate,
                 },
             },
         )
