@@ -81,15 +81,39 @@ export const buildEquitySeries = (orders: EquityOrder[]): EquityPoint[] => {
   })
 }
 
-export const getPaddedDomain = (series: EquityPoint[]): [number, number] => {
-  if (series.length === 0) return [-1, 1]
-  const values = series.map((point) => point.equity)
-  const min = Math.min(...values, 0)
-  const max = Math.max(...values, 0)
-  const range = max - min
-  const padding = Math.max(range * 0.12, 5)
-  return [min - padding, max + padding]
+// Round a range to a "nice" step (1/2/5 × 10ⁿ) so axis ticks land on clean
+// numbers. Otherwise a flat-ish curve worth a couple of dollars gets a padded
+// domain like [-6.15, 5] and Recharts labels it with junk (-$0.15, -$3.15…).
+function niceStep(range: number): number {
+  if (!(range > 0)) return 1
+  const rough = range / 4
+  const mag = 10 ** Math.floor(Math.log10(rough))
+  const norm = rough / mag
+  const niceNorm = norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10
+  return niceNorm * mag
 }
+
+// Y-axis domain + explicit ticks, snapped to a nice step, always spanning the
+// $0 baseline with one step of headroom each side so the line is never glued to
+// an edge and every gridline reads as a clean dollar amount.
+export const getNiceYAxis = (series: EquityPoint[]): { domain: [number, number]; ticks: number[] } => {
+  if (series.length === 0) return { domain: [-1, 1], ticks: [-1, 0, 1] }
+  const values = series.map((point) => point.equity)
+  let min = Math.min(...values, 0)
+  let max = Math.max(...values, 0)
+  if (min === max) {
+    min -= 1
+    max += 1
+  }
+  const step = niceStep(max - min)
+  const lo = Math.floor(min / step) * step - step
+  const hi = Math.ceil(max / step) * step + step
+  const ticks: number[] = []
+  for (let v = lo; v <= hi + step / 2; v += step) ticks.push(Number(v.toFixed(6)))
+  return { domain: [lo, hi], ticks }
+}
+
+export const getPaddedDomain = (series: EquityPoint[]): [number, number] => getNiceYAxis(series).domain
 
 export function EquityCurve({
   orders,
@@ -113,7 +137,21 @@ export function EquityCurve({
     [orderSeries, liveSeries],
   )
   const isLiveSeries = orderSeries.length === 0 && (liveSeries?.length ?? 0) > 0
-  const domain = useMemo(() => getPaddedDomain(series), [series])
+  const { domain, ticks: yTicks } = useMemo(() => getNiceYAxis(series), [series])
+  // Show seconds while the curve still spans only a few minutes (otherwise every
+  // HH:MM tick is the same minute and reads as "11:25 AM" four times); drop to
+  // HH:MM once it covers enough time for the minutes to differ.
+  const xTickFormatter = useMemo(() => {
+    const spanMs = series.length > 1 ? series[series.length - 1].timestamp - series[0].timestamp : 0
+    const showSeconds = spanMs > 0 && spanMs < 5 * 60 * 1000
+    return (ts: number) =>
+      new Date(ts).toLocaleTimeString(
+        [],
+        showSeconds
+          ? { hour: '2-digit', minute: '2-digit', second: '2-digit' }
+          : { hour: '2-digit', minute: '2-digit' },
+      )
+  }, [series])
   const stats = useMemo(() => {
     if (series.length === 0) return null
     const end = series[series.length - 1]?.equity ?? 0
@@ -190,15 +228,16 @@ export function EquityCurve({
               dataKey="timestamp"
               type="number"
               domain={["dataMin", "dataMax"]}
-              tickFormatter={formatTickTime}
+              tickFormatter={xTickFormatter}
               tick={{ fill: '#64748b', fontSize: 11 }}
               axisLine={{ stroke: '#334155' }}
               tickLine={{ stroke: '#334155' }}
-              minTickGap={24}
+              minTickGap={48}
             />
             <YAxis
               type="number"
               domain={domain}
+              ticks={yTicks}
               tickFormatter={(value) => formatUSD(value)}
               tick={{ fill: '#64748b', fontSize: 11 }}
               axisLine={{ stroke: '#334155' }}
