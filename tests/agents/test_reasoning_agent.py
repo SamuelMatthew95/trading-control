@@ -1012,3 +1012,31 @@ async def test_decision_mode_llm_shadow_compares_the_policy(agent, monkeypatch):
     assert tokens == 120
     assert summary[FieldName.ACTION] == "buy"
     assert shadow.get("ran") is True
+
+
+@patch("api.services.agents.reasoning_agent.AsyncSessionFactory", _MockSessionFactory())
+@patch("api.services.agents.reasoning_agent.call_llm_with_system")
+@patch("api.services.agents.vector_helpers.embed_text")
+async def test_policy_mode_never_calls_the_llm_even_with_self_critique(
+    mock_embed, mock_call_llm, agent, mock_bus, mock_redis, monkeypatch
+):
+    """REGRESSION: in DECISION_MODE=policy the deterministic data plane must never
+    touch the LLM — not for the decision, and not for the self-critique pass even
+    when REASONING_SELF_CRITIQUE_ENABLED is on. Otherwise a confident policy buy/sell
+    would silently re-introduce the LLM onto the hot path."""
+    from api.constants import DECISION_MODE_POLICY, MODEL_LABEL_POLICY
+
+    monkeypatch.setattr(settings, "DECISION_MODE", DECISION_MODE_POLICY)
+    monkeypatch.setattr(settings, "REASONING_SELF_CRITIQUE_ENABLED", True)
+    mock_embed.return_value = [0.1] * 1536
+    mock_redis.get = AsyncMock(return_value=b"0")
+
+    with patch(
+        "api.services.agents.vector_helpers.search_vector_memory",
+        AsyncMock(return_value=[]),
+    ):
+        await agent.process(_make_signal("buy"))
+
+    mock_call_llm.assert_not_called()  # the whole point of policy mode
+    decision_call = next(c for c in mock_bus.publish.call_args_list if c.args[0] == "decisions")
+    assert decision_call.args[1]["model_used"] == MODEL_LABEL_POLICY
