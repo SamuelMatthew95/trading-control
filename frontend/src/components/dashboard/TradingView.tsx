@@ -70,7 +70,7 @@ function StatTile({
         </p>
         {Icon && <Icon className="h-3.5 w-3.5 text-slate-400 dark:text-slate-600" />}
       </div>
-      <p className={cn('font-black font-mono tabular-nums text-xl leading-none', valueColor)}>{value}</p>
+      <p className={cn('font-semibold font-mono tabular-nums text-xl leading-none', valueColor)}>{value}</p>
       {sub && <p className="text-[10px] font-mono text-slate-400 dark:text-slate-600">{sub}</p>}
     </div>
   )
@@ -144,7 +144,7 @@ function TradeFeedPanel({
                 {/* Direction badge */}
                 <span
                   className={cn(
-                    'shrink-0 rounded-md px-2 py-1 text-[11px] font-black tracking-wide',
+                    'shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold tracking-wide',
                     isBuy
                       ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
                       : 'bg-rose-500/15 text-rose-500',
@@ -177,7 +177,7 @@ function TradeFeedPanel({
                 {/* P&L */}
                 {pnl != null && (
                   <div className="shrink-0 text-right">
-                    <p className={cn('font-black font-mono tabular-nums text-sm', pnlPos ? 'text-emerald-500' : 'text-rose-500')}>
+                    <p className={cn('font-semibold font-mono tabular-nums text-sm', pnlPos ? 'text-emerald-500' : 'text-rose-500')}>
                       {pnlPos ? '+' : '-'}{formatUSD(pnl)}
                     </p>
                     {pnlPct != null && (
@@ -190,7 +190,7 @@ function TradeFeedPanel({
 
                 {/* Grade */}
                 {gradeStyle && grade && (
-                  <span className={cn('shrink-0 rounded-md px-2 py-1 text-xs font-black', gradeStyle.badge)}>
+                  <span className={cn('shrink-0 rounded-md px-2 py-1 text-xs font-semibold', gradeStyle.badge)}>
                     {grade}
                   </span>
                 )}
@@ -285,7 +285,7 @@ function AgentActivityPanel({ setActiveTraceId }: { setActiveTraceId: (id: strin
                       <span className="font-mono text-[11px] text-slate-400">{symbol}</span>
                     )}
                     {action && action !== '' && (
-                      <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-black tracking-wide', actionBadgeClass(action))}>
+                      <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide', actionBadgeClass(action))}>
                         {action}
                       </span>
                     )}
