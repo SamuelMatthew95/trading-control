@@ -276,10 +276,25 @@ class WebSocketManager {
       const messageTimestamp = msg.timestamp
         || (msg.payload as Record<string, unknown> | undefined)?.timestamp as string | undefined
         || new Date().toISOString()
+      // Carry the event's subject (symbol / price / change) into the store so the
+      // Live Activity feed can say *what* happened. Market frames put these at the
+      // top level; other streams nest them under data/payload — check both.
+      const detailSource = (msg.data ?? (msg as unknown as { payload?: unknown }).payload ?? null) as
+        | Record<string, unknown>
+        | null
+      const rawSymbol = msg.symbol ?? (detailSource?.symbol as string | undefined)
+      const rawPrice = msg.price ?? (detailSource?.price as string | number | undefined)
+      const rawChange = (msg as unknown as { change?: unknown }).change ?? detailSource?.change
+      const numPrice = rawPrice == null ? null : Number(rawPrice)
+      const numChange = rawChange == null ? null : Number(rawChange)
       store.trackWsMessage({
         stream: msg.stream || msg.type || 'system',
         msgId: msg.msg_id || msg.message_id || null,
         timestamp: messageTimestamp,
+        symbol: rawSymbol != null && rawSymbol !== '' ? String(rawSymbol) : null,
+        price: numPrice != null && Number.isFinite(numPrice) ? numPrice : null,
+        change: numChange != null && Number.isFinite(numChange) ? numChange : null,
+        eventType: msg.type || null,
       })
 
       const eventPayload = msg.data ?? (msg as unknown as { payload?: unknown }).payload
