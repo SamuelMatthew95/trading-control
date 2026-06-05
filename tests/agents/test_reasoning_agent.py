@@ -877,3 +877,46 @@ async def test_market_intel_empty_result_records_success_not_error(agent, monkey
         assert book.failure_rate > 0.0
     finally:
         set_tool_registry(None)
+
+
+# ---------------------------------------------------------------------------
+# Level-3 data plane — local_policy fallback decides instead of rejecting
+# ---------------------------------------------------------------------------
+
+
+async def test_local_policy_fallback_makes_a_real_decision_not_reject(agent, monkeypatch):
+    """With LLM_FALLBACK_MODE=local_policy, an LLM outage routes the signal to the
+    deterministic data-plane policy — a real BUY/SELL — instead of REJECT, so the
+    pipeline keeps trading and the learning loop never starves.
+    """
+    from api.config import settings
+    from api.constants import LLM_FALLBACK_MODE_LOCAL_POLICY, AgentAction, FieldName, MacroRegime
+
+    monkeypatch.setattr(settings, "LLM_FALLBACK_MODE", LLM_FALLBACK_MODE_LOCAL_POLICY)
+
+    data = {FieldName.DIRECTION: "bullish", FieldName.COMPOSITE_SCORE: 0.8}
+    context = {
+        FieldName.NEWS_SENTIMENT: {FieldName.SENTIMENT: 0.4},
+        FieldName.MACRO_REGIME: {FieldName.REGIME: MacroRegime.RISK_ON},
+    }
+
+    out = await agent._apply_fallback(data, "trace-policy", reason="llm_down", context=context)
+
+    assert out[FieldName.ACTION] == AgentAction.BUY  # a real decision, not REJECT
+    assert out[FieldName.FALLBACK] is True
+    assert out[FieldName.PRIMARY_EDGE] == f"fallback:{LLM_FALLBACK_MODE_LOCAL_POLICY}"
+    assert "llm_down" in out[FieldName.RISK_FACTORS]  # outage reason recorded
+
+
+async def test_reject_mode_still_fails_closed(agent, monkeypatch):
+    """The default reject_signal mode is unchanged — still fails closed."""
+    from api.config import settings
+    from api.constants import LLM_FALLBACK_MODE_REJECT_SIGNAL, AgentAction, FieldName
+
+    monkeypatch.setattr(settings, "LLM_FALLBACK_MODE", LLM_FALLBACK_MODE_REJECT_SIGNAL)
+    out = await agent._apply_fallback(
+        {FieldName.DIRECTION: "bullish", FieldName.COMPOSITE_SCORE: 0.9},
+        "trace-reject",
+        reason="llm_down",
+    )
+    assert out[FieldName.ACTION] == AgentAction.REJECT
