@@ -59,7 +59,7 @@ class MultiAgentOrchestrator:
         }
         step_name = step_map.get(prompt_key)
         if not step_name:
-            return {FieldName.SUCCESS: False, "error": "Unknown agent"}
+            return {FieldName.SUCCESS: False, FieldName.ERROR: "Unknown agent"}
 
         start = time.time()
         try:
@@ -73,7 +73,7 @@ class MultiAgentOrchestrator:
                 duration_ms=int((time.time() - start) * 1000),
             )
             self.agent_calls.append(call)
-            return {FieldName.SUCCESS: True, "data": output}
+            return {FieldName.SUCCESS: True, FieldName.DATA: output}
         except Exception as exc:  # noqa: BLE001
             error_text = str(exc)
             call = AgentCall(
@@ -86,7 +86,7 @@ class MultiAgentOrchestrator:
                 duration_ms=int((time.time() - start) * 1000),
             )
             self.agent_calls.append(call)
-            return {FieldName.SUCCESS: False, "error": str(exc)}
+            return {FieldName.SUCCESS: False, FieldName.ERROR: str(exc)}
 
     def analyze_trade(
         self,
@@ -121,7 +121,7 @@ class MultiAgentOrchestrator:
                     FieldName.LOOP_EVENT: "retry",
                     FieldName.ITERATION: iteration,
                     FieldName.NEXT_TIMEFRAME: current_timeframe,
-                    "reason": "low_confidence_or_validation_issues",
+                    FieldName.REASON: "low_confidence_or_validation_issues",
                 }
             )
 
@@ -142,7 +142,7 @@ class MultiAgentOrchestrator:
         task_id = f"{asset}:{datetime.now(timezone.utc).isoformat()}"
         plan = self.planner.build_plan(asset, timeframe)
         context: dict[str, Any] = {
-            "asset": asset,
+            FieldName.ASSET: asset,
             FieldName.TIMEFRAME: timeframe,
             FieldName.PORTFOLIO_STATE: portfolio_state,
         }
@@ -167,7 +167,7 @@ class MultiAgentOrchestrator:
                             FieldName.ENTRY: 0,
                             FieldName.STOP: 0,
                             FieldName.TARGET: 0,
-                            "rr_ratio": 0,
+                            FieldName.RR_RATIO: 0,
                         }
                         break
                 elif step.name == "risk":
@@ -178,7 +178,7 @@ class MultiAgentOrchestrator:
                             FieldName.ENTRY: 0,
                             FieldName.STOP: 0,
                             FieldName.TARGET: 0,
-                            "rr_ratio": 0,
+                            FieldName.RR_RATIO: 0,
                         }
                         break
                 elif step.name == "sizing":
@@ -264,7 +264,7 @@ class MultiAgentOrchestrator:
         decision = self.analyze_trade(symbol, "1D", portfolio)
         return {
             "DECISION": decision["DECISION"],
-            "confidence": 0.8 if decision["CONFIDENCE"] == "HIGH" else 0.6,
+            FieldName.CONFIDENCE: 0.8 if decision["CONFIDENCE"] == "HIGH" else 0.6,
             FieldName.REASONING: decision["RATIONALE"],
             FieldName.POSITION_SIZE: 0.02,
             FieldName.RISK_ASSESSMENT: {FieldName.FLAGS: decision.get("RISK FLAGS", [])},
@@ -290,7 +290,7 @@ class MultiAgentOrchestrator:
         log_entry = {
             FieldName.TRACE_SUMMARY: {FieldName.GUARD_HITS: self.executor.tools.guard_hits},
             FieldName.TASK_ID: task_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
             FieldName.DECISION: decision,
             FieldName.TRACE: [asdict(call) for call in self.agent_calls],
         }
