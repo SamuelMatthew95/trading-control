@@ -12,6 +12,7 @@ import {
   positionCostBasis,
   positionMarketValue,
   positionQty,
+  reconciledMarketValue,
   toFiniteNum as toNum,
 } from '@/lib/formatters'
 import { Layers } from 'lucide-react'
@@ -29,7 +30,7 @@ const COLUMNS: ReadonlyArray<{ label: string; align: 'left' | 'right'; title?: s
   { label: 'Entry', align: 'right', title: 'Average entry price' },
   { label: 'Current', align: 'right', title: 'Latest market price' },
   { label: 'Invested', align: 'right', title: 'Cost basis — entry price × quantity (the cash you put in)' },
-  { label: 'Value', align: 'right', title: 'Current market value — current price × quantity' },
+  { label: 'Value', align: 'right', title: 'What the position is worth now (Invested + P&L)' },
   { label: 'P&L', align: 'right' },
   { label: 'P&L %', align: 'right' },
 ]
@@ -101,7 +102,13 @@ export function OpenPositionsPanel() {
                 // live-marked (useLivePositions), so these agree with the Entry /
                 // Current / P&L cells: Value − Invested == P&L.
                 const invested = positionCostBasis(pos)
-                const marketValue = positionMarketValue(pos)
+                // Derive Value from rounded Invested + P&L so the row's arithmetic
+                // ties out at the 2dp the user sees (Invested − Value === −P&L).
+                // Three independently-rounded numbers otherwise fail the eyeball
+                // subtraction (11.28 − 10.14 reads as 1.14 while P&L shows 1.15).
+                // P&L stays anchored to the live value shown in the header.
+                const marketValue =
+                  invested != null && pnl != null ? reconciledMarketValue(invested, pnl) : positionMarketValue(pos)
 
                 return (
                   <tr
