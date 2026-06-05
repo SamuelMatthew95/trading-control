@@ -675,3 +675,44 @@ renders in tests (recharts' ResponsiveContainer needs it in jsdom).
 **Regression test:** `frontend/src/test/helpers/live-equity-series.test.ts`
 (`appendEquitySample`) + `frontend/src/test/components/EquityCurve.test.tsx`
 (`falls back to the live series when there are no closed orders`).
+
+## Open Positions row doesn't tie out: Invested − Value ≠ P&L (off by a cent)
+
+**Symptom:** A row showed Invested $11.28, Value $10.14, P&L −$1.15. Eyeballing
+it, 11.28 − 10.14 = 1.14, not 1.15 — so the row read as "all wrong" / untrustworthy.
+
+**Root cause:** Invested (entry×qty = 11.2818), Value (current×qty = 10.1364) and
+P&L (−1.1454) are each *correctly* rounded to 2dp independently, but three
+independently-rounded values don't satisfy `invested − value === −pnl` at display
+precision.
+
+**Fix:** `formatters.reconciledMarketValue(invested, pnl)` returns
+`round(invested) + round(pnl)`, and `OpenPositionsPanel` uses it for the Value
+column. P&L stays anchored to the live value shown in the header; Value is
+derived so the row always ties out (11.28 − 10.13 = 1.15). Value tooltip updated
+to "Invested + P&L".
+
+**Regression test:** `frontend/src/test/helpers/formatters.test.ts` →
+`reconciledMarketValue` ("makes the row tie out at 2dp").
+
+## Equity Curve axes unreadable: repeated "11:25 AM" + junk Y labels; resets on reload
+
+**Symptom:** The live equity curve's X-axis showed "11:25 AM" four times (all
+samples within one minute), the Y-axis showed junk like -$0.15 / -$3.15 / -$6.15,
+and a page reload wiped the curve back to a single dot.
+
+**Root cause:** (1) X tick formatter was fixed HH:MM, so a sub-minute span
+rendered identical labels. (2) `getPaddedDomain` padded with `max(range*0.12, 5)`
+— a $5 floor around a −$1.15 value produced an oversized, un-rounded domain
+([-6.15, 5]) and Recharts labelled it with junk. (3) The live series lived only
+in component state, so a reload started it over.
+
+**Fix:** `EquityCurve` — `getNiceYAxis` snaps the domain + explicit `ticks` to a
+nice 1/2/5×10ⁿ step that always spans $0; the X formatter shows HH:MM:SS while
+the span is < 5 min, then HH:MM. `useLiveEquitySeries` persists the rolling
+window to `localStorage` (`codex.equityCurve`) and restores recent (< 1h) points
+on mount via `loadPersistedEquitySeries`, so a reload keeps the curve.
+
+**Regression test:** `frontend/src/test/components/EquityCurve.test.tsx`
+(`produces clean, nicely-stepped y-axis ticks`) +
+`frontend/src/test/helpers/live-equity-series.test.ts` (`loadPersistedEquitySeries`).
