@@ -223,6 +223,16 @@ export function ToolGovernancePanel() {
         {exercisedCount}/{tools.length} exercised live.
       </p>
 
+      {tools.length > 0 && exercisedCount === 0 && (
+        <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2 text-[11px] leading-snug text-slate-500 dark:border-slate-800 dark:bg-slate-900/30 dark:text-slate-400">
+          No closed trades have scored these tools yet, so every row below is a{' '}
+          <span className="font-semibold">seeded prior</span> — the{' '}
+          <span className="font-mono">α</span> values are starting estimates, not earned, and{' '}
+          <span className="font-mono">unused</span> means the live loop has not exercised the tool.
+          Scores go live once trades close and the GradeAgent attributes realized PnL back to each tool.
+        </div>
+      )}
+
       {suggestions.length > 0 && (
         <div className="mb-3 space-y-1.5">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
