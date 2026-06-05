@@ -3,12 +3,36 @@
 import { useMemo } from 'react'
 import { useLivePositions } from '@/hooks/useLivePositions'
 import { cn } from '@/lib/utils'
-import { formatUSD, getField, getStr, isActivePosition, positionQty, toFiniteNum as toNum } from '@/lib/formatters'
+import {
+  formatQuantity,
+  formatUSD,
+  getField,
+  getStr,
+  isActivePosition,
+  positionCostBasis,
+  positionMarketValue,
+  positionQty,
+  toFiniteNum as toNum,
+} from '@/lib/formatters'
 import { Layers } from 'lucide-react'
 import { LiveNumber } from '@/components/dashboard/LiveNumber'
 import { positionSideBadgeClass } from '@/lib/dashboard-helpers'
 
-const COLUMNS = ['Symbol', 'Side', 'Qty', 'Entry', 'Current', 'P&L', 'P&L %'] as const
+// `Invested` (cost basis) and `Value` (current market value) are the two numbers
+// that make the row legible to a human — "I put in $X, it is worth $Y now" — and
+// are what the bare Qty/Entry/Current/P&L layout was missing. `title` tooltips
+// spell out each formula so the columns are self-explanatory.
+const COLUMNS: ReadonlyArray<{ label: string; align: 'left' | 'right'; title?: string }> = [
+  { label: 'Symbol', align: 'left' },
+  { label: 'Side', align: 'left' },
+  { label: 'Qty', align: 'right' },
+  { label: 'Entry', align: 'right', title: 'Average entry price' },
+  { label: 'Current', align: 'right', title: 'Latest market price' },
+  { label: 'Invested', align: 'right', title: 'Cost basis — entry price × quantity (the cash you put in)' },
+  { label: 'Value', align: 'right', title: 'Current market value — current price × quantity' },
+  { label: 'P&L', align: 'right' },
+  { label: 'P&L %', align: 'right' },
+]
 
 /**
  * Open Positions table — the detail behind the "Active Positions" headline count.
@@ -46,15 +70,18 @@ export function OpenPositionsPanel() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-200 dark:border-slate-800">
-                {COLUMNS.map((h, i) => (
+                {COLUMNS.map(({ label, align, title }, i) => (
                   <th
-                    key={h}
+                    key={label}
+                    title={title}
                     className={cn(
                       'py-3 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400',
-                      i === 0 ? 'pl-5 pr-4 text-left' : i >= 4 ? 'px-4 text-right last:pr-5' : 'px-4 text-left',
+                      align === 'right' ? 'text-right' : 'text-left',
+                      i === 0 ? 'pl-5 pr-4' : 'px-4',
+                      'last:pr-5',
                     )}
                   >
-                    {h}
+                    {label}
                   </th>
                 ))}
               </tr>
@@ -70,6 +97,11 @@ export function OpenPositionsPanel() {
                 const qty = positionQty(pos)
                 const entryPrice = toNum(getField(pos, 'entry_price'))
                 const currentPrice = toNum(getField(pos, 'current_price'))
+                // The cash put in vs what it is worth now. Positions are already
+                // live-marked (useLivePositions), so these agree with the Entry /
+                // Current / P&L cells: Value − Invested == P&L.
+                const invested = positionCostBasis(pos)
+                const marketValue = positionMarketValue(pos)
 
                 return (
                   <tr
@@ -84,14 +116,20 @@ export function OpenPositionsPanel() {
                         {side || '--'}
                       </span>
                     </td>
-                    <td className="px-4 py-3 font-mono tabular-nums text-slate-700 dark:text-slate-300">
-                      {qty}
+                    <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-700 dark:text-slate-300">
+                      {formatQuantity(qty)}
                     </td>
                     <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-700 dark:text-slate-300">
                       {entryPrice != null ? formatUSD(entryPrice) : '--'}
                     </td>
                     <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-700 dark:text-slate-300">
                       {currentPrice != null ? formatUSD(currentPrice) : '--'}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100">
+                      {invested != null ? formatUSD(invested) : '--'}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-700 dark:text-slate-300">
+                      {marketValue != null ? formatUSD(marketValue) : '--'}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {pnl != null ? (
