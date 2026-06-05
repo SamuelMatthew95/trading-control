@@ -1,0 +1,162 @@
+"""Deterministic data-plane decision policy — the fast path that does not need an LLM.
+
+Level-3 architecture (data plane / control plane split): the per-signal trading
+decision must be FAST, deterministic and ALWAYS AVAILABLE — it cannot hang off a
+slow, rate-limited, non-deterministic external LLM on the critical path. This
+module is that fast path.
+
+Given the same signal context the LLM sees (composite score, momentum direction,
+live market-intel perception) plus a set of tunable :class:`PolicyParams`, it
+returns a real, explainable decision — no IO, no network, no LLM. Pure and
+trivially unit-testable.
+
+The LLM's job moves to the CONTROL PLANE: instead of making every tick decision,
+it periodically deliberates and updates ``PolicyParams`` (and the adaptive
+directive). While the LLM is degraded the policy keeps trading on the last good
+params, so the downstream learning loop never starves — the pipeline stays live
+by construction rather than failing closed on every signal.
+
+Scoring is a transparent weighted blend of directional features in [-1, 1]:
+  momentum (signal direction / bar move) · news sentiment · macro regime ·
+  order-book imbalance
+Confidence is the signal's own composite score. The decision is a threshold cut
+on the blended score, gated by a minimum confidence — every term is reported in
+``risk_factors`` so the rationale is auditable.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+from api.constants import AgentAction, FieldName, MacroRegime
+
+
+@dataclass(frozen=True)
+class PolicyParams:
+    """Tunable knobs for the deterministic policy — the control plane's output.
+
+    These are what the LLM (or an operator) adjusts on the slow loop; the data
+    plane just executes them. Kept as a frozen dataclass so a params set is an
+    immutable, versionable value, mirroring how the adaptive directive is stored.
+    """
+
+    buy_threshold: float = 0.15  # blended score at/above which we go long
+    sell_threshold: float = 0.15  # blended score at/below -this which we go short
+    min_confidence: float = 0.20  # composite score required to act at all
+    w_momentum: float = 0.50  # weight on signal direction / bar move
+    w_sentiment: float = 0.20  # weight on news sentiment
+    w_macro: float = 0.20  # weight on macro risk-on/off regime
+    w_imbalance: float = 0.10  # weight on order-book size imbalance
+    base_size_pct: float = 0.02  # position size as a fraction of portfolio
+    stop_atr_x: float = 1.5  # ATR-multiple stop distance
+    rr_ratio: float = 2.0  # reward:risk target
+
+
+# The seed params the data plane runs until the control plane evolves them.
+DEFAULT_POLICY_PARAMS = PolicyParams()
+
+
+def _direction_sign(data: dict[str, Any]) -> tuple[float, str]:
+    """Momentum direction in {-1, 0, +1} from the signal's direction/action/move."""
+    raw = str(
+        data.get(FieldName.DIRECTION)
+        or data.get(FieldName.SIGNAL)
+        or data.get(FieldName.ACTION)
+        or ""
+    ).lower()
+    if raw in {"bullish", AgentAction.BUY, "long"}:
+        return 1.0, raw
+    if raw in {"bearish", AgentAction.SELL, "short"}:
+        return -1.0, raw
+    pct = float(data.get(FieldName.PCT) or 0.0)
+    if pct > 0:
+        return 1.0, f"pct {pct:+.2f}%"
+    if pct < 0:
+        return -1.0, f"pct {pct:+.2f}%"
+    return 0.0, "flat"
+
+
+def _macro_sign(context: dict[str, Any]) -> float:
+    """Macro regime as a directional bias in {-1, 0, +1}."""
+    macro = context.get(FieldName.MACRO_REGIME) or {}
+    regime = str(macro.get(FieldName.REGIME) or "").lower()
+    if regime == MacroRegime.RISK_ON:
+        return 1.0
+    if regime == MacroRegime.RISK_OFF:
+        return -1.0
+    return 0.0
+
+
+def _clamp(value: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, value))
+
+
+def decide_policy(
+    data: dict[str, Any],
+    context: dict[str, Any] | None = None,
+    params: PolicyParams = DEFAULT_POLICY_PARAMS,
+) -> dict[str, Any]:
+    """Produce a deterministic trading decision from a signal + perception context.
+
+    Returns the same summary shape the LLM path emits (action / confidence /
+    primary_edge / reasoning / risk_factors / size / stop / rr), so it is a
+    drop-in decision for the reasoning node. Never raises: malformed inputs
+    degrade to a HOLD with an explanatory rationale.
+    """
+    context = context or {}
+
+    momentum, momentum_label = _direction_sign(data)
+    news = context.get(FieldName.NEWS_SENTIMENT) or {}
+    sentiment = _clamp(float(news.get(FieldName.SENTIMENT) or 0.0), -1.0, 1.0)
+    macro = _macro_sign(context)
+    book = context.get(FieldName.ORDER_BOOK) or {}
+    imbalance = _clamp(float(book.get(FieldName.IMBALANCE) or 0.0), -1.0, 1.0)
+    confidence = _clamp(float(data.get(FieldName.COMPOSITE_SCORE) or 0.0), 0.0, 1.0)
+
+    score = round(
+        params.w_momentum * momentum
+        + params.w_sentiment * sentiment
+        + params.w_macro * macro
+        + params.w_imbalance * imbalance,
+        4,
+    )
+
+    # Every contributing term is surfaced so the decision is auditable, not opaque.
+    risk_factors = [
+        f"momentum {momentum:+.0f} ({momentum_label})",
+        f"sentiment {sentiment:+.2f}",
+        f"macro {macro:+.0f}",
+        f"imbalance {imbalance:+.2f}",
+        f"score {score:+.3f}",
+        f"confidence {confidence:.2f}",
+    ]
+
+    if confidence < params.min_confidence:
+        action = AgentAction.HOLD
+        why = f"confidence {confidence:.2f} < {params.min_confidence:.2f} — insufficient conviction"
+    elif score >= params.buy_threshold:
+        action = AgentAction.BUY
+        why = f"score {score:+.3f} ≥ buy_threshold {params.buy_threshold:+.2f}"
+    elif score <= -params.sell_threshold:
+        action = AgentAction.SELL
+        why = f"score {score:+.3f} ≤ -sell_threshold {-params.sell_threshold:+.2f}"
+    else:
+        action = AgentAction.HOLD
+        why = (
+            f"score {score:+.3f} inside [-{params.sell_threshold:.2f}, {params.buy_threshold:.2f}]"
+        )
+
+    # Size scales with conviction so weak edges trade smaller; clamped to a floor.
+    size_pct = round(_clamp(params.base_size_pct * confidence, 0.005, params.base_size_pct), 4)
+
+    return {
+        FieldName.ACTION: action,
+        FieldName.CONFIDENCE: round(confidence, 4),
+        FieldName.PRIMARY_EDGE: "policy:deterministic",
+        FieldName.REASONING: f"Deterministic policy: {why}.",
+        FieldName.RISK_FACTORS: risk_factors,
+        FieldName.SIZE_PCT: size_pct,
+        FieldName.STOP_ATR_X: params.stop_atr_x,
+        FieldName.RR_RATIO: params.rr_ratio,
+    }
