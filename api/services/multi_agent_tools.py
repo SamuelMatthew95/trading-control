@@ -30,7 +30,10 @@ class DocumentRetriever:
             if score:
                 scored.append((score, name, doc_text[:500]))
         scored.sort(reverse=True)
-        return [{"source": name, FieldName.SNIPPET: snippet} for _, name, snippet in scored[:top_k]]
+        return [
+            {FieldName.SOURCE: name, FieldName.SNIPPET: snippet}
+            for _, name, snippet in scored[:top_k]
+        ]
 
 
 class TradeTools:
@@ -67,7 +70,7 @@ class TradeTools:
         raise ToolError(f"skipped_by_memory_guard:{reason}")
 
     def get_current_price(self, asset: str) -> float:
-        self._guard("get_current_price", {"asset": asset})
+        self._guard("get_current_price", {FieldName.ASSET: asset})
         if self.circuit_open:
             raise ToolError("Price tool circuit breaker is open")
         if asset not in self.allowed_assets:
@@ -85,7 +88,7 @@ class TradeTools:
         raise ToolError(f"Price lookup failed after retries: {last_error}")
 
     def get_atr(self, asset: str, timeframe: str) -> float:
-        self._guard("get_atr", {"asset": asset, FieldName.TIMEFRAME: timeframe})
+        self._guard("get_atr", {FieldName.ASSET: asset, FieldName.TIMEFRAME: timeframe})
         if timeframe not in {"1H", "4H", "1D", "1W"}:
             raise ToolError(f"Unsupported timeframe '{timeframe}'")
         _ = asset
