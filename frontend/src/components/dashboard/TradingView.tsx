@@ -8,6 +8,8 @@ import { formatUSD, formatTimeAgo, getField, getStr, isActivePosition, toFiniteN
 import { GRADE_STYLES } from '@/lib/grade-colors'
 import { Activity, BarChart2, TrendingDown, TrendingUp } from 'lucide-react'
 import { OpenPositionsPanel } from '@/components/dashboard/OpenPositionsPanel'
+import { useLivePnl } from '@/hooks/useLivePnl'
+import { useLivePositions } from '@/hooks/useLivePositions'
 import {
   tradeFeedEmptyLabel,
   activityDotClass,
@@ -341,21 +343,29 @@ export function TradingView({
 }: TradingViewProps) {
   const {
     tradeFeed = [],
-    positions = [],
     performanceSummary = null,
     pnlSummary = null,
   } = useCodexStore()
 
+  // Realized + live mark-to-market unrealized, re-valued against the price
+  // stream every tick — the SAME canonical source as the header chip and the
+  // Overview headline, so the three can never show three different P&L numbers.
+  const livePnl = useLivePnl()
+  const livePositions = useLivePositions()
+
   const stats = useMemo(() => {
-    // Prefer the live PaperBroker PnL (realized + unrealized) so Session P&L
-    // reflects open-position mark-to-market, not just closed-trade realized PnL.
-    // Fall back to the DB/trends aggregate, then to the realized trade-feed sum.
+    // Session P&L marks open positions to the live price stream every tick, so it
+    // never freezes between the 30s REST /pnl snapshots. Fall back to the broker
+    // snapshot, then the DB/trends aggregate, then the realized trade-feed sum
+    // only when there is no live order/position to mark.
     const totalPnl =
-      pnlSummary?.total_pnl != null
-        ? pnlSummary.total_pnl
-        : performanceSummary?.total_pnl != null && performanceSummary.total_pnl !== 0
-          ? performanceSummary.total_pnl
-          : tradeFeed.reduce((sum, t) => sum + (toNum(t.pnl) ?? 0), 0)
+      livePnl.hasData
+        ? livePnl.total
+        : pnlSummary?.total_pnl != null
+          ? pnlSummary.total_pnl
+          : performanceSummary?.total_pnl != null && performanceSummary.total_pnl !== 0
+            ? performanceSummary.total_pnl
+            : tradeFeed.reduce((sum, t) => sum + (toNum(t.pnl) ?? 0), 0)
 
     const totalTrades = performanceSummary?.total_trades ?? tradeFeed.filter((t) => t.pnl != null).length
     // Derive wins from summary when available so sub-text matches the aggregate win rate.
@@ -373,9 +383,20 @@ export function TradingView({
     // Active = abs(qty) > 0 (backend canonical rule), not the raw array length,
     // so a flat (qty 0) row never inflates the count. `isActivePosition` reads
     // ORM `quantity` and paper-broker `qty`, matching the Open Positions table.
-    const activePositions = positions.filter(isActivePosition).length
-    return { totalPnl, winRatePct, totalTrades, wins, fills: tradeFeed.length, activePositions }
-  }, [tradeFeed, positions, performanceSummary, pnlSummary])
+    // Live-marked positions keep the count consistent with the same source.
+    const activePositions = livePositions.filter(isActivePosition).length
+    return {
+      totalPnl,
+      winRatePct,
+      totalTrades,
+      wins,
+      fills: tradeFeed.length,
+      activePositions,
+      realized: livePnl.realized,
+      unrealized: livePnl.unrealized,
+      hasLivePnl: livePnl.hasData,
+    }
+  }, [tradeFeed, livePositions, performanceSummary, pnlSummary, livePnl])
 
   const pnlSign =
     stats.totalPnl > 0.005 ? 'positive' : stats.totalPnl < -0.005 ? 'negative' : 'neutral'
@@ -383,13 +404,16 @@ export function TradingView({
   const winRateSign =
     stats.winRatePct == null ? 'neutral' : stats.winRatePct >= 50 ? 'positive' : 'negative'
 
-  // When the live broker PnL is available, spell out the realized/unrealized
-  // split so "Session P&L" (which folds in open-position mark-to-market) reads
-  // unambiguously next to the realized-only "Total PnL" shown elsewhere.
+  // Spell out the realized/unrealized split so "Session P&L" (which folds in
+  // open-position mark-to-market) reads unambiguously. Prefer the live
+  // breakdown (moves with the market every tick); fall back to the broker
+  // snapshot only when there is no live order/position to mark.
   const pnlSub =
-    pnlSummary != null
-      ? `${formatUSD(pnlSummary.realized_pnl)} realized · ${formatUSD(pnlSummary.unrealized_pnl)} unrealized`
-      : undefined
+    stats.hasLivePnl
+      ? `${formatUSD(stats.realized)} realized · ${formatUSD(stats.unrealized)} unrealized`
+      : pnlSummary != null
+        ? `${formatUSD(pnlSummary.realized_pnl)} realized · ${formatUSD(pnlSummary.unrealized_pnl)} unrealized`
+        : undefined
 
   return (
     <div className="space-y-4">
