@@ -818,3 +818,62 @@ async def test_adaptive_directive_injected_into_decision_prompt(agent):
         assert "CHALLENGER VARIANT" in prompt  # placed beneath the constitution
     finally:
         set_prompt_store(None)
+
+
+# ---------------------------------------------------------------------------
+# Market-intel tool telemetry — empty result is NOT an error
+# ---------------------------------------------------------------------------
+
+
+async def test_market_intel_empty_result_records_success_not_error(agent, monkeypatch):
+    """A best-effort intel tool that returns {} (no data to report this cycle)
+    must record a SUCCESSFUL call, not a failure.
+
+    REGRESSION: ``check_cross_asset_correlation`` returned {} on every decision
+    (no correlatable peer bars), and the old ``success=bool(result)`` logic
+    counted each empty result as an error — so a perfectly-functioning tool read
+    as 100% err on the governance panel. Success now means "completed without
+    raising", matching the get_ic_weights / query_similar_trades convention.
+    """
+    import api.services.agents.reasoning_agent as ra
+    from api.constants import (
+        TOOL_CORRELATION_CHECK,
+        TOOL_MACRO_REGIME,
+        TOOL_NEWS_SENTIMENT,
+        TOOL_ORDER_BOOK_DEPTH,
+    )
+    from api.services.tool_registry import ToolRegistry, default_tools, set_tool_registry
+
+    reg = ToolRegistry()
+    reg.register_many(default_tools())
+    set_tool_registry(reg)
+    try:
+
+        async def _empty(*_a, **_k):
+            return {}
+
+        async def _boom(*_a, **_k):
+            raise RuntimeError("provider down")
+
+        # Correlation returns {} WITHOUT raising; order-book raises.
+        monkeypatch.setattr(ra, "compute_cross_asset_correlation", _empty)
+        monkeypatch.setattr(ra, "fetch_news_sentiment", _empty)
+        monkeypatch.setattr(ra, "fetch_macro_regime", _empty)
+        monkeypatch.setattr(ra, "fetch_order_book_depth", _boom)
+
+        await agent._gather_market_intel("BTC/USD", {})
+
+        corr = reg.get(TOOL_CORRELATION_CHECK)
+        news = reg.get(TOOL_NEWS_SENTIMENT)
+        macro = reg.get(TOOL_MACRO_REGIME)
+        book = reg.get(TOOL_ORDER_BOOK_DEPTH)
+
+        # Empty-but-no-exception → success, failure_rate stays 0.
+        assert corr.call_count == 1 and corr.success_count == 1
+        assert corr.failure_rate == 0.0
+        assert news.success_count == 1 and macro.success_count == 1
+        # A genuine exception → recorded as a failure.
+        assert book.call_count == 1 and book.success_count == 0
+        assert book.failure_rate > 0.0
+    finally:
+        set_tool_registry(None)
