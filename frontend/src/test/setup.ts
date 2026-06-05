@@ -3,6 +3,18 @@ import '@testing-library/jest-dom'
 import React from 'react'
 import { vi } from 'vitest'
 
+// jsdom has no ResizeObserver, which recharts' ResponsiveContainer requires.
+// Without it, any component that renders a chart (e.g. the live EquityCurve)
+// throws "ResizeObserver is not defined" on mount. Provide a no-op stub.
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+if (!('ResizeObserver' in globalThis)) {
+  ;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverStub }).ResizeObserver = ResizeObserverStub
+}
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
     push: vi.fn(),
