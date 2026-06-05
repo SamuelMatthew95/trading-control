@@ -1064,11 +1064,27 @@ class FieldName(StrEnum):
     UNTAGGED_PHANTOM_SELLS = "untagged_phantom_sells"
     WINDOW = "window"
     Z_SCORE = "z_score"
+    # Per-agent performance grading payload keys
+    # (api/services/dashboard/agent_performance.py).
+    COMPLETED_RUNS = "completed_runs"
+    DATA_AVAILABLE = "data_available"
+    DIMENSIONS = "dimensions"
+    DISPLAY_NAME = "display_name"
+    FAILED_RUNS = "failed_runs"
+    HEARTBEAT = "heartbeat"
+    LATENCY = "latency"
+    LEARNINGS = "learnings"
+    LIVENESS = "liveness"
+    PROMOTED = "promoted"
+    THROUGHPUT = "throughput"
+    TIER = "tier"
+    TOTAL_RUNS = "total_runs"
 
 
 class StatusValue(StrEnum):
     RUNNING = "running"
     COMPLETED = "completed"
+    FAILED = "failed"
 
 
 class EventType(StrEnum):
@@ -1249,6 +1265,59 @@ AGENT_HEARTBEAT_TTL_SECONDS: Final[int] = 300  # 5 minutes
 # If an agent's last_seen is older than this, mark it STALE on the dashboard.
 # Keep well below AGENT_HEARTBEAT_TTL_SECONDS so "STALE" is reachable.
 AGENT_STALE_THRESHOLD_SECONDS: Final[int] = 120  # 2 minutes
+
+# ---------------------------------------------------------------------------
+# Per-agent performance grading (api/services/dashboard/agent_performance.py)
+# Each pipeline agent is graded on its OWN telemetry — heartbeat liveness, run
+# success rate, recent throughput, and (when the DB records it) latency —
+# rather than the single system-wide grade GradeAgent emits for the trading
+# loop. The overall [0, 1] score is a weighted blend of whichever dimensions
+# have data, mapped to a letter grade via services.agents.scoring.score_to_grade.
+AGENT_PERF_W_LIVENESS: Final[float] = 0.40
+AGENT_PERF_W_SUCCESS: Final[float] = 0.30
+AGENT_PERF_W_THROUGHPUT: Final[float] = 0.15
+AGENT_PERF_W_LATENCY: Final[float] = 0.15
+
+# Liveness dimension score by heartbeat state (ACTIVE vs STALE/IDLE).
+AGENT_PERF_LIVENESS_ACTIVE: Final[float] = 1.0
+AGENT_PERF_LIVENESS_STALE: Final[float] = 0.45
+
+# event_count at which the throughput dimension saturates to 1.0.
+AGENT_PERF_THROUGHPUT_SATURATION: Final[int] = 20
+
+# Promotion tiers, ordered best → worst. Mirrored by the frontend badge map.
+TIER_PROMOTED: Final[str] = "PROMOTED"
+TIER_TRUSTED: Final[str] = "TRUSTED"
+TIER_STANDARD: Final[str] = "STANDARD"
+TIER_PROBATION: Final[str] = "PROBATION"
+TIER_UNDER_REVIEW: Final[str] = "UNDER_REVIEW"
+TIER_UNRATED: Final[str] = "UNRATED"
+
+# Letter grade → promotion tier. An agent is "promoted" iff its tier is PROMOTED.
+# Sustained A/A+ work earns promotion; D/F drops to review.
+GRADE_TO_TIER: Final[dict[str, str]] = {
+    "A+": TIER_PROMOTED,
+    "A": TIER_PROMOTED,
+    "B": TIER_TRUSTED,
+    "C": TIER_STANDARD,
+    "D": TIER_PROBATION,
+    "F": TIER_UNDER_REVIEW,
+}
+
+# Maps the lowercase source identifier written on agent_runs / agent_logs to the
+# SCREAMING_SNAKE_CASE agent-name constant used by heartbeats and ALL_AGENT_NAMES.
+# Lets per-agent grading attribute runs to the agent that produced them.
+SOURCE_TO_AGENT: Final[dict[str, str]] = {
+    SOURCE_SIGNAL: AGENT_SIGNAL,
+    SOURCE_REASONING: AGENT_REASONING,
+    SOURCE_EXECUTION: AGENT_EXECUTION,
+    SOURCE_GRADE: AGENT_GRADE,
+    SOURCE_IC_UPDATER: AGENT_IC_UPDATER,
+    SOURCE_REFLECTION: AGENT_REFLECTION,
+    SOURCE_STRATEGY_PROPOSER: AGENT_STRATEGY_PROPOSER,
+    SOURCE_NOTIFICATION: AGENT_NOTIFICATION,
+    SOURCE_PROPOSAL_APPLIER: AGENT_PROPOSAL_APPLIER,
+}
 
 # ---------------------------------------------------------------------------
 # Redis key patterns
