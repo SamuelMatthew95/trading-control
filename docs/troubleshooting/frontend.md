@@ -607,3 +607,48 @@ return: a single small position on a $100k paper account is correctly a small %
 
 **Regression test:** `frontend/src/test/components/DashboardView.test.tsx` —
 `Daily Change % reflects live unrealized P&L, not realized-only (no longer frozen at 0.00%)`.
+
+## Open Positions: raw float quantity + no "amount invested"
+
+**Symptom:** The Open Positions row showed an unreadable quantity
+(`0.0001681861435210638`) and never displayed how much cash was put in or what
+the position is worth now — only Qty / Entry / Current / P&L. Operators could not
+tell what they had invested, so a small `-$1.06` loss read as untrustworthy noise.
+
+**Root cause:** `OpenPositionsPanel.tsx` rendered `positionQty(pos)` verbatim and
+had no cost-basis / market-value columns. Entry × Qty (the cash invested) and
+Current × Qty (current value) were never surfaced anywhere on the page.
+
+**Fix:** `formatters.ts` adds `formatQuantity` (magnitude-aware precision:
+≥1 → 4 dp, <1 → 8 dp, trailing zeros trimmed), `positionCostBasis`
+(entry × |qty|) and `positionMarketValue` (live price × |qty|).
+`OpenPositionsPanel.tsx` now formats the quantity and adds `Invested` and `Value`
+columns with `title` tooltips spelling out each formula. Positions are already
+live-marked, so the row is arithmetic-consistent: Value − Invested == P&L.
+
+**Regression test:** `frontend/src/test/helpers/formatters.test.ts` —
+`formatQuantity`, `positionCostBasis`, `positionMarketValue` suites (incl. the
+`0.0001681861435210638` → `0.00016819` case and the $11.28 cost-basis case).
+
+## Live Activity feed: every row reads "Market event" with no detail
+
+**Symptom:** The Live Activity feed showed dozens of identical, indistinguishable
+rows — `MARKET · Market event` with no symbol, price, or direction — making the
+feed look random and untrustworthy ("what event happened?").
+
+**Root cause:** `useCodexStore.trackWsMessage` only persisted
+`{ stream, msgId, timestamp }` onto `RecentEvent`, discarding the `symbol` /
+`price` / `change` that the backend already broadcasts on every `market_events`
+frame (`websocket_broadcaster._transform_payload` → `type=price_update`).
+`buildActivityTimeline` then had nothing to render, so it hard-coded
+`detail: null` for every market row.
+
+**Fix:** `RecentEvent` gains optional `symbol` / `price` / `change` / `eventType`;
+`useGlobalWebSocket` extracts them from the frame (top-level for market frames,
+nested `data`/`payload` otherwise) and passes them through `trackWsMessage`;
+`activity-timeline.ts` adds `marketEventDetail` so a market row now reads
+`BTC/USD · $60,781.58 · ▼ 12.30`. Falls back to `null` (prior behaviour) when a
+frame carries no subject, so non-market events are unaffected.
+
+**Regression test:** `frontend/src/test/helpers/activity-timeline.test.ts` —
+`shows the symbol + price + direction for a market event (no more bare rows)`.
