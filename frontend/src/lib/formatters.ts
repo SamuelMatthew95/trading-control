@@ -263,6 +263,21 @@ export function positionMarketValue(pos: unknown, prices?: Record<string, unknow
 }
 
 /**
+ * Market value reconciled for 2-decimal display: round(invested) + round(pnl).
+ *
+ * Invested, value, and P&L are mathematically `value = invested + pnl`, but
+ * rounding all three independently breaks the eyeball subtraction — e.g.
+ * invested 11.2818→$11.28, value 10.1364→$10.14, pnl −1.1454→−$1.15, yet
+ * 11.28 − 10.14 reads as 1.14, not 1.15. Deriving the displayed value from the
+ * already-rounded invested and P&L guarantees `invested − value === −pnl` at
+ * the cents the user sees, so the row always ties out. P&L stays anchored to
+ * the live value shown in the header.
+ */
+export function reconciledMarketValue(invested: number, pnl: number): number {
+  return Math.round(invested * 100) / 100 + Math.round(pnl * 100) / 100
+}
+
+/**
  * Format a ratio or percentage as a percent string.
  *
  * Auto-scales fractional inputs: any |value| <= 1 is treated as a ratio and
