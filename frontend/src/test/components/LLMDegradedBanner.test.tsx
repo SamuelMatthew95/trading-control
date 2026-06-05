@@ -56,6 +56,14 @@ describe('LLMDegradedBanner', () => {
     expect(screen.getByRole('alert').textContent).toContain('Cloud fallback is enabled')
   })
 
+  it('explains the downstream cascade (why learning agents look idle)', () => {
+    mockedUseLlmHealth.mockReturnValue(health({ status: 'degraded' }))
+    render(<LLMDegradedBanner />)
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toContain('learning agents')
+    expect(alert.textContent).toContain('wiring is intact')
+  })
+
   it('renders nothing while the LLM is live', () => {
     mockedUseLlmHealth.mockReturnValue(health({ status: 'live' }))
     render(<LLMDegradedBanner />)
