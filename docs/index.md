@@ -18,17 +18,17 @@ If you're new to the repo, read in this order:
 
 | File | Coverage |
 |---|---|
-| [architecture.md](architecture.md) | Agent pipeline, stream chain, persistence guarantees, schema context |
+| [architecture.md](architecture.md) | Agent pipeline, stream chain, persistence guarantees, schema context, frontend data flow |
 | [learning-loop.md](learning-loop.md) | End-to-end buy→sell→grade→learn→propose→GitOps-PR loop; fan-out, shadow trading, param evolution |
+| [AGENTS.md](AGENTS.md) | Agent runtime rules, trace propagation, startup sequence, LLM model table, decision provenance |
+| [backtest-and-challenger.md](backtest-and-challenger.md) | Strategy backtesting, walk-forward validation, shadow trading mechanics |
 | [development-guide.md](development-guide.md) | Local setup, env variables, runbook commands, coding expectations |
 | [testing.md](testing.md) | Suite structure, mocking patterns, CI parity expectations |
 | [deployment-guide.md](deployment-guide.md) | Render/Vercel deployment + production smoke checks |
 | [contributing.md](contributing.md) | Branch/PR workflow and repository contribution standards |
-| [AGENTS.md](AGENTS.md) | Agent runtime rules, trace propagation, startup sequence |
 | [mcp.md](mcp.md) | MCP endpoint usage, auth, and production verification checklist |
-| [troubleshooting/README.md](troubleshooting/README.md) | Central index for incident-focused troubleshooting guides |
+| [troubleshooting/README.md](troubleshooting/README.md) | Central index for incident-focused troubleshooting guides (14 subsystems) |
 | [schema_versioning.md](schema_versioning.md) | Schema version strategy and compatibility contract |
-| [schema_v2_audit.md](schema_v2_audit.md) | Schema v2 audit notes and reconciliation status |
 | [local-inference.md](local-inference.md) | Running local model inference paths and guardrails |
 
 ## Quick links
