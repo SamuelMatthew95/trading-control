@@ -49,15 +49,15 @@ class MemoryGuard:
                     if self.risk_memory_store[risk_key] > 3:
                         return {
                             FieldName.SIMILARITY: 1.0,
-                            "reason": "repeated_risk_violation",
-                            "content": f"Pattern failed {self.risk_memory_store[risk_key]} times",
+                            FieldName.REASON: "repeated_risk_violation",
+                            FieldName.CONTENT: f"Pattern failed {self.risk_memory_store[risk_key]} times",
                         }
                     return {
                         FieldName.SIMILARITY: round(similarity, 3),
-                        "reason": metadata.get(
+                        FieldName.REASON: metadata.get(
                             FieldName.REASON, "blocked by prior negative memory"
                         ),
-                        "content": row.content,
+                        FieldName.CONTENT: row.content,
                     }
             except Exception:
                 continue
