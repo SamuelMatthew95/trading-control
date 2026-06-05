@@ -196,3 +196,15 @@ trading loop; the queued `pr_request` artifact remains for the GitHub Action / m
 **Fix:** Added `frontend/src/lib/proposal-routing.ts` — a pure map mirroring the backend handler map — and an "On Approve" column in `ProposalsSection.tsx` that badges each row: `Config auto-PR` (parameter_change), `Control plane` (weight/suspension/retirement), `Prompt store` (prompt_evolution), `Tool registry` (tool_governance), `Challenger / issue` (new_agent), `GitHub issue` (code_change / regime_adjustment).
 
 **Regression test:** `frontend/src/test/helpers/proposal-routing.test.ts`
+
+## ~87% of decisions are `fallback:reject_signal` — Groq throttling cascaded into REJECTs
+
+**Symptom:** Live dashboard shows almost every reasoning decision as `action: reject` / `reasoning_summary: "fallback:reject_signal"` / `llm_succeeded: false`. Downstream everything looks idle: no fills, no grades, the learning agents (`IC_UPDATER` / `REFLECTION_AGENT` / `STRATEGY_PROPOSER`) sit at `event_count: 0`, execution tools never run. `GET /llm/health` reports `groq … success_rate 12.5%, rate_limit_count 7`.
+
+**Root cause:** The Groq path (`_groq_completion`) tried the capable model, fell back to the instruct model **once** on a 429, and if that was also throttled it raised immediately. A single transient free-tier rate-limit therefore became a REJECT (the agent fails closed). The Gemini path already had sliding-window limiting + backoff retry; Groq had neither — so on a busy free tier the reasoning LLM failed most calls and starved the whole learning half of the cognition loop.
+
+**Fix:** `api/services/llm_router.py::_groq_completion` now loops `LLM_MAX_RETRIES` times: capable → instruct, and when **both** tiers are rate-limited it sleeps a bounded exponential backoff (`_groq_backoff_delay`, capped at `MAX_BACKOFF_SECONDS`) and retries the pair. Non-rate-limit errors still raise immediately. After retries are exhausted it still raises, so the agent continues to **fail closed (REJECT)** — backoff lifts the success rate, it never fabricates a trade.
+
+**Note (ops):** The underlying cause is free-tier Groq quota. Code resilience reduces transient rejects but cannot create quota — a sustained fix is a working provider/quota (`LLM_PROVIDER` + key, or a paid tier).
+
+**Regression tests:** `tests/core/test_llm_router_rate_limit.py::test_groq_retries_with_backoff_when_both_tiers_throttled`, `::test_groq_raises_after_retries_exhausted_so_agent_fails_closed`
