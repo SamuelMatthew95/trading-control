@@ -54,6 +54,7 @@ from api.services.agents.reasoning_agent import ReasoningAgent
 from api.services.agents.risk_guardian import RiskGuardian
 from api.services.challenger_spawner import ChallengerSpawner
 from api.services.config_overrides import apply_parameter_overrides
+from api.services.dashboard.agent_performance import agent_grade_snapshot_loop
 from api.services.event_pipeline import EventPipeline
 from api.services.execution.brokers.paper import PaperBroker
 from api.services.execution.execution_engine import ExecutionEngine
@@ -349,6 +350,12 @@ def _start_background_tasks(app: FastAPI) -> None:
         tool_telemetry_flush_loop(), name="tool-telemetry-flush"
     )
 
+    # Periodically snapshot per-agent grades so promotion streaks build over time
+    # regardless of whether anyone is viewing the dashboard.
+    app.state.agent_grade_snapshot_task = asyncio.create_task(
+        agent_grade_snapshot_loop(), name="agent-grade-snapshot"
+    )
+
 
 async def _shutdown(app: FastAPI, pipeline: EventPipeline | None, broadcaster) -> None:
     """Tear down tasks, agents, and connections in reverse dependency order."""
@@ -357,6 +364,7 @@ async def _shutdown(app: FastAPI, pipeline: EventPipeline | None, broadcaster) -
         "keep_alive_task",
         "backtest_refresh_task",
         "tool_telemetry_task",
+        "agent_grade_snapshot_task",
     ):
         task = getattr(app.state, task_name, None)
         if task is not None:
