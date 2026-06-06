@@ -392,7 +392,7 @@ class ReasoningAgent(BaseStreamConsumer):
         # change unless an operator enables AGENT_TRUST_WEIGHTING_ENABLED.
         if settings.AGENT_TRUST_WEIGHTING_ENABLED:
             trust = await self._get_agent_trust(AGENT_REASONING)
-            weight_scale = min(max(weight_scale * trust, AGENT_TRUST_MIN), AGENT_TRUST_MAX)
+            weight_scale = self._apply_trust_weighting(weight_scale, trust)
         scaled_reasoning = float(summary.get(FieldName.CONFIDENCE) or 0.0) * weight_scale
         scaled_signal = (
             float(data.get(FieldName.COMPOSITE_SCORE) or data.get(FieldName.CONFIDENCE) or 0.0)
@@ -659,6 +659,17 @@ class ReasoningAgent(BaseStreamConsumer):
         except Exception:
             log_structured("warning", "reasoning_weight_scale_fetch_failed", exc_info=True)
             return 1.0
+
+    @staticmethod
+    def _apply_trust_weighting(weight_scale: float, trust: float) -> float:
+        """Fold the per-agent trust multiplier into the signal weight scale.
+
+        Trust (already bounded to [AGENT_TRUST_MIN, AGENT_TRUST_MAX]) only caps
+        total influence at the top (AGENT_TRUST_MAX) — it must NEVER raise a
+        Grade-C-dampened scale upward, or trust weighting would silently undo the
+        learning loop's signal reductions. Result stays in (0, AGENT_TRUST_MAX].
+        """
+        return min(weight_scale * trust, AGENT_TRUST_MAX)
 
     async def _get_agent_trust(self, agent_name: str) -> float:
         """Read learning:agent_trust:{name}; default 1.0, bounded [MIN, MAX].
