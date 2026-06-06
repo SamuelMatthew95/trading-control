@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 
 vi.mock('recharts', () => ({
@@ -13,7 +13,26 @@ vi.mock('recharts', () => ({
   Area: () => <div data-testid="area" />,
 }))
 
-import { EquityCurve, buildEquitySeries, getPaddedDomain, getNiceYAxis } from '@/components/dashboard/EquityCurve'
+import {
+  EquityCurve,
+  buildEquitySeries,
+  buildCombinedSeries,
+  buildRenderSeries,
+  computeWindowStats,
+  filterByRange,
+  getPaddedDomain,
+  getNiceYAxis,
+  getLineDomain,
+  EQUITY_RANGES,
+} from '@/components/dashboard/EquityCurve'
+
+const livePoint = (timestamp: number, equity: number) => ({
+  timestamp,
+  label: '',
+  pnl: equity,
+  delta: 0,
+  equity,
+})
 
 describe('EquityCurve', () => {
   it('renders empty state with no data', () => {
@@ -106,7 +125,7 @@ describe('EquityCurve', () => {
     expect(screen.getByText('Cumulative P&L').nextElementSibling).toHaveClass('text-emerald-500')
   })
 
-  it('shows net metric from zero baseline instead of first plotted point', () => {
+  it('shows only the period label for the all-time range (no repeated value)', () => {
     render(
       <EquityCurve
         orders={[
@@ -115,10 +134,30 @@ describe('EquityCurve', () => {
         ]}
       />,
     )
+    // ALL is the default: the headline already IS the all-time P&L, so the change
+    // line shows just the period label — the dollar value is not repeated.
+    expect(screen.getByText('all time')).toBeInTheDocument()
+    expect(screen.getAllByText('$50.00')).toHaveLength(1)
+  })
 
-    const netLabel = screen.getByText('Net')
-    expect(netLabel.nextElementSibling).toHaveTextContent('+$50.00')
-    expect(netLabel.nextElementSibling).toHaveClass('text-emerald-500')
+  it('shows the signed change over a selected sub-window', () => {
+    const now = Date.now()
+    const HOUR = 60 * 60 * 1000
+    render(
+      <EquityCurve
+        orders={[]}
+        liveSeries={[
+          livePoint(now - 2 * HOUR, 2),
+          livePoint(now - 30 * 60 * 1000, 5),
+          livePoint(now - 1000, 3),
+        ]}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '1H' }))
+    // Baseline is the pre-window value (2); last is 3 → +$1.00 over the past hour.
+    const amount = screen.getByText('$1.00')
+    expect(amount).toBeInTheDocument()
+    expect(amount.parentElement).toHaveClass('text-emerald-500')
   })
 
   it('produces clean, nicely-stepped y-axis ticks for small P&L (no -$6.15 junk)', () => {
@@ -167,5 +206,135 @@ describe('EquityCurve', () => {
 
     expect(min).toBeLessThanOrEqual(0)
     expect(max).toBeGreaterThan(200)
+  })
+})
+
+describe('getLineDomain', () => {
+  it('fits the data with padding (does not force $0 into view)', () => {
+    const [lo, hi] = getLineDomain([livePoint(0, 10), livePoint(1, 20)])
+    expect(lo).toBeGreaterThan(0) // an all-positive curve never drags the floor to 0
+    expect(lo).toBeLessThan(10)
+    expect(hi).toBeGreaterThan(20)
+  })
+
+  it('applies a min-height floor so a flat curve is not amplified into noise', () => {
+    const [lo, hi] = getLineDomain([livePoint(0, -1.1), livePoint(1, -1.1)])
+    expect(hi - lo).toBeGreaterThanOrEqual(0.5)
+    expect(lo).toBeLessThan(-1.1)
+    expect(hi).toBeGreaterThan(-1.1)
+  })
+})
+
+describe('buildCombinedSeries', () => {
+  it('uses the live series wholesale at cold start (no closed orders)', () => {
+    const combined = buildCombinedSeries([], [livePoint(1000, -1), livePoint(2000, -1.1)])
+    expect(combined).toHaveLength(2)
+    expect(combined.every((p) => p.live)).toBe(true)
+  })
+
+  it('appends only the live tail newer than the last realized point', () => {
+    const lastTs = Date.parse('2026-01-01T00:00:00Z')
+    const combined = buildCombinedSeries(
+      [{ created_at: '2026-01-01T00:00:00Z', pnl: 10 }],
+      [livePoint(lastTs - 1000, 99), livePoint(lastTs + 1000, 12)],
+    )
+    expect(combined).toHaveLength(2)
+    expect(combined[0]).toMatchObject({ live: false, equity: 10 })
+    // Stale live sample (before the close) dropped; the newer one continues the curve.
+    expect(combined[1]).toMatchObject({ live: true, equity: 12 })
+  })
+})
+
+describe('filterByRange', () => {
+  const HOUR = 60 * 60 * 1000
+  const MIN = 60 * 1000
+  const now = 100_000_000
+  const series = [
+    { ...livePoint(now - 2 * HOUR, -1), live: true },
+    { ...livePoint(now - 30 * MIN, -0.5), live: true },
+    { ...livePoint(now - 1000, -0.2), live: true },
+  ]
+
+  it('keeps everything for ALL', () => {
+    expect(filterByRange(series, 'ALL', now)).toHaveLength(3)
+  })
+
+  it('slices to the 1H window', () => {
+    expect(filterByRange(series, '1H', now)).toHaveLength(2)
+  })
+
+  it('slices to the LIVE (15m) window', () => {
+    expect(filterByRange(series, 'LIVE', now)).toHaveLength(1)
+  })
+})
+
+describe('computeWindowStats', () => {
+  const full = [
+    { ...livePoint(1000, 5), live: false },
+    { ...livePoint(2000, 8), live: false },
+    { ...livePoint(3000, 6), live: false },
+  ]
+
+  it('measures change from the baseline just before the window', () => {
+    const stats = computeWindowStats(full, full.slice(1))
+    expect(stats).toMatchObject({ baseline: 5, last: 6, change: 1, peak: 8, trough: 6, range: 2 })
+  })
+
+  it('uses a zero baseline when the window reaches inception (ALL)', () => {
+    const stats = computeWindowStats(full, full)
+    expect(stats).toMatchObject({ baseline: 0, last: 6, change: 6, peak: 8, trough: 5, range: 3 })
+  })
+
+  it('returns null for an empty window', () => {
+    expect(computeWindowStats(full, [])).toBeNull()
+  })
+})
+
+describe('buildRenderSeries', () => {
+  it('breaks the line across a large gap between live samples', () => {
+    const render = buildRenderSeries([
+      { ...livePoint(0, 0), live: true },
+      { ...livePoint(3000, 1), live: true }, // 3s — continuous
+      { ...livePoint(3000 + 60_000, 2), live: true }, // 60s gap — break
+    ])
+    expect(render).toHaveLength(4)
+    expect(render.filter((p) => p.equity === null)).toHaveLength(1)
+  })
+
+  it('never breaks the realized backbone, even across long spans', () => {
+    const render = buildRenderSeries([
+      { ...livePoint(0, 0), live: false },
+      { ...livePoint(10_000_000, 5), live: false },
+    ])
+    expect(render).toHaveLength(2)
+    expect(render.some((p) => p.equity === null)).toBe(false)
+  })
+})
+
+describe('EquityCurve range selector', () => {
+  it('renders all range tabs with ALL active by default', () => {
+    render(<EquityCurve orders={[{ created_at: '2026-01-01T00:00:00Z', pnl: 10 }]} />)
+    for (const key of EQUITY_RANGES) {
+      expect(screen.getByRole('button', { name: key })).toBeInTheDocument()
+    }
+    expect(screen.getByRole('button', { name: 'ALL' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('disables ranges longer than the available history at cold start', () => {
+    const now = Date.now()
+    render(<EquityCurve orders={[]} liveSeries={[livePoint(now - 6000, -1), livePoint(now - 3000, -1.05)]} />)
+    expect(screen.getByRole('button', { name: '1H' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '1M' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'LIVE' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'ALL' })).toBeEnabled()
+  })
+
+  it('switches the active range when a tab is clicked', () => {
+    const now = Date.now()
+    render(<EquityCurve orders={[]} liveSeries={[livePoint(now - 6000, -1), livePoint(now - 3000, -1.05)]} />)
+    const liveTab = screen.getByRole('button', { name: 'LIVE' })
+    fireEvent.click(liveTab)
+    expect(liveTab).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'ALL' })).toHaveAttribute('aria-pressed', 'false')
   })
 })

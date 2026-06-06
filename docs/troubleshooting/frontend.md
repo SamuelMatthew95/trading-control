@@ -780,3 +780,88 @@ cost-basis + P&L (the tie-out) rather than buy-back market value.
 (`starts fresh when the newest point is stale`) +
 `frontend/src/test/components/EquityCurve.test.tsx` (`floors the step at $0.01…`) +
 `frontend/src/test/store/recent-events.test.ts` (WS detail threading).
+
+## Equity Curve "just moves live between minutes — can't see anything" (Robinhood-style ranges)
+
+**Symptom:** The Equity Curve only ever showed a ~10-minute live mark-to-market
+window. With a flat open position it read as a near-horizontal line auto-zoomed to
+a couple of cents of range, with no way to zoom out or see the full history — "this
+one is just moving live in between minutes, I can't see shit."
+
+**Root cause:** Three compounding limits. (1) `useLiveEquitySeries` capped the live
+tail at 200 points / ~10 min (`MAX_POINTS`) and discarded the whole persisted curve
+on reload whenever the newest sample was older than `CONTINUITY_THRESHOLD_MS`
+(2 min), so there was never more than a few minutes to look at. (2) `EquityCurve`
+showed *either* the realized order curve *or* the live tail, never the combined
+lifetime, and had no time-range control. (3) The Y-axis auto-scaled a flat curve so
+tiny moves filled the panel and looked like noise.
+
+**Fix:** `EquityCurve` is now a Robinhood-style chart:
+- `buildCombinedSeries(orders, liveSeries)` merges the realized order backbone
+  (full history, one step per closed trade) with the live mark-to-market tail into
+  one lifetime series — the live total already includes realized P&L, so the seam is
+  continuous.
+- A `LIVE / 1H / 1D / 1W / 1M / ALL` range selector (`filterByRange`) slices that
+  series; ranges longer than the available history are disabled at cold start so the
+  tabs aren't all identical. Default is `ALL` ("see everything").
+- Window-relative stats (`computeWindowStats`): the headline change and line colour
+  are measured from the baseline just before the visible window (Robinhood-style),
+  with a zero baseline at inception so `ALL` equals the current total P&L (preserves
+  the prior zero-baseline Net/colour semantics).
+- `buildRenderSeries` inserts a null break between live samples more than
+  `LIVE_GAP_BREAK_MS` (45s) apart, so a reload/background gap renders as a break
+  rather than a fabricated diagonal — the realized backbone and realized→live seam
+  are never broken.
+- `useLiveEquitySeries` raises retention to `MAX_POINTS = 1200` (~1h at 3s) and
+  `MAX_AGE_MS = 24h`. **This reverses the earlier "start fresh when the newest
+  sample is stale" behaviour** (`CONTINUITY_THRESHOLD_MS`, see entry above): that
+  rule threw away the history the new ranges need on every reload. The
+  fabricated-slope risk it guarded against is now handled by the line-break in
+  `buildRenderSeries` instead, so we keep the history *and* avoid the fake jump.
+
+Note: a pure-live position (no closed trades) still maxes out at ~1h of continuous
+data; the longer ranges fill in from the realized order history as trades close. A
+truly continuous multi-day mark-to-market curve would need server-side equity
+sampling (future work).
+
+**Regression test:** `frontend/src/test/components/EquityCurve.test.tsx`
+(`buildCombinedSeries`, `filterByRange`, `computeWindowStats`, `buildRenderSeries`,
+`EquityCurve range selector`) + `frontend/src/test/helpers/live-equity-series.test.ts`
+(`retains well past the old 200-point cap`, `restores history even when the newest
+sample is no longer current`).
+
+## Equity Curve "looks like a kid / bullshit" — gridded chart instead of the Robinhood line
+
+**Symptom:** Even after the range tabs landed, the chart read as amateurish: the
+same dollar value repeated ~4× (headline + Net/Peak/Range tiles), a heavy red
+area "block" filling from the line up to $0, 8–9 cramped dollar gridlines, and —
+for an all-underwater P&L — the line crammed against the bottom with a big dead
+gap up to the $0 line.
+
+**Root cause:** It was styled as a dense dashboard chart, not the Robinhood line
+the user asked for. Two specifics: (1) the fill used the default base (≈$0) so a
+−$1.10 curve drew a solid band between the line and $0; (2) `getNiceYAxis` always
+forces $0 into the domain, so an all-negative curve was pushed to the bottom with
+the $0 gridline stranded at the top.
+
+**Fix:** `EquityCurve` is now the bare Robinhood line (the user picked the
+"Robinhood-minimal line — no fill" option):
+- Hidden Y-axis (no dollar labels), no `CartesianGrid`, no area fill —
+  a single 2.5px line.
+- `getLineDomain` fits the data (min..max) with a `MIN_DOMAIN_HALF` ($0.25) floor
+  — it does **not** force $0 in — so a flat curve is a calm centred line, not
+  amplified noise and not crammed to an edge.
+- The baseline `ReferenceLine` uses `ifOverflow="discard"`, so the $0 / cost line
+  appears only when the visible curve actually crosses it.
+- Header shows the value once (headline) + a coloured arrow/period label; the
+  signed change shows only on sub-windows. Range tabs are a full-width row below
+  the chart.
+
+Verified by rendering the real chart subtree to PNG (react-dom/server →
+`@resvg/resvg-js`, installed `--no-save`, harness deleted after use) for the
+uptrend / flat-loss / downtrend cases before shipping — the sandbox has no
+browser, so this is how the look was checked rather than guessed.
+
+**Regression test:** `frontend/src/test/components/EquityCurve.test.tsx`
+(`getLineDomain` fits-data + min-height floor; `shows only the period label for
+the all-time range`; `shows the signed change over a selected sub-window`).

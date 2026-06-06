@@ -1,10 +1,9 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Area,
   AreaChart,
-  CartesianGrid,
   ResponsiveContainer,
   ReferenceLine,
   Tooltip,
@@ -24,6 +23,50 @@ export type EquityPoint = {
   equity: number
 }
 
+// A combined-series point also remembers whether it came from the live
+// mark-to-market sampler (so we only break the rendered line across gaps in the
+// continuous live tail, never across the legitimately-spaced realized history).
+type CombinedPoint = EquityPoint & { live: boolean }
+
+// Render points allow a null equity so Recharts (connectNulls={false}) draws a
+// gap instead of a fabricated sloped segment across a live sampling gap.
+type RenderPoint = { timestamp: number; equity: number | null; delta: number }
+
+// Robinhood-style ranges. LIVE is the high-resolution recent tail; the rest
+// zoom out across the realized history. ALL shows the entire lifetime.
+export type EquityRange = 'LIVE' | '1H' | '1D' | '1W' | '1M' | 'ALL'
+
+export const EQUITY_RANGES: EquityRange[] = ['LIVE', '1H', '1D', '1W', '1M', 'ALL']
+
+const MINUTE = 60 * 1000
+const HOUR = 60 * MINUTE
+const DAY = 24 * HOUR
+
+export const RANGE_WINDOW_MS: Record<EquityRange, number> = {
+  LIVE: 15 * MINUTE,
+  '1H': HOUR,
+  '1D': DAY,
+  '1W': 7 * DAY,
+  '1M': 30 * DAY,
+  ALL: Number.POSITIVE_INFINITY,
+}
+
+// Human-readable label for the secondary header line (Robinhood-style: the
+// headline is the current value, this line names the period it's measured over).
+const RANGE_LABEL: Record<EquityRange, string> = {
+  LIVE: 'live',
+  '1H': 'past hour',
+  '1D': 'past day',
+  '1W': 'past week',
+  '1M': 'past month',
+  ALL: 'all time',
+}
+
+// Break the live line when two consecutive live samples are more than this far
+// apart (reload gap, backgrounded tab). 3s is the sampling cadence, so 45s is
+// many missed samples — a real discontinuity, not jitter.
+const LIVE_GAP_BREAK_MS = 45 * 1000
+
 const getOrderTimestamp = (order: EquityOrder): number | null => {
   return (
     parseTimestamp(order.filled_at) ??
@@ -40,6 +83,8 @@ const getOrderTimestamp = (order: EquityOrder): number | null => {
 // toLocaleString(undefined, ...) and would vary by device locale on a chart axis).
 const formatUSD = (value: number): string =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value)
+
+const signedUSD = (value: number): string => `${value >= 0 ? '+' : ''}${formatUSD(value)}`
 
 const formatTickTime = (timestamp: number): string => {
   const date = new Date(timestamp)
@@ -81,12 +126,106 @@ export const buildEquitySeries = (orders: EquityOrder[]): EquityPoint[] => {
   })
 }
 
+/**
+ * Merge the realized order curve (full history, one step per closed trade) with
+ * the live mark-to-market tail into a single lifetime equity series.
+ *
+ * The realized curve is the backbone; live samples newer than the last closed
+ * trade are appended on top. Because the live total already includes realized
+ * P&L, the seam is continuous: at a close, realized == live total (unrealized
+ * ≈ 0), and while a position is open the live tail rises/falls with unrealized.
+ * This is the "see everything" series the range tabs slice into.
+ */
+export const buildCombinedSeries = (
+  orders: EquityOrder[],
+  liveSeries: EquityPoint[] = [],
+): CombinedPoint[] => {
+  const realized: CombinedPoint[] = buildEquitySeries(orders).map((p) => ({ ...p, live: false }))
+  const lastRealizedTs = realized.length > 0 ? realized[realized.length - 1].timestamp : -Infinity
+  const liveTail: CombinedPoint[] = liveSeries
+    .filter((p) => p.timestamp > lastRealizedTs)
+    .map((p) => ({ ...p, live: true }))
+  return [...realized, ...liveTail]
+}
+
+/** Slice the lifetime series to a range window relative to `now`. */
+export const filterByRange = (
+  series: CombinedPoint[],
+  range: EquityRange,
+  now: number,
+): CombinedPoint[] => {
+  if (range === 'ALL' || series.length === 0) return series
+  const cutoff = now - RANGE_WINDOW_MS[range]
+  return series.filter((point) => point.timestamp >= cutoff)
+}
+
+export type WindowStats = {
+  last: number
+  baseline: number
+  change: number
+  peak: number
+  trough: number
+  range: number
+}
+
+/**
+ * Window-relative stats (Robinhood-style): the change is measured from the
+ * baseline — the equity just before the visible window — so each range answers
+ * "how did P&L move over this period". When the window reaches inception there
+ * is no earlier point, so the baseline is 0 (P&L starts at zero before any
+ * trade), making the ALL-range change equal the current total P&L.
+ */
+export const computeWindowStats = (
+  full: CombinedPoint[],
+  windowed: CombinedPoint[],
+): WindowStats | null => {
+  if (windowed.length === 0) return null
+  const firstTs = windowed[0].timestamp
+  let baseline = 0
+  for (const point of full) {
+    if (point.timestamp < firstTs) baseline = point.equity
+    else break
+  }
+  const equities = windowed.map((point) => point.equity)
+  const last = equities[equities.length - 1]
+  const peak = Math.max(...equities)
+  const trough = Math.min(...equities)
+  return { last, baseline, change: last - baseline, peak, trough, range: peak - trough }
+}
+
+/**
+ * Insert null-equity break points between consecutive *live* samples that are
+ * more than {@link LIVE_GAP_BREAK_MS} apart, so a reload/background gap renders
+ * as a break rather than a straight diagonal across time that never happened.
+ * The realized backbone (legitimately spaced minutes/hours apart) is never
+ * broken, nor is the realized→live seam.
+ */
+export const buildRenderSeries = (windowed: CombinedPoint[]): RenderPoint[] => {
+  const out: RenderPoint[] = []
+  for (let i = 0; i < windowed.length; i += 1) {
+    const point = windowed[i]
+    const prev = windowed[i - 1]
+    if (
+      prev &&
+      prev.live &&
+      point.live &&
+      point.timestamp - prev.timestamp > LIVE_GAP_BREAK_MS
+    ) {
+      out.push({ timestamp: prev.timestamp + 1, equity: null, delta: 0 })
+    }
+    out.push({ timestamp: point.timestamp, equity: point.equity, delta: point.delta })
+  }
+  return out
+}
+
 // Round a range to a "nice" step (1/2/5 × 10ⁿ) so axis ticks land on clean
 // numbers. Otherwise a flat-ish curve worth a couple of dollars gets a padded
 // domain like [-6.15, 5] and Recharts labels it with junk (-$0.15, -$3.15…).
 function niceStep(range: number): number {
   if (!(range > 0)) return 1
-  const rough = range / 4
+  // Target ~3 divisions (plus one step of headroom each side ≈ 4–5 gridlines) so
+  // the axis stays clean instead of stacking 8–9 cramped dollar labels.
+  const rough = range / 3
   const mag = 10 ** Math.floor(Math.log10(rough))
   const norm = rough / mag
   const niceNorm = norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10
@@ -118,6 +257,24 @@ export const getNiceYAxis = (series: EquityPoint[]): { domain: [number, number];
 
 export const getPaddedDomain = (series: EquityPoint[]): [number, number] => getNiceYAxis(series).domain
 
+// Minimum half-height ($) so a near-flat curve isn't amplified into dramatic
+// fake waves — a $1.10 line that barely moves should read as a flat line, not
+// noise filling the panel.
+const MIN_DOMAIN_HALF = 0.25
+
+// Y domain for the axis-less Robinhood view: fit the data (NOT forced through $0,
+// which would shove an all-underwater curve to the bottom behind a big dead gap)
+// with padding and a min-height floor. The $0 / baseline reference is drawn by a
+// ReferenceLine that simply doesn't show when it falls outside this window.
+export const getLineDomain = (series: EquityPoint[]): [number, number] => {
+  if (series.length === 0) return [-MIN_DOMAIN_HALF, MIN_DOMAIN_HALF]
+  const values = series.map((point) => point.equity)
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const pad = Math.max((max - min) * 0.15, MIN_DOMAIN_HALF)
+  return [min - pad, max + pad]
+}
+
 export function EquityCurve({
   orders,
   liveSeries,
@@ -125,45 +282,61 @@ export function EquityCurve({
   hasError = false,
 }: {
   orders: EquityOrder[]
-  /** Real-time mark-to-market series, used as a fallback when no trade has
-   *  closed yet so an open position still renders a curve (see useLiveEquitySeries). */
+  /** Real-time mark-to-market series; forms the live tail of the lifetime curve
+   *  and the sole source before any trade has closed (see useLiveEquitySeries). */
   liveSeries?: EquityPoint[]
   isLoading?: boolean
   hasError?: boolean
 }) {
+  const [range, setRange] = useState<EquityRange>('ALL')
+
   const orderSeries = useMemo(() => buildEquitySeries(orders), [orders])
-  // Prefer the realized, order-derived curve. When no trade has closed yet, fall
-  // back to the live mark-to-market series so an open position shows a real-time
-  // curve instead of an empty "No equity data yet" state.
-  const series = useMemo(
-    () => (orderSeries.length > 0 ? orderSeries : (liveSeries ?? [])),
-    [orderSeries, liveSeries],
+  // One lifetime series: realized history + live mark-to-market tail.
+  const combined = useMemo(
+    () => buildCombinedSeries(orders, liveSeries ?? []),
+    [orders, liveSeries],
   )
-  const isLiveSeries = orderSeries.length === 0 && (liveSeries?.length ?? 0) > 0
-  const { domain, ticks: yTicks } = useMemo(() => getNiceYAxis(series), [series])
-  // Show seconds while the curve still spans only a few minutes (otherwise every
-  // HH:MM tick is the same minute and reads as "11:25 AM" four times); drop to
-  // HH:MM once it covers enough time for the minutes to differ.
+  const hasRealized = orderSeries.length > 0
+  // Pure-live mode: an open position with no closed trades yet.
+  const isLiveSeries = !hasRealized && combined.length > 0
+
+  // `now` advances every time the series changes (a new live sample arrives every
+  // 3s), keeping the relative range windows fresh without a separate timer.
+  const now = useMemo(
+    () => (combined.length > 0 ? Math.max(Date.now(), combined[combined.length - 1].timestamp) : Date.now()),
+    [combined],
+  )
+
+  // Disable ranges longer than the available history so the tabs aren't all
+  // identical at cold start. LIVE and ALL are always selectable.
+  const fullSpanMs = combined.length > 1 ? combined[combined.length - 1].timestamp - combined[0].timestamp : 0
+  const isRangeDisabled = (key: EquityRange): boolean =>
+    key !== 'ALL' && key !== 'LIVE' && RANGE_WINDOW_MS[key] > fullSpanMs && fullSpanMs > 0
+
+  const effectiveRange = isRangeDisabled(range) ? 'ALL' : range
+  const windowed = useMemo(
+    () => filterByRange(combined, effectiveRange, now),
+    [combined, effectiveRange, now],
+  )
+
+  const stats = useMemo(() => computeWindowStats(combined, windowed), [combined, windowed])
+  const renderData = useMemo(() => buildRenderSeries(windowed), [windowed])
+  const yDomain = useMemo(() => getLineDomain(windowed), [windowed])
+
+  // Seconds while the visible window spans only a few minutes, HH:MM up to a
+  // day, and a date label once it covers multiple days — so ticks never repeat.
   const xTickFormatter = useMemo(() => {
-    const spanMs = series.length > 1 ? series[series.length - 1].timestamp - series[0].timestamp : 0
-    const showSeconds = spanMs > 0 && spanMs < 5 * 60 * 1000
-    return (ts: number) =>
-      new Date(ts).toLocaleTimeString(
-        [],
-        showSeconds
-          ? { hour: '2-digit', minute: '2-digit', second: '2-digit' }
-          : { hour: '2-digit', minute: '2-digit' },
-      )
-  }, [series])
-  const stats = useMemo(() => {
-    if (series.length === 0) return null
-    const end = series[series.length - 1]?.equity ?? 0
-    const change = end
-    const peak = Math.max(...series.map((point) => point.equity))
-    const trough = Math.min(...series.map((point) => point.equity))
-    const swing = peak - trough
-    return { end, change, peak, swing }
-  }, [series])
+    const spanMs =
+      windowed.length > 1 ? windowed[windowed.length - 1].timestamp - windowed[0].timestamp : 0
+    if (spanMs > 0 && spanMs < 5 * MINUTE) {
+      return (ts: number) =>
+        new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    }
+    if (spanMs < DAY) {
+      return (ts: number) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }
+    return (ts: number) => new Date(ts).toLocaleDateString([], { month: 'short', day: '2-digit' })
+  }, [windowed])
 
   if (isLoading) {
     return <div className="h-72 animate-pulse rounded-lg border border-slate-200 bg-slate-100/70 dark:border-slate-800 dark:bg-slate-800/40" />
@@ -173,90 +346,65 @@ export function EquityCurve({
     return <div className="flex h-72 items-center justify-center rounded-lg border border-dashed border-slate-300 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">Unable to load equity curve</div>
   }
 
-  if (series.length === 0) {
+  if (combined.length === 0) {
     return <div className="flex h-72 items-center justify-center rounded-lg border border-dashed border-slate-300 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">No equity data yet</div>
   }
 
-  const last = stats?.end ?? 0
-  const positive = last >= 0
+  const last = stats?.last ?? 0
+  const change = stats?.change ?? 0
+  const baseline = stats?.baseline ?? 0
+  // Robinhood colours the curve by the move over the selected period, not by the
+  // absolute sign — green when the window is up, red when it's down.
+  const positive = change >= 0
   const strokeColor = positive ? '#10b981' : '#f43f5e'
-  const gradientTop = positive ? 'rgba(16,185,129,0.35)' : 'rgba(244,63,94,0.35)'
-  const gradientBottom = positive ? 'rgba(16,185,129,0.02)' : 'rgba(244,63,94,0.02)'
+  const valueClass = positive ? 'text-emerald-500' : 'text-rose-500'
 
   return (
-    <div className="rounded-xl border border-slate-200/90 bg-gradient-to-b from-white via-slate-50/60 to-white p-4 shadow-sm dark:border-slate-800 dark:from-slate-950 dark:via-slate-900/60 dark:to-slate-950">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-            {isLiveSeries ? 'Live P&L (open position)' : 'Cumulative P&L'}
-          </p>
-          <p className={cn('text-xl font-semibold tabular-nums', positive ? 'text-emerald-500' : 'text-rose-500')}>{formatUSD(last)}</p>
+    <div>
+      <div className="mb-3">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+          {isLiveSeries ? 'Live P&L (open position)' : 'Cumulative P&L'}
+        </p>
+        <p className={cn('mt-0.5 text-3xl font-semibold tabular-nums', valueClass)}>{formatUSD(last)}</p>
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+          <span className={cn('inline-flex items-center gap-1 font-semibold tabular-nums', valueClass)}>
+            <span aria-hidden>{positive ? '▲' : '▼'}</span>
+            {effectiveRange !== 'ALL' && <span>{formatUSD(Math.abs(change))}</span>}
+          </span>
+          <span className="font-medium uppercase tracking-wide text-slate-500">{RANGE_LABEL[effectiveRange]}</span>
           {isLiveSeries && (
-            <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-500">
+            <span className="inline-flex items-center gap-1 font-medium uppercase tracking-wide text-emerald-500">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
               Live · marks to market in real time
             </span>
           )}
         </div>
-        <div className="grid grid-cols-2 gap-2 text-right sm:grid-cols-3">
-          <div className="rounded-lg border border-slate-200 bg-white/70 px-2 py-1 dark:border-slate-800 dark:bg-slate-900/60">
-            <p className="text-[10px] uppercase tracking-wide text-slate-500">Net</p>
-            <p className={cn('text-xs font-medium tabular-nums', (stats?.change ?? 0) >= 0 ? 'text-emerald-500' : 'text-rose-500')}>
-              {(stats?.change ?? 0) >= 0 ? '+' : ''}
-              {formatUSD(stats?.change ?? 0)}
-            </p>
-          </div>
-          <div className="rounded-lg border border-slate-200 bg-white/70 px-2 py-1 dark:border-slate-800 dark:bg-slate-900/60">
-            <p className="text-[10px] uppercase tracking-wide text-slate-500">Peak</p>
-            <p className="text-xs font-medium tabular-nums text-slate-700 dark:text-slate-200">{stats != null ? formatUSD(stats.peak) : '--'}</p>
-          </div>
-          <div className="col-span-2 rounded-lg border border-slate-200 bg-white/70 px-2 py-1 dark:col-span-1 dark:border-slate-800 dark:bg-slate-900/60">
-            <p className="text-[10px] uppercase tracking-wide text-slate-500">Range</p>
-            <p className="text-xs font-medium tabular-nums text-slate-700 dark:text-slate-200">{stats != null ? formatUSD(stats.swing) : '--'}</p>
-          </div>
-        </div>
       </div>
 
-      <div className="h-72 w-full rounded-lg border border-slate-200/70 bg-white/80 p-2 dark:border-slate-800/80 dark:bg-slate-950/40">
+      <div className="h-72 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={series} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
-            <defs>
-              <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={gradientTop} />
-                <stop offset="95%" stopColor={gradientBottom} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="2 4" stroke="currentColor" className="text-slate-200 dark:text-slate-800" />
+          <AreaChart data={renderData} margin={{ top: 12, right: 6, left: 6, bottom: 0 }}>
             <XAxis
               dataKey="timestamp"
               type="number"
               domain={["dataMin", "dataMax"]}
               tickFormatter={xTickFormatter}
-              tick={{ fill: '#64748b', fontSize: 11 }}
-              axisLine={{ stroke: '#334155' }}
-              tickLine={{ stroke: '#334155' }}
-              minTickGap={48}
+              tick={{ fill: '#94a3b8', fontSize: 10 }}
+              axisLine={false}
+              tickLine={false}
+              minTickGap={64}
             />
-            <YAxis
-              type="number"
-              domain={domain}
-              ticks={yTicks}
-              tickFormatter={(value) => formatUSD(value)}
-              tick={{ fill: '#64748b', fontSize: 11 }}
-              axisLine={{ stroke: '#334155' }}
-              tickLine={{ stroke: '#334155' }}
-              width={86}
-            />
-            <ReferenceLine y={0} stroke="#64748b" strokeDasharray="4 4" />
+            <YAxis hide type="number" domain={yDomain} />
+            {/* Robinhood-style reference at the window's starting value (cost line);
+                ifOverflow="discard" hides it when it falls outside the fitted view. */}
+            <ReferenceLine y={baseline} ifOverflow="discard" stroke="#64748b" strokeDasharray="5 5" strokeOpacity={0.45} />
             <Tooltip
+              cursor={{ stroke: '#94a3b8', strokeDasharray: '3 3', strokeOpacity: 0.6 }}
               contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 10, boxShadow: '0 10px 25px rgba(2,6,23,0.35)' }}
               labelStyle={{ color: '#cbd5e1', fontSize: 12 }}
               formatter={(value: number, _name, item) => {
-                const change = typeof item?.payload?.delta === 'number' ? item.payload.delta : 0
-                return [
-                  `${formatUSD(value)} (Δ ${change >= 0 ? '+' : ''}${formatUSD(change)})`,
-                  'Equity',
-                ]
+                const delta = typeof item?.payload?.delta === 'number' ? item.payload.delta : 0
+                return [`${formatUSD(value)} (Δ ${signedUSD(delta)})`, 'Equity']
               }}
               labelFormatter={(value) => formatTooltipTime(Number(value))}
             />
@@ -265,18 +413,42 @@ export function EquityCurve({
               dataKey="equity"
               stroke={strokeColor}
               strokeWidth={2.5}
-              fillOpacity={1}
-              fill="url(#equityGradient)"
+              fill="none"
               isAnimationActive={false}
               connectNulls={false}
-              dot={series.length < 3 ? { r: 3, strokeWidth: 0, fill: strokeColor } : false}
+              dot={renderData.length < 3 ? { r: 3, strokeWidth: 0, fill: strokeColor } : false}
               activeDot={{ r: 4, strokeWidth: 0, fill: strokeColor }}
             />
           </AreaChart>
         </ResponsiveContainer>
       </div>
 
-      {series.length < 2 && <p className="mt-2 text-xs text-slate-500">Need more points to render a full trend.</p>}
+      <div className="mt-2 flex items-center justify-between gap-1">
+        {EQUITY_RANGES.map((key) => {
+          const disabled = isRangeDisabled(key)
+          const active = key === effectiveRange
+          return (
+            <button
+              key={key}
+              type="button"
+              disabled={disabled}
+              onClick={() => setRange(key)}
+              aria-pressed={active}
+              className={cn(
+                'flex-1 rounded-md py-1 text-[10px] font-semibold uppercase tracking-wide transition-colors',
+                active
+                  ? cn('bg-slate-100 dark:bg-slate-800/80', valueClass)
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200',
+                disabled && 'cursor-not-allowed opacity-30 hover:text-slate-500',
+              )}
+            >
+              {key}
+            </button>
+          )
+        })}
+      </div>
+
+      {windowed.length < 2 && <p className="mt-2 text-center text-xs text-slate-500">Need more points to render a full trend.</p>}
     </div>
   )
 }

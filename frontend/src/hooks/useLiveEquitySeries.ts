@@ -10,14 +10,15 @@ import type { EquityPoint } from '@/components/dashboard/EquityCurve'
 // sample that total on a fixed cadence and accumulate a rolling window, turning
 // an open position into an actual curve instead of "No equity data yet".
 const SAMPLE_INTERVAL_MS = 3000
-const MAX_POINTS = 200
+// ~1h of high-resolution (3s) live samples. The old 200-point / 10-minute cap
+// made the chart "just move live between minutes" with nothing to zoom out to;
+// a 1h tail gives the Robinhood-style LIVE / 1H ranges real data, while the
+// realized order curve supplies the longer (1D / 1W / 1M / ALL) history.
+const MAX_POINTS = 1200
 const STORAGE_KEY = 'codex.equityCurve'
-// Drop individual samples older than this when restoring after a reload.
-const MAX_AGE_MS = 60 * 60 * 1000
-// If the newest persisted sample is older than this, the tab was away too long
-// to draw a continuous line — restoring would splice a fabricated sloped segment
-// across the gap (e.g. -$1.15 30 min ago → +$5 now). Past it, start fresh.
-const CONTINUITY_THRESHOLD_MS = 2 * 60 * 1000
+// Keep up to a day of live samples across reloads so the longer ranges survive a
+// refresh. Older samples are dropped on restore.
+const MAX_AGE_MS = 24 * 60 * 60 * 1000
 // Persist on a fixed cadence (decoupled from the 3s sampling) so we don't
 // re-serialize the whole window to localStorage on every single sample.
 const PERSIST_INTERVAL_MS = 15000
@@ -48,9 +49,14 @@ export function appendEquitySample(
 }
 
 /**
- * Restore the persisted equity curve, dropping malformed and stale (> 1h)
+ * Restore the persisted equity curve, dropping malformed and stale (> 24h)
  * points and capping to the rolling window. Pure + testable; returns [] on the
  * server or when nothing valid is stored.
+ *
+ * Unlike the old behaviour, this keeps the recent history even when the newest
+ * sample is no longer "current" (the tab was away a while). EquityCurve breaks
+ * the rendered line across any large time gap, so restoring the history powers
+ * the longer ranges without drawing a fabricated sloped segment across the gap.
  */
 export function loadPersistedEquitySeries(now: number = Date.now()): EquityPoint[] {
   if (typeof window === 'undefined') return []
@@ -60,7 +66,7 @@ export function loadPersistedEquitySeries(now: number = Date.now()): EquityPoint
     const parsed: unknown = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
     const cutoff = now - MAX_AGE_MS
-    const valid = parsed
+    return parsed
       .filter(
         (p): p is EquityPoint =>
           !!p &&
@@ -69,12 +75,6 @@ export function loadPersistedEquitySeries(now: number = Date.now()): EquityPoint
           (p as EquityPoint).timestamp >= cutoff,
       )
       .slice(-MAX_POINTS)
-    // Only restore when the curve is still "current": if the newest sample is
-    // stale, the tab was away long enough that grafting new points would draw a
-    // misleading jump, so start fresh instead.
-    const newest = valid[valid.length - 1]?.timestamp
-    if (newest == null || now - newest > CONTINUITY_THRESHOLD_MS) return []
-    return valid
   } catch {
     return []
   }
@@ -84,8 +84,7 @@ export function loadPersistedEquitySeries(now: number = Date.now()): EquityPoint
  * Rolling, real-time equity series sampled from {@link useLivePnl}. Restores the
  * recent curve from localStorage on mount (so a reload doesn't reset it to a
  * single dot) and grows one point per {@link SAMPLE_INTERVAL_MS} while mounted.
- * Feed to <EquityCurve liveSeries=… /> as the fallback when no closed-order
- * curve exists.
+ * Feed to <EquityCurve liveSeries=… /> as the live mark-to-market tail.
  */
 export function useLiveEquitySeries(): EquityPoint[] {
   const livePnl = useLivePnl()

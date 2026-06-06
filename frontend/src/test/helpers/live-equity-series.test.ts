@@ -28,6 +28,14 @@ describe('appendEquitySample', () => {
     expect(series).toHaveLength(3)
     expect(series.map((p) => p.equity)).toEqual([2, 3, 4])
   })
+
+  it('retains well past the old 200-point cap by default (longer live tail)', () => {
+    let series: ReturnType<typeof appendEquitySample> = []
+    for (let i = 0; i < 300; i += 1) series = appendEquitySample(series, i, i * 1000)
+    // The old cap (200) would have dropped the first 100 points.
+    expect(series).toHaveLength(300)
+    expect(series[0].equity).toBe(0)
+  })
 })
 
 describe('loadPersistedEquitySeries', () => {
@@ -42,11 +50,11 @@ describe('loadPersistedEquitySeries', () => {
     expect(loadPersistedEquitySeries()).toEqual([])
   })
 
-  it('restores recent points and drops stale (> 1h) ones', () => {
-    const now = 10_000_000
+  it('restores recent points and drops stale (> 24h) ones', () => {
+    const now = 1_000_000_000
     window.localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify([point(now - 2 * 60 * 60 * 1000, -1), point(now - 1000, -1.15)]),
+      JSON.stringify([point(now - 25 * 60 * 60 * 1000, -1), point(now - 1000, -1.15)]),
     )
     const restored = loadPersistedEquitySeries(now)
     expect(restored).toHaveLength(1)
@@ -62,14 +70,17 @@ describe('loadPersistedEquitySeries', () => {
     expect(loadPersistedEquitySeries(now)).toHaveLength(1)
   })
 
-  it('starts fresh when the newest point is stale (avoids a fabricated reload jump)', () => {
+  it('restores history even when the newest sample is no longer current', () => {
+    // The newest point is 4 min old (tab was away). We keep the history so the
+    // longer ranges survive a reload; EquityCurve breaks the rendered line
+    // across the gap rather than drawing a fabricated sloped segment.
     const now = 10_000_000
-    // Both points are < 1h old but the newest is 4 min old — past the continuity
-    // window, so grafting new live points would draw a misleading sloped segment.
     window.localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify([point(now - 5 * 60 * 1000, -1), point(now - 4 * 60 * 1000, -1.1)]),
     )
-    expect(loadPersistedEquitySeries(now)).toEqual([])
+    const restored = loadPersistedEquitySeries(now)
+    expect(restored).toHaveLength(2)
+    expect(restored.map((p) => p.equity)).toEqual([-1, -1.1])
   })
 })
