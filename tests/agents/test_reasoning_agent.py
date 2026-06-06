@@ -1040,3 +1040,34 @@ async def test_policy_mode_never_calls_the_llm_even_with_self_critique(
     mock_call_llm.assert_not_called()  # the whole point of policy mode
     decision_call = next(c for c in mock_bus.publish.call_args_list if c.args[0] == "decisions")
     assert decision_call.args[1]["model_used"] == MODEL_LABEL_POLICY
+
+
+# ---------------------------------------------------------------------------
+# Per-agent trust weight (behavioral promotion reader)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_agent_trust_returns_bounded_value(agent, mock_redis):
+    from api.constants import AGENT_REASONING
+
+    mock_redis.get = AsyncMock(return_value=b"1.15")
+    assert await agent._get_agent_trust(AGENT_REASONING) == pytest.approx(1.15)
+
+
+@pytest.mark.asyncio
+async def test_get_agent_trust_defaults_when_absent(agent, mock_redis):
+    from api.constants import AGENT_REASONING, AGENT_TRUST_DEFAULT
+
+    mock_redis.get = AsyncMock(return_value=None)
+    assert await agent._get_agent_trust(AGENT_REASONING) == AGENT_TRUST_DEFAULT
+
+
+@pytest.mark.asyncio
+async def test_get_agent_trust_clamps_out_of_range(agent, mock_redis):
+    from api.constants import AGENT_REASONING, AGENT_TRUST_MAX, AGENT_TRUST_MIN
+
+    mock_redis.get = AsyncMock(return_value=b"9.0")
+    assert await agent._get_agent_trust(AGENT_REASONING) == AGENT_TRUST_MAX
+    mock_redis.get = AsyncMock(return_value=b"0.01")
+    assert await agent._get_agent_trust(AGENT_REASONING) == AGENT_TRUST_MIN
