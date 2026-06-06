@@ -1064,11 +1064,31 @@ class FieldName(StrEnum):
     UNTAGGED_PHANTOM_SELLS = "untagged_phantom_sells"
     WINDOW = "window"
     Z_SCORE = "z_score"
+    # Per-agent performance grading payload keys
+    # (api/services/dashboard/agent_performance.py).
+    COMPLETED_RUNS = "completed_runs"
+    DATA_AVAILABLE = "data_available"
+    DIMENSIONS = "dimensions"
+    DISPLAY_NAME = "display_name"
+    FAILED_RUNS = "failed_runs"
+    HEARTBEAT = "heartbeat"
+    LATENCY = "latency"
+    LEARNINGS = "learnings"
+    LIVENESS = "liveness"
+    PROMOTED = "promoted"
+    THROUGHPUT = "throughput"
+    TIER = "tier"
+    TOTAL_RUNS = "total_runs"
+    GRADE_STREAK = "grade_streak"
+    TARGET_TRUST = "target_trust"
+    TRUST = "trust"
+    ALPHA_SCORE = "alpha_score"
 
 
 class StatusValue(StrEnum):
     RUNNING = "running"
     COMPLETED = "completed"
+    FAILED = "failed"
 
 
 class EventType(StrEnum):
@@ -1249,6 +1269,99 @@ AGENT_HEARTBEAT_TTL_SECONDS: Final[int] = 300  # 5 minutes
 # If an agent's last_seen is older than this, mark it STALE on the dashboard.
 # Keep well below AGENT_HEARTBEAT_TTL_SECONDS so "STALE" is reachable.
 AGENT_STALE_THRESHOLD_SECONDS: Final[int] = 120  # 2 minutes
+
+# ---------------------------------------------------------------------------
+# Per-agent performance grading (api/services/dashboard/agent_performance.py)
+# Each pipeline agent is graded on its OWN telemetry — heartbeat liveness, run
+# success rate, recent throughput, and (when the DB records it) latency —
+# rather than the single system-wide grade GradeAgent emits for the trading
+# loop. The overall [0, 1] score is a weighted blend of whichever dimensions
+# have data, mapped to a letter grade via services.agents.scoring.score_to_grade.
+AGENT_PERF_W_LIVENESS: Final[float] = 0.40
+AGENT_PERF_W_SUCCESS: Final[float] = 0.30
+AGENT_PERF_W_THROUGHPUT: Final[float] = 0.15
+AGENT_PERF_W_LATENCY: Final[float] = 0.15
+
+# Liveness dimension score by heartbeat state (ACTIVE vs STALE/IDLE).
+AGENT_PERF_LIVENESS_ACTIVE: Final[float] = 1.0
+AGENT_PERF_LIVENESS_STALE: Final[float] = 0.45
+
+# event_count at which the throughput dimension saturates to 1.0.
+AGENT_PERF_THROUGHPUT_SATURATION: Final[int] = 20
+
+# Promotion tiers, ordered best → worst. Mirrored by the frontend badge map.
+TIER_PROMOTED: Final[str] = "PROMOTED"
+TIER_TRUSTED: Final[str] = "TRUSTED"
+TIER_STANDARD: Final[str] = "STANDARD"
+TIER_PROBATION: Final[str] = "PROBATION"
+TIER_UNDER_REVIEW: Final[str] = "UNDER_REVIEW"
+TIER_UNRATED: Final[str] = "UNRATED"
+
+# Letter grade → promotion tier. An agent is "promoted" iff its tier is PROMOTED.
+# Sustained A/A+ work earns promotion; D/F drops to review.
+GRADE_TO_TIER: Final[dict[str, str]] = {
+    "A+": TIER_PROMOTED,
+    "A": TIER_PROMOTED,
+    "B": TIER_TRUSTED,
+    "C": TIER_STANDARD,
+    "D": TIER_PROBATION,
+    "F": TIER_UNDER_REVIEW,
+}
+
+# Maps the lowercase source identifier written on agent_runs / agent_logs to the
+# SCREAMING_SNAKE_CASE agent-name constant used by heartbeats and ALL_AGENT_NAMES.
+# Lets per-agent grading attribute runs to the agent that produced them.
+SOURCE_TO_AGENT: Final[dict[str, str]] = {
+    SOURCE_SIGNAL: AGENT_SIGNAL,
+    SOURCE_REASONING: AGENT_REASONING,
+    SOURCE_EXECUTION: AGENT_EXECUTION,
+    SOURCE_GRADE: AGENT_GRADE,
+    SOURCE_IC_UPDATER: AGENT_IC_UPDATER,
+    SOURCE_REFLECTION: AGENT_REFLECTION,
+    SOURCE_STRATEGY_PROPOSER: AGENT_STRATEGY_PROPOSER,
+    SOURCE_NOTIFICATION: AGENT_NOTIFICATION,
+    SOURCE_PROPOSAL_APPLIER: AGENT_PROPOSAL_APPLIER,
+}
+
+# Durable tool telemetry. The ToolRegistry is an in-process singleton with no
+# persistence, so a redeploy/restart wipes every tool's accumulated call_count /
+# alpha / latency back to its seeded prior — which makes a live system look like
+# it has "never used" its tools. This Redis snapshot is loaded on startup and
+# flushed periodically so real usage survives restarts.
+REDIS_KEY_TOOL_TELEMETRY: Final[str] = "tools:telemetry"
+TOOL_TELEMETRY_FLUSH_INTERVAL_SECONDS: Final[int] = 60
+
+# Durable per-agent grade history (Redis list per agent, via RedisStore). A
+# snapshot is appended at most once per AGENT_GRADE_SNAPSHOT_INTERVAL_SECONDS (or
+# whenever the letter grade changes), so the list spans hours, not seconds.
+REDIS_KEY_AGENT_GRADE_HISTORY: Final[str] = "agent:grade_history:{name}"
+AGENT_GRADE_HISTORY_MAX: Final[int] = 50  # capped list length per agent
+AGENT_GRADE_HISTORY_DISPLAY: Final[int] = 20  # recent snapshots returned to the UI
+AGENT_GRADE_SNAPSHOT_INTERVAL_SECONDS: Final[int] = 300  # throttle: ≤1 write / 5 min
+
+# Promotion requires SUSTAINED top performance: the agent must hold an A/A+
+# grade for this many consecutive snapshots before it earns the PROMOTED tier
+# (a single good window shows TRUSTED until the streak is built).
+AGENT_PROMOTION_STREAK: Final[int] = 3
+
+# Behavioral promotion — per-agent trust weight (control plane). ReasoningAgent
+# multiplies its signal_weight_scale by this when AGENT_TRUST_WEIGHTING_ENABLED
+# is on; bounded so a promoted agent gains, and a struggling one loses, only a
+# capped amount of influence. Written by the explicit promotion-apply action.
+REDIS_KEY_AGENT_TRUST: Final[str] = "learning:agent_trust:{name}"
+AGENT_TRUST_DEFAULT: Final[float] = 1.0
+AGENT_TRUST_MIN: Final[float] = 0.5
+AGENT_TRUST_MAX: Final[float] = 1.25
+
+# Promotion tier → trust weight written to the control plane on apply.
+TIER_TO_TRUST: Final[dict[str, float]] = {
+    TIER_PROMOTED: 1.15,
+    TIER_TRUSTED: 1.0,
+    TIER_STANDARD: 1.0,
+    TIER_PROBATION: 0.8,
+    TIER_UNDER_REVIEW: 0.6,
+    TIER_UNRATED: AGENT_TRUST_DEFAULT,
+}
 
 # ---------------------------------------------------------------------------
 # Redis key patterns

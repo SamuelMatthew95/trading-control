@@ -17,6 +17,7 @@ export const LEARNING_REFRESH_MS = 15_000
  */
 export function gradeColor(grade: string | null): string {
   switch (grade) {
+    case 'A+': return 'text-emerald-600 dark:text-emerald-500'
     case 'A': return 'text-emerald-600 dark:text-emerald-500'
     case 'B': return 'text-green-600 dark:text-green-400'
     case 'C': return 'text-amber-600 dark:text-amber-500'
@@ -29,6 +30,7 @@ export function gradeColor(grade: string | null): string {
 /** Tailwind background+border+text badge classes for a letter grade. */
 export function gradeBg(grade: string | null): string {
   switch (grade) {
+    case 'A+': return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/30'
     case 'A': return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/30'
     case 'B': return 'bg-green-50 text-green-700 border-green-200 dark:bg-green-500/10 dark:text-green-400 dark:border-green-500/30'
     case 'C': return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30'
@@ -50,4 +52,30 @@ export const GRADE_STYLES: Record<string, { badge: string }> = {
   C: { badge: 'bg-amber-500/20 text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/30' },
   D: { badge: 'bg-rose-500/15 text-rose-500 ring-1 ring-rose-500/20' },
   F: { badge: 'bg-rose-500/20 text-rose-600 ring-1 ring-rose-500/30' },
+}
+
+/**
+ * Promotion-tier badge classes. A tier is the standing an agent earns from its
+ * sustained grade (see api/constants.GRADE_TO_TIER): PROMOTED agents are doing
+ * well; PROBATION / UNDER_REVIEW are struggling; UNRATED has no data yet.
+ * Centralised here so the scorecard and drill-in render tiers identically.
+ */
+export function tierBadge(tier: string): string {
+  switch (tier) {
+    case 'PROMOTED': return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/30'
+    case 'TRUSTED': return 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:border-sky-500/30'
+    case 'STANDARD': return 'bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-500/10 dark:text-slate-300 dark:border-slate-500/30'
+    case 'PROBATION': return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30'
+    case 'UNDER_REVIEW': return 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/30'
+    default: return 'bg-slate-100 text-slate-500 border-slate-300 dark:bg-slate-500/10 dark:text-slate-400 dark:border-slate-500/30'
+  }
+}
+
+/** Human-readable tier label, e.g. "UNDER_REVIEW" → "Under Review". */
+export function tierLabel(tier: string): string {
+  return tier
+    .toLowerCase()
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
 }

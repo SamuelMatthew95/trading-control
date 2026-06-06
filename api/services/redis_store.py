@@ -20,12 +20,15 @@ from typing import Any
 from redis.asyncio import Redis
 
 from api.constants import (
+    AGENT_GRADE_HISTORY_MAX,
     REDIS_DECISIONS_MAX,
+    REDIS_KEY_AGENT_GRADE_HISTORY,
     REDIS_KEY_DECISIONS_RECENT,
     REDIS_KEY_LLM_DAILY_CALLS,
     REDIS_KEY_LLM_METRICS,
     REDIS_KEY_NOTIFICATIONS_READ,
     REDIS_KEY_NOTIFICATIONS_RECENT,
+    REDIS_KEY_TOOL_TELEMETRY,
     REDIS_NOTIFICATIONS_MAX,
     FieldName,
 )
@@ -371,6 +374,67 @@ class RedisStore:
             return int(_to_text(raw))
         except (TypeError, ValueError):
             return 0
+
+    # ------------------------------------------------------------------ #
+    # Per-agent grade history — durable streak tracking for promotion
+    # ------------------------------------------------------------------ #
+
+    async def record_agent_grade(self, agent_name: str, snapshot: dict[str, Any]) -> dict[str, Any]:
+        """Append one grade snapshot to ``agent:grade_history:{name}`` (LPUSH+LTRIM).
+
+        Snapshots are deduped/throttled by the caller; this just persists them
+        capped at ``AGENT_GRADE_HISTORY_MAX`` so the list stays bounded.
+        """
+        entry = dict(snapshot)
+        if not entry.get(FieldName.TIMESTAMP):
+            entry[FieldName.TIMESTAMP] = _now_iso()
+        key = REDIS_KEY_AGENT_GRADE_HISTORY.format(name=agent_name)
+        encoded = json.dumps(entry, default=str)
+        try:
+            async with self.redis.pipeline(transaction=True) as pipe:
+                pipe.lpush(key, encoded)
+                pipe.ltrim(key, 0, AGENT_GRADE_HISTORY_MAX - 1)
+                await pipe.execute()
+        except Exception:
+            log_structured("warning", "redis_store_agent_grade_push_failed", exc_info=True)
+        return entry
+
+    async def list_agent_grades(self, agent_name: str, limit: int = 50) -> list[dict[str, Any]]:
+        """Recent grade snapshots for one agent, newest first."""
+        safe_limit = max(1, min(int(limit), AGENT_GRADE_HISTORY_MAX))
+        key = REDIS_KEY_AGENT_GRADE_HISTORY.format(name=agent_name)
+        try:
+            raw_items = await self.redis.lrange(key, 0, safe_limit - 1)
+        except Exception:
+            log_structured("warning", "redis_store_agent_grade_list_failed", exc_info=True)
+            return []
+        items: list[dict[str, Any]] = []
+        for raw in raw_items:
+            parsed = _safe_loads(raw)
+            if parsed is not None:
+                items.append(parsed)
+        return items
+
+    # ------------------------------------------------------------------ #
+    # Tool telemetry — durable snapshot of the in-process ToolRegistry
+    # ------------------------------------------------------------------ #
+
+    async def save_tool_telemetry(self, snapshot: dict[str, Any]) -> None:
+        """Persist the ToolRegistry telemetry snapshot (single JSON blob)."""
+        try:
+            await self.redis.set(REDIS_KEY_TOOL_TELEMETRY, json.dumps(snapshot, default=str))
+        except Exception:
+            log_structured("warning", "redis_store_tool_telemetry_save_failed", exc_info=True)
+
+    async def load_tool_telemetry(self) -> dict[str, Any]:
+        """Load the persisted ToolRegistry telemetry snapshot ({} if absent)."""
+        try:
+            raw = await self.redis.get(REDIS_KEY_TOOL_TELEMETRY)
+        except Exception:
+            log_structured("warning", "redis_store_tool_telemetry_load_failed", exc_info=True)
+            return {}
+        parsed = _safe_loads(raw) if raw is not None else None
+        return parsed or {}
 
 
 _store_singleton: RedisStore | None = None

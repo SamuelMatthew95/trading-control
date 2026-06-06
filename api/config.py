@@ -82,6 +82,11 @@ class Settings(BaseSettings):
     # Disabled by default to halve actionable-decision LLM spend; re-enable when
     # provider budget allows and decision-quality review is worth the extra call.
     REASONING_SELF_CRITIQUE_ENABLED: bool = False
+    # Behavioral promotion: when True, ReasoningAgent multiplies its
+    # signal_weight_scale by the per-agent trust weight set by the
+    # promotion-apply action (bounded by AGENT_TRUST_MIN/MAX). Defaults OFF so
+    # per-agent grades never change live trading until an operator opts in.
+    AGENT_TRUST_WEIGHTING_ENABLED: bool = False
     # Self-evolving prompt loop. When enabled, StrategyProposer asks the LLM to
     # draft an improved reasoning-node directive from each reflection's
     # winning/losing factors and emits a PROMPT_EVOLUTION proposal.

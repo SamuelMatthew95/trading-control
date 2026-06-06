@@ -13,6 +13,8 @@ No DB, no Redis, no live capital.
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from api.constants import (
@@ -31,6 +33,7 @@ from api.constants import (
     TOOL_SECTOR_CORRELATION,
     TOOL_STREAM_CONFLUENCE,
     TOOL_VWAP_EXECUTION,
+    FieldName,
     ToolPhase,
 )
 
@@ -179,6 +182,53 @@ class ToolRegistry:
         if success:
             tool.success_count += 1
         return tool
+
+    # -- persistence (durable telemetry across restarts) --
+    def snapshot(self) -> dict[str, dict[str, Any]]:
+        """Telemetry-only snapshot for durable persistence (not the catalog).
+
+        Captures the live, learned fields — call/success counts, EMA latency /
+        failure rate, attributed alpha, and governance enabled-state — keyed by
+        tool name. The catalog itself (phase, description, gating, unlocks) is
+        code-defined and re-seeded on boot, so it is deliberately excluded.
+        """
+        return {
+            name: {
+                FieldName.CALL_COUNT: t.call_count,
+                FieldName.SUCCESS_COUNT: t.success_count,
+                FieldName.ALPHA_SCORE: t.alpha_score,
+                FieldName.LATENCY_MS: t.latency_ms,
+                FieldName.FAILURE_RATE: t.failure_rate,
+                FieldName.ENABLED: t.enabled,
+            }
+            for name, t in self._tools.items()
+        }
+
+    def restore(self, data: dict[str, Any]) -> int:
+        """Merge a persisted telemetry snapshot onto the seeded catalog.
+
+        Only known tools are updated (unknown / removed tools in the snapshot are
+        ignored), so a catalog change never resurrects a deleted tool. Returns the
+        number of tools restored. Best-effort per field — malformed values are
+        skipped, leaving the seeded prior intact.
+        """
+        restored = 0
+        for name, tool in self._tools.items():
+            saved = data.get(name)
+            if not isinstance(saved, dict):
+                continue
+            try:
+                tool.call_count = int(saved.get(FieldName.CALL_COUNT, tool.call_count))
+                tool.success_count = int(saved.get(FieldName.SUCCESS_COUNT, tool.success_count))
+                tool.alpha_score = float(saved.get(FieldName.ALPHA_SCORE, tool.alpha_score))
+                tool.latency_ms = float(saved.get(FieldName.LATENCY_MS, tool.latency_ms))
+                tool.failure_rate = float(saved.get(FieldName.FAILURE_RATE, tool.failure_rate))
+                if FieldName.ENABLED in saved:
+                    tool.enabled = bool(saved[FieldName.ENABLED])
+                restored += 1
+            except (TypeError, ValueError):
+                continue
+        return restored
 
     def disable_dead_tools(
         self,

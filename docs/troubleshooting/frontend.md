@@ -608,6 +608,48 @@ return: a single small position on a $100k paper account is correctly a small %
 **Regression test:** `frontend/src/test/components/DashboardView.test.tsx` —
 `Daily Change % reflects live unrealized P&L, not realized-only (no longer frozen at 0.00%)`.
 
+## Clicking an agent did nothing — no per-agent grade, learnings, or drill-in
+
+**Symptom:** The Agents view showed only heartbeat liveness (status / event count
+/ last seen). There was no way to click into an agent to see what it actually
+did, agents had no individual grade or learnings, and "doing well" had no visible
+standing — only one system-wide grade existed for the whole trading loop.
+
+**Root cause:** GradeAgent emits a single aggregate grade; nothing graded each
+agent on its own telemetry, and the frontend had no detail view to drill into.
+
+**Fix:** New `api/services/dashboard/agent_performance.py` grades every agent on
+its OWN telemetry — liveness (heartbeat), success rate (runs completed/failed),
+throughput (recent events), and latency (when the DB records it) — reweighted
+over whichever dimensions have data, so memory-mode agents are still graded and a
+dormant agent is `UNRATED` (not falsely `F`). Letter grade → promotion tier
+(`GRADE_TO_TIER`); sustained A/A+ earns a ★ Promoted standing. Exposed via
+`GET /dashboard/agents/performance` and `GET /dashboard/agents/{name}/detail`.
+Frontend: `AgentScorecards` panel (clickable cards) + `AgentDetailModal` drill-in
+showing the grade breakdown, deterministic learnings, heartbeat, and recent
+activity (what the agent did).
+
+**Regression test:** `tests/api/test_agent_performance.py` +
+`frontend/src/test/components/AgentScorecards.test.tsx`.
+
+## Tool Governance table "didn't make sense" before any trades closed
+
+**Symptom:** With no closed trades, every Tool Governance row read `unused` and
+`α … prior`, with no explanation — the table looked broken rather than simply
+un-exercised.
+
+**Root cause:** Tool alpha is attributed from realized PnL once trades close; in a
+fresh / memory-mode runtime there is nothing to attribute yet, so all rows show
+seeded priors. The panel never said so explicitly.
+
+**Fix:** `ToolGovernancePanel.tsx` — when `exercisedCount === 0` the panel now
+renders an explicit callout explaining that every row is a seeded prior (α values
+are starting estimates, `unused` means the live loop has not exercised the tool)
+and that scores go live once trades close and the GradeAgent attributes PnL.
+
+**Regression test:** `frontend/src/test/components/ToolGovernancePanel.test.tsx`
+(existing exercised-tools payload asserts the table renders; the new callout is
+gated on the zero-exercised state).
 ## Open Positions: raw float quantity + no "amount invested"
 
 **Symptom:** The Open Positions row showed an unreadable quantity

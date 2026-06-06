@@ -408,3 +408,41 @@ async def test_read_set_size_bounded_by_recent_cap(fake_redis) -> None:
     await store.push_notification({"id": "trigger", "title": "x"})
     read_count = await fake_redis.scard("notifications:read")
     assert read_count <= REDIS_NOTIFICATIONS_MAX
+
+
+# ---------------------------------------------------------------------------
+# Per-agent grade history
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_agent_grade_history_records_newest_first(fake_redis) -> None:
+    store = RedisStore(fake_redis)
+    await store.record_agent_grade("SIGNAL_AGENT", {FieldName.GRADE: "B"})
+    await store.record_agent_grade("SIGNAL_AGENT", {FieldName.GRADE: "A"})
+
+    history = await store.list_agent_grades("SIGNAL_AGENT")
+    assert [h[FieldName.GRADE] for h in history] == ["A", "B"]  # newest first
+    assert all(FieldName.TIMESTAMP in h for h in history)
+
+
+@pytest.mark.asyncio
+async def test_agent_grade_history_is_capped(fake_redis) -> None:
+    from api.constants import AGENT_GRADE_HISTORY_MAX
+
+    store = RedisStore(fake_redis)
+    for _ in range(AGENT_GRADE_HISTORY_MAX + 10):
+        await store.record_agent_grade("SIGNAL_AGENT", {FieldName.GRADE: "A"})
+
+    history = await store.list_agent_grades("SIGNAL_AGENT", limit=AGENT_GRADE_HISTORY_MAX)
+    assert len(history) == AGENT_GRADE_HISTORY_MAX
+
+
+@pytest.mark.asyncio
+async def test_agent_grade_history_scoped_per_agent(fake_redis) -> None:
+    store = RedisStore(fake_redis)
+    await store.record_agent_grade("SIGNAL_AGENT", {FieldName.GRADE: "A"})
+    await store.record_agent_grade("REASONING_AGENT", {FieldName.GRADE: "F"})
+
+    assert (await store.list_agent_grades("SIGNAL_AGENT"))[0][FieldName.GRADE] == "A"
+    assert (await store.list_agent_grades("REASONING_AGENT"))[0][FieldName.GRADE] == "F"

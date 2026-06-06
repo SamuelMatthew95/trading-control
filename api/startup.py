@@ -54,6 +54,7 @@ from api.services.agents.reasoning_agent import ReasoningAgent
 from api.services.agents.risk_guardian import RiskGuardian
 from api.services.challenger_spawner import ChallengerSpawner
 from api.services.config_overrides import apply_parameter_overrides
+from api.services.dashboard.agent_performance import agent_grade_snapshot_loop
 from api.services.event_pipeline import EventPipeline
 from api.services.execution.brokers.paper import PaperBroker
 from api.services.execution.execution_engine import ExecutionEngine
@@ -72,6 +73,11 @@ from api.services.multi_agent_orchestrator import MultiAgentOrchestrator
 from api.services.prompt_store import PromptStore, set_prompt_store
 from api.services.redis_store import RedisStore, set_redis_store
 from api.services.signal_generator import SignalGenerator
+from api.services.tool_telemetry import (
+    flush_tool_registry,
+    hydrate_tool_registry,
+    tool_telemetry_flush_loop,
+)
 from api.services.trading import TradingService
 from api.services.websocket_broadcaster import get_broadcaster
 from api.workers.price_poller import poll_prices
@@ -168,6 +174,9 @@ async def _init_redis(app: FastAPI):
     prompt_store = PromptStore(redis_client)
     app.state.prompt_store = prompt_store
     set_prompt_store(prompt_store)
+    # Restore durable tool telemetry so the dashboard reflects cumulative usage
+    # across restarts instead of resetting every tool to its seeded prior.
+    await hydrate_tool_registry()
     log_structured(
         "info",
         "redis_connected",
@@ -336,10 +345,27 @@ def _start_background_tasks(app: FastAPI) -> None:
         run_backtest_refresh_loop(), name="backtest-refresh"
     )
 
+    # Periodically persist tool telemetry so real usage survives a restart.
+    app.state.tool_telemetry_task = asyncio.create_task(
+        tool_telemetry_flush_loop(), name="tool-telemetry-flush"
+    )
+
+    # Periodically snapshot per-agent grades so promotion streaks build over time
+    # regardless of whether anyone is viewing the dashboard.
+    app.state.agent_grade_snapshot_task = asyncio.create_task(
+        agent_grade_snapshot_loop(), name="agent-grade-snapshot"
+    )
+
 
 async def _shutdown(app: FastAPI, pipeline: EventPipeline | None, broadcaster) -> None:
     """Tear down tasks, agents, and connections in reverse dependency order."""
-    for task_name in ("poller_task", "keep_alive_task", "backtest_refresh_task"):
+    for task_name in (
+        "poller_task",
+        "keep_alive_task",
+        "backtest_refresh_task",
+        "tool_telemetry_task",
+        "agent_grade_snapshot_task",
+    ):
         task = getattr(app.state, task_name, None)
         if task is not None:
             task.cancel()
@@ -356,6 +382,10 @@ async def _shutdown(app: FastAPI, pipeline: EventPipeline | None, broadcaster) -
     if pipeline is not None:
         await pipeline.stop()
     await broadcaster.stop()
+    # Final tool-telemetry flush while Redis is still open, so usage from the
+    # last interval isn't lost on a clean shutdown.
+    with suppress(Exception):
+        await flush_tool_registry()
     await close_redis()
     await engine.dispose()
 

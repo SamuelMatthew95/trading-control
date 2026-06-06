@@ -21,6 +21,9 @@ from sqlalchemy import text
 from api.config import settings
 from api.constants import (
     AGENT_REASONING,
+    AGENT_TRUST_DEFAULT,
+    AGENT_TRUST_MAX,
+    AGENT_TRUST_MIN,
     DECISION_MODE_HYBRID,
     DECISION_MODE_LLM,
     DECISION_MODE_POLICY,
@@ -39,6 +42,7 @@ from api.constants import (
     REASONING_NODE,
     REASONING_TOOL_MIN_ALPHA,
     REDIS_KEY_AGENT_SUSPENDED,
+    REDIS_KEY_AGENT_TRUST,
     REDIS_KEY_IC_WEIGHTS,
     REDIS_KEY_LLM_COST,
     REDIS_KEY_LLM_TOKENS,
@@ -382,6 +386,13 @@ class ReasoningAgent(BaseStreamConsumer):
         # losing strategy's decisions get progressively dampened until they
         # fall below the execution gate. Default 1.0 = no dampening.
         weight_scale = await self._get_signal_weight_scale()
+        # Behavioral promotion (opt-in): a sustained-high-grade ReasoningAgent has
+        # its influence boosted, a struggling one damped, via the per-agent trust
+        # weight. Bounded by AGENT_TRUST_MIN/MAX. Off by default — no live-trading
+        # change unless an operator enables AGENT_TRUST_WEIGHTING_ENABLED.
+        if settings.AGENT_TRUST_WEIGHTING_ENABLED:
+            trust = await self._get_agent_trust(AGENT_REASONING)
+            weight_scale = self._apply_trust_weighting(weight_scale, trust)
         scaled_reasoning = float(summary.get(FieldName.CONFIDENCE) or 0.0) * weight_scale
         scaled_signal = (
             float(data.get(FieldName.COMPOSITE_SCORE) or data.get(FieldName.CONFIDENCE) or 0.0)
@@ -648,6 +659,35 @@ class ReasoningAgent(BaseStreamConsumer):
         except Exception:
             log_structured("warning", "reasoning_weight_scale_fetch_failed", exc_info=True)
             return 1.0
+
+    @staticmethod
+    def _apply_trust_weighting(weight_scale: float, trust: float) -> float:
+        """Fold the per-agent trust multiplier into the signal weight scale.
+
+        Trust (already bounded to [AGENT_TRUST_MIN, AGENT_TRUST_MAX]) only caps
+        total influence at the top (AGENT_TRUST_MAX) — it must NEVER raise a
+        Grade-C-dampened scale upward, or trust weighting would silently undo the
+        learning loop's signal reductions. Result stays in (0, AGENT_TRUST_MAX].
+        """
+        return min(weight_scale * trust, AGENT_TRUST_MAX)
+
+    async def _get_agent_trust(self, agent_name: str) -> float:
+        """Read learning:agent_trust:{name}; default 1.0, bounded [MIN, MAX].
+
+        Written by the promotion-apply action from the agent's grade tier. Unlike
+        signal_weight_scale this CAN exceed 1.0 (a promoted agent gains influence),
+        so it is bounded by AGENT_TRUST_MAX to cap amplification.
+        """
+        try:
+            raw = await self.redis.get(REDIS_KEY_AGENT_TRUST.format(name=agent_name))
+            if raw is None:
+                return AGENT_TRUST_DEFAULT
+            return min(max(float(raw), AGENT_TRUST_MIN), AGENT_TRUST_MAX)
+        except (TypeError, ValueError):
+            return AGENT_TRUST_DEFAULT
+        except Exception:
+            log_structured("warning", "reasoning_agent_trust_fetch_failed", exc_info=True)
+            return AGENT_TRUST_DEFAULT
 
     def _build_signal_summary(self, data: dict[str, Any]) -> str:
         return json.dumps(

@@ -25,3 +25,24 @@ push once the version is pinned.
 **Fix:** Import from the 2.0 location — `from sqlalchemy.orm import declarative_base` (`api/core/models/base.py:6`).
 
 **Regression test:** `tests/core/test_sqlalchemy_import_guardrail.py::test_no_deprecated_declarative_base_import`
+
+## backend-tests pass on 3.11 but fail on 3.10 (StrEnum `str()` differs)
+
+**Symptom:** `tests/api/test_agent_performance.py::test_stale_failing_agent_drops_to_probation`
+asserted `failed_runs == 3` but got `0` — only on the `backend-tests (3.10)`
+matrix job; 3.11 was green.
+
+**Root cause:** `api/constants.py` uses real `enum.StrEnum` on 3.11 but a
+`class StrEnum(str, Enum)` backport on 3.10. `str(member)` returns the value
+(`"failed"`) on 3.11 but `"StatusValue.FAILED"` on 3.10. `_run_tallies` did
+`str(run.get(STATUS)).lower()`, and memory-mode `agent_runs` store the enum
+member as status — so 3.10 never matched `StatusValue.COMPLETED/FAILED`.
+
+**Fix:** `agent_performance._status_text` normalizes via `getattr(raw, "value", raw)`
+(the StrEnum member's `.value` is the plain string on both versions) before
+lowercasing. Used by `_run_tallies` and `_liveness_dimension`.
+
+**Lesson:** never `str()` a StrEnum for comparison — it is version-dependent.
+Compare the member directly (StrEnum `==` str works) or go through `.value`.
+
+**Regression test:** `tests/api/test_agent_performance.py::test_status_text_handles_enum_and_string`
