@@ -46,6 +46,8 @@ const PHASE_ORDER = ['perception', 'memory', 'risk', 'execution', 'optimization'
 // design — not because they are broken.
 const REASONING_PHASES = new Set(['perception', 'memory'])
 
+const TOOL_COLUMNS = ['Tool', 'Status', 'Calls', 'Alpha', 'Latency', 'Err'] as const
+
 // Plain-English WHY a tool has never been called, so "unused" is never a mystery.
 function unusedReason(tool: Tool): string {
   if (!REASONING_PHASES.has(tool.phase)) {
@@ -67,7 +69,7 @@ function SuggestionRow({ suggestion }: { suggestion: Suggestion }) {
   return (
     <div
       className={cn(
-        'flex items-start gap-2 rounded-lg border px-3 py-1.5',
+        'flex items-start gap-2 rounded-lg border px-3 py-2',
         suggestion.severity === 'warning'
           ? 'border-amber-300 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/20'
           : 'border-slate-200 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/20',
@@ -75,7 +77,7 @@ function SuggestionRow({ suggestion }: { suggestion: Suggestion }) {
     >
       <span
         className={cn(
-          'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase',
+          'shrink-0 rounded px-1.5 py-0.5 text-xs font-semibold uppercase',
           actionBadgeClass(suggestion.action),
         )}
       >
@@ -85,83 +87,125 @@ function SuggestionRow({ suggestion }: { suggestion: Suggestion }) {
         <span className="font-mono text-xs text-slate-800 dark:text-slate-200">
           {suggestion.tool}
         </span>
-        <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">
-          {suggestion.reason}
-        </p>
+        <p className="text-xs leading-snug text-slate-500 dark:text-slate-400">{suggestion.reason}</p>
       </div>
     </div>
   )
 }
 
-function ToolRow({ tool }: { tool: Tool }) {
+const TD = 'px-3 py-2 align-top'
+const TD_NUM = 'px-3 py-2 text-right align-top font-mono text-xs tabular-nums whitespace-nowrap'
+
+function ToolTableRow({ tool }: { tool: Tool }) {
+  const exercised = tool.call_count > 0
   return (
-    <div className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span
-            className={cn('h-2 w-2 shrink-0 rounded-full', tool.enabled ? 'bg-emerald-500' : 'bg-slate-400')}
-          />
-          <span
-            className={cn(
-              'truncate font-mono text-xs',
-              tool.enabled
-                ? 'text-slate-800 dark:text-slate-200'
-                : 'text-slate-400 line-through dark:text-slate-600',
-            )}
-          >
-            {tool.name}
-          </span>
-        </div>
+    <tr className="border-t border-slate-100 dark:border-slate-800/70">
+      {/* Tool name + gating / unlock / unused-reason sublines */}
+      <td className={TD}>
+        <span
+          className={cn(
+            'font-mono text-sm',
+            tool.enabled
+              ? 'text-slate-800 dark:text-slate-200'
+              : 'text-slate-400 line-through dark:text-slate-600',
+          )}
+        >
+          {tool.name}
+        </span>
         {tool.required_state_flags.length > 0 && (
-          <p className="mt-0.5 text-[10px] font-mono text-amber-600 dark:text-amber-400">
+          <p className="mt-0.5 font-mono text-xs text-amber-600 dark:text-amber-400">
             requires: {tool.required_state_flags.join(', ')}
           </p>
         )}
         {tool.unlocks.length > 0 && (
-          <p className="mt-0.5 truncate text-[10px] font-mono text-slate-400">
+          <p className="mt-0.5 truncate font-mono text-xs text-slate-400">
             → unlocks {tool.unlocks.join(', ')}
           </p>
         )}
-        {tool.call_count === 0 && (
-          <p className="mt-0.5 text-[10px] italic text-slate-400" title="why this tool is unused">
-            {unusedReason(tool)}
-          </p>
+        {!exercised && (
+          <p className="mt-0.5 text-xs italic text-slate-400">{unusedReason(tool)}</p>
         )}
-      </div>
-      <div className="flex shrink-0 items-center gap-3 font-mono text-[11px] tabular-nums">
-        {tool.call_count > 0 ? (
+      </td>
+
+      {/* Enabled / disabled */}
+      <td className={TD}>
+        <span className="inline-flex items-center gap-1.5 text-xs">
           <span
-            className="text-slate-500 dark:text-slate-400"
-            title="decision-time calls (successful)"
-          >
+            className={cn(
+              'h-2 w-2 shrink-0 rounded-full',
+              tool.enabled ? 'bg-emerald-500' : 'bg-slate-400',
+            )}
+          />
+          <span className="text-slate-600 dark:text-slate-400">
+            {tool.enabled ? 'on' : 'off'}
+          </span>
+        </span>
+      </td>
+
+      {/* Calls ledger */}
+      <td className={TD_NUM}>
+        {exercised ? (
+          <span className="text-slate-700 dark:text-slate-300">
             {tool.call_count}× · {tool.success_count} ok
           </span>
         ) : (
-          <span className="italic text-slate-400 dark:text-slate-600" title="never exercised">
-            unused
-          </span>
+          <span className="italic text-slate-400 dark:text-slate-600">unused</span>
         )}
-        <span
-          className={cn(tool.call_count > 0 ? sentimentTextClass(tool.alpha_score) : 'text-slate-400')}
-          title={
-            tool.call_count > 0
-              ? 'realized-PnL alpha attribution'
-              : 'seeded prior — no live trades have informed this tool yet'
-          }
-        >
-          α {tool.alpha_score >= 0 ? '+' : ''}
+      </td>
+
+      {/* Alpha attribution */}
+      <td className={TD_NUM}>
+        <span className={exercised ? sentimentTextClass(tool.alpha_score) : 'text-slate-400'}>
+          {tool.alpha_score >= 0 ? '+' : ''}
           {tool.alpha_score.toFixed(2)}
-          {tool.call_count === 0 && <span className="ml-0.5 not-italic">prior</span>}
         </span>
-        <span className="text-slate-500 dark:text-slate-400" title="avg latency">
-          {tool.latency_ms.toFixed(0)}ms
-        </span>
-        <span
-          className={cn(tool.failure_rate > 0.5 ? 'text-rose-500' : 'text-slate-400')}
-          title="failure rate"
-        >
-          {(tool.failure_rate * 100).toFixed(0)}% err
-        </span>
+        {!exercised && <span className="ml-1 text-slate-400 dark:text-slate-600">prior</span>}
+      </td>
+
+      {/* Latency */}
+      <td className={cn(TD_NUM, 'text-slate-500 dark:text-slate-400')}>
+        {tool.latency_ms.toFixed(0)}ms
+      </td>
+
+      {/* Failure rate */}
+      <td
+        className={cn(TD_NUM, tool.failure_rate > 0.5 ? 'text-rose-500' : 'text-slate-400')}
+      >
+        {(tool.failure_rate * 100).toFixed(0)}%
+      </td>
+    </tr>
+  )
+}
+
+function PhaseTable({ phase, tools }: { phase: string; tools: Tool[] }) {
+  return (
+    <div>
+      <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        {phase}
+      </p>
+      <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+        <table className="min-w-full">
+          <thead>
+            <tr className="border-b border-slate-200 bg-slate-50/60 dark:border-slate-800 dark:bg-slate-900/30">
+              {TOOL_COLUMNS.map((head, i) => (
+                <th
+                  key={head}
+                  className={cn(
+                    'px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400',
+                    i === 0 ? 'text-left' : 'text-right',
+                  )}
+                >
+                  {head}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {tools.map((tool) => (
+              <ToolTableRow key={tool.name} tool={tool} />
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   )
@@ -214,34 +258,30 @@ export function ToolGovernancePanel() {
         )}
       </div>
       <p className={cn(mutedClass, 'mb-3')}>
-        Tools exposed per DAG phase — the reasoning LLM only ever sees the eligible subset for the
-        current phase/state. A <span className="text-emerald-500">green dot</span> = currently
-        enabled; a <span className="line-through">struck-through</span> grey name = disabled.{' '}
-        <span className="font-mono">N×</span> = times the LLM called the tool;{' '}
-        <span className="font-mono">α</span> = realized-PnL attribution once closed trades inform it
-        (a <span className="font-mono">prior</span> tag means the score is a seed, not yet earned).{' '}
+        Tools the reasoning LLM can call, grouped by DAG phase.{' '}
+        <span className="font-mono">Calls</span> = times used ·{' '}
+        <span className="font-mono">Alpha</span> = realized-PnL attribution (a{' '}
+        <span className="font-mono">prior</span> tag = seeded estimate, not yet earned).{' '}
         {exercisedCount}/{tools.length} exercised live.
       </p>
 
       {tools.length > 0 && exercisedCount === 0 && (
-        <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2 text-[11px] leading-snug text-slate-500 dark:border-slate-800 dark:bg-slate-900/30 dark:text-slate-400">
-          No closed trades have scored these tools yet, so every row below is a{' '}
-          <span className="font-semibold">seeded prior</span> — the{' '}
-          <span className="font-mono">α</span> values are starting estimates, not earned, and{' '}
+        <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2 text-xs leading-snug text-slate-500 dark:border-slate-800 dark:bg-slate-900/30 dark:text-slate-400">
+          No closed trades have scored these tools yet, so every alpha below is a{' '}
+          <span className="font-semibold">seeded prior</span> and{' '}
           <span className="font-mono">unused</span> means the live loop has not exercised the tool.
-          Scores go live once trades close and the GradeAgent attributes realized PnL back to each tool.
+          Scores go live once trades close and the GradeAgent attributes realized PnL.
         </div>
       )}
 
       {suggestions.length > 0 && (
-        <div className="mb-3 space-y-1.5">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        <div className="mb-4 space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             Governance Recommendations
           </p>
-          <p className="text-[10px] leading-snug text-slate-400">
+          <p className="text-xs leading-snug text-slate-400">
             Suggested actions — <span className="font-semibold">nothing here is applied
             automatically</span>; a human (or an approved TOOL_GOVERNANCE proposal) acts on them.
-            These are recommendations, not each tool&apos;s current state shown below.
           </p>
           {suggestions.map((s, i) => (
             <SuggestionRow key={`${s.tool}-${s.action}-${i}`} suggestion={s} />
@@ -250,20 +290,11 @@ export function ToolGovernancePanel() {
       )}
 
       {tools.length === 0 ? (
-        <p className="text-xs text-slate-500">No tools registered.</p>
+        <p className="text-sm text-slate-500">No tools registered.</p>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {byPhase.map((group) => (
-            <div key={group.phase}>
-              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                {group.phase}
-              </p>
-              <div className="space-y-1.5">
-                {group.tools.map((tool) => (
-                  <ToolRow key={tool.name} tool={tool} />
-                ))}
-              </div>
-            </div>
+            <PhaseTable key={group.phase} phase={group.phase} tools={group.tools} />
           ))}
         </div>
       )}
