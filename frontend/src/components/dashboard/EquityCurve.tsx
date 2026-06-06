@@ -357,7 +357,6 @@ export function EquityCurve({
   // absolute sign — green when the window is up, red when it's down.
   const positive = change >= 0
   const strokeColor = positive ? '#10b981' : '#f43f5e'
-  const fillColor = positive ? 'rgba(16,185,129,0.16)' : 'rgba(244,63,94,0.16)'
   const valueClass = positive ? 'text-emerald-500' : 'text-rose-500'
 
   return (
@@ -385,12 +384,6 @@ export function EquityCurve({
       <div className="h-72 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={renderData} margin={{ top: 12, right: 6, left: 6, bottom: 0 }}>
-            <defs>
-              <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={fillColor} />
-                <stop offset="100%" stopColor={fillColor} stopOpacity={0} />
-              </linearGradient>
-            </defs>
             <XAxis
               dataKey="timestamp"
               type="number"
@@ -419,10 +412,8 @@ export function EquityCurve({
               type="monotoneX"
               dataKey="equity"
               stroke={strokeColor}
-              strokeWidth={2}
-              baseValue={yDomain[0]}
-              fillOpacity={1}
-              fill="url(#equityGradient)"
+              strokeWidth={2.5}
+              fill="none"
               isAnimationActive={false}
               connectNulls={false}
               dot={renderData.length < 3 ? { r: 3, strokeWidth: 0, fill: strokeColor } : false}
