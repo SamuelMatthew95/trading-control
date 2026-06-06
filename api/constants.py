@@ -1082,6 +1082,7 @@ class FieldName(StrEnum):
     GRADE_STREAK = "grade_streak"
     TARGET_TRUST = "target_trust"
     TRUST = "trust"
+    ALPHA_SCORE = "alpha_score"
 
 
 class StatusValue(StrEnum):
@@ -1321,6 +1322,14 @@ SOURCE_TO_AGENT: Final[dict[str, str]] = {
     SOURCE_NOTIFICATION: AGENT_NOTIFICATION,
     SOURCE_PROPOSAL_APPLIER: AGENT_PROPOSAL_APPLIER,
 }
+
+# Durable tool telemetry. The ToolRegistry is an in-process singleton with no
+# persistence, so a redeploy/restart wipes every tool's accumulated call_count /
+# alpha / latency back to its seeded prior — which makes a live system look like
+# it has "never used" its tools. This Redis snapshot is loaded on startup and
+# flushed periodically so real usage survives restarts.
+REDIS_KEY_TOOL_TELEMETRY: Final[str] = "tools:telemetry"
+TOOL_TELEMETRY_FLUSH_INTERVAL_SECONDS: Final[int] = 60
 
 # Durable per-agent grade history (Redis list per agent, via RedisStore). A
 # snapshot is appended at most once per AGENT_GRADE_SNAPSHOT_INTERVAL_SECONDS (or
