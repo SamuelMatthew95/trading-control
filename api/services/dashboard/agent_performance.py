@@ -520,34 +520,44 @@ async def get_agent_detail_payload(agent_name: str) -> dict[str, Any]:
     return detail
 
 
-async def apply_agent_promotions_payload() -> dict[str, Any]:
-    """Behavioral promotion (explicit operator action): write each agent's trust
-    weight to the control plane from its current tier.
+async def _apply_trust_from_tiers() -> list[dict[str, Any]]:
+    """Write each agent's trust weight to the control plane from its current tier.
 
-    The weight only changes live trading when AGENT_TRUST_WEIGHTING_ENABLED is
-    on (ReasoningAgent reads it then); otherwise it is set but inert, so the UI
-    can preview the effect safely. Writing is gated to this explicit POST — it is
-    never a side effect of a dashboard GET.
+    Shared by the explicit POST and the background reconcile loop. Raises on
+    Redis failure so callers can report/log it.
     """
     perf = await get_agent_performance_payload()
     applied: list[dict[str, Any]] = []
+    redis_client = await get_redis()
+    for agent in perf[FieldName.AGENTS]:
+        tier = agent[FieldName.TIER]
+        trust = TIER_TO_TRUST.get(tier, AGENT_TRUST_DEFAULT)
+        await redis_client.set(
+            REDIS_KEY_AGENT_TRUST.format(name=agent[FieldName.NAME]),
+            f"{trust:.4f}",
+            ex=LEARNING_CONTROL_TTL_SECONDS,
+        )
+        applied.append(
+            {
+                FieldName.NAME: agent[FieldName.NAME],
+                FieldName.TIER: tier,
+                FieldName.TRUST: trust,
+            }
+        )
+    return applied
+
+
+async def apply_agent_promotions_payload() -> dict[str, Any]:
+    """Behavioral promotion (manual trigger / preview): write each agent's trust
+    weight to the control plane from its current tier, right now.
+
+    When AGENT_TRUST_WEIGHTING_ENABLED is on this is ALSO reconciled automatically
+    by the background loop, so promotion is fully autonomous — this POST is just a
+    manual "apply now". When off, the weight is written but inert (ReasoningAgent
+    ignores it), so the UI can preview the effect safely.
+    """
     try:
-        redis_client = await get_redis()
-        for agent in perf[FieldName.AGENTS]:
-            tier = agent[FieldName.TIER]
-            trust = TIER_TO_TRUST.get(tier, AGENT_TRUST_DEFAULT)
-            await redis_client.set(
-                REDIS_KEY_AGENT_TRUST.format(name=agent[FieldName.NAME]),
-                f"{trust:.4f}",
-                ex=LEARNING_CONTROL_TTL_SECONDS,
-            )
-            applied.append(
-                {
-                    FieldName.NAME: agent[FieldName.NAME],
-                    FieldName.TIER: tier,
-                    FieldName.TRUST: trust,
-                }
-            )
+        applied = await _apply_trust_from_tiers()
     except Exception:
         log_structured("warning", "agent_promotion_apply_failed", exc_info=True)
         return {
@@ -600,11 +610,26 @@ async def record_grade_snapshots() -> int:
     return recorded
 
 
+async def _grade_snapshot_tick() -> None:
+    """One background iteration: build streaks, then (if enabled) reconcile trust."""
+    await record_grade_snapshots()
+    if settings.AGENT_TRUST_WEIGHTING_ENABLED:
+        await _apply_trust_from_tiers()
+
+
 async def agent_grade_snapshot_loop() -> None:
-    """Periodically record per-agent grade snapshots so streaks build autonomously."""
+    """Background owner of promotion — runs with no UI open.
+
+    Each tick: record per-agent grade snapshots (so streaks build over time) and,
+    when trust weighting is enabled, reconcile each agent's control-plane trust
+    weight from its tier. This makes promotion fully autonomous — a strong agent
+    is promoted and gains influence without anyone clicking "Apply promotions".
+    Gated by AGENT_TRUST_WEIGHTING_ENABLED (default off) so it never touches live
+    trading unless an operator opts in.
+    """
     while True:
         await asyncio.sleep(AGENT_GRADE_SNAPSHOT_INTERVAL_SECONDS)
         try:
-            await record_grade_snapshots()
+            await _grade_snapshot_tick()
         except Exception:
             log_structured("warning", "agent_grade_snapshot_loop_failed", exc_info=True)
