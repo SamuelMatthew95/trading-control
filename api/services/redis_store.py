@@ -28,6 +28,7 @@ from api.constants import (
     REDIS_KEY_LLM_METRICS,
     REDIS_KEY_NOTIFICATIONS_READ,
     REDIS_KEY_NOTIFICATIONS_RECENT,
+    REDIS_KEY_TOOL_TELEMETRY,
     REDIS_NOTIFICATIONS_MAX,
     FieldName,
 )
@@ -413,6 +414,27 @@ class RedisStore:
             if parsed is not None:
                 items.append(parsed)
         return items
+
+    # ------------------------------------------------------------------ #
+    # Tool telemetry — durable snapshot of the in-process ToolRegistry
+    # ------------------------------------------------------------------ #
+
+    async def save_tool_telemetry(self, snapshot: dict[str, Any]) -> None:
+        """Persist the ToolRegistry telemetry snapshot (single JSON blob)."""
+        try:
+            await self.redis.set(REDIS_KEY_TOOL_TELEMETRY, json.dumps(snapshot, default=str))
+        except Exception:
+            log_structured("warning", "redis_store_tool_telemetry_save_failed", exc_info=True)
+
+    async def load_tool_telemetry(self) -> dict[str, Any]:
+        """Load the persisted ToolRegistry telemetry snapshot ({} if absent)."""
+        try:
+            raw = await self.redis.get(REDIS_KEY_TOOL_TELEMETRY)
+        except Exception:
+            log_structured("warning", "redis_store_tool_telemetry_load_failed", exc_info=True)
+            return {}
+        parsed = _safe_loads(raw) if raw is not None else None
+        return parsed or {}
 
 
 _store_singleton: RedisStore | None = None
