@@ -292,6 +292,26 @@ async def test_streak_promotion_uses_recorded_history(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_background_tick_reconciles_trust_only_when_enabled(monkeypatch):
+    # Build a promoted streak so the agent's tier maps to a boosted trust weight.
+    history = [{"grade": "A", "tier": TIER_PROMOTED, "timestamp": perf._iso(0)} for _ in range(3)]
+    redis = _FakeRedis()
+    _patch(monkeypatch, _active_signal_hb(), _clean_runs(), store=_FakeStore(history), redis=redis)
+    trust_key = REDIS_KEY_AGENT_TRUST.format(name=AGENT_SIGNAL)
+
+    # Flag OFF → background tick records snapshots but writes NO trust weights.
+    monkeypatch.setattr(perf.settings, "AGENT_TRUST_WEIGHTING_ENABLED", False)
+    await perf._grade_snapshot_tick()
+    assert trust_key not in redis.store
+
+    # Flag ON → background tick reconciles trust autonomously (no UI / button).
+    monkeypatch.setattr(perf.settings, "AGENT_TRUST_WEIGHTING_ENABLED", True)
+    await perf._grade_snapshot_tick()
+    assert trust_key in redis.store
+    assert float(redis.store[trust_key]) > 1.0  # promoted → boosted influence
+
+
+@pytest.mark.asyncio
 async def test_detail_route_404_for_unknown_agent():
     with pytest.raises(HTTPException) as exc:
         await dashboard_v2.get_agent_detail("NOT_A_REAL_AGENT")
