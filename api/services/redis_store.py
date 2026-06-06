@@ -20,7 +20,9 @@ from typing import Any
 from redis.asyncio import Redis
 
 from api.constants import (
+    AGENT_GRADE_HISTORY_MAX,
     REDIS_DECISIONS_MAX,
+    REDIS_KEY_AGENT_GRADE_HISTORY,
     REDIS_KEY_DECISIONS_RECENT,
     REDIS_KEY_LLM_DAILY_CALLS,
     REDIS_KEY_LLM_METRICS,
@@ -371,6 +373,46 @@ class RedisStore:
             return int(_to_text(raw))
         except (TypeError, ValueError):
             return 0
+
+    # ------------------------------------------------------------------ #
+    # Per-agent grade history — durable streak tracking for promotion
+    # ------------------------------------------------------------------ #
+
+    async def record_agent_grade(self, agent_name: str, snapshot: dict[str, Any]) -> dict[str, Any]:
+        """Append one grade snapshot to ``agent:grade_history:{name}`` (LPUSH+LTRIM).
+
+        Snapshots are deduped/throttled by the caller; this just persists them
+        capped at ``AGENT_GRADE_HISTORY_MAX`` so the list stays bounded.
+        """
+        entry = dict(snapshot)
+        if not entry.get(FieldName.TIMESTAMP):
+            entry[FieldName.TIMESTAMP] = _now_iso()
+        key = REDIS_KEY_AGENT_GRADE_HISTORY.format(name=agent_name)
+        encoded = json.dumps(entry, default=str)
+        try:
+            async with self.redis.pipeline(transaction=True) as pipe:
+                pipe.lpush(key, encoded)
+                pipe.ltrim(key, 0, AGENT_GRADE_HISTORY_MAX - 1)
+                await pipe.execute()
+        except Exception:
+            log_structured("warning", "redis_store_agent_grade_push_failed", exc_info=True)
+        return entry
+
+    async def list_agent_grades(self, agent_name: str, limit: int = 50) -> list[dict[str, Any]]:
+        """Recent grade snapshots for one agent, newest first."""
+        safe_limit = max(1, min(int(limit), AGENT_GRADE_HISTORY_MAX))
+        key = REDIS_KEY_AGENT_GRADE_HISTORY.format(name=agent_name)
+        try:
+            raw_items = await self.redis.lrange(key, 0, safe_limit - 1)
+        except Exception:
+            log_structured("warning", "redis_store_agent_grade_list_failed", exc_info=True)
+            return []
+        items: list[dict[str, Any]] = []
+        for raw in raw_items:
+            parsed = _safe_loads(raw)
+            if parsed is not None:
+                items.append(parsed)
+        return items
 
 
 _store_singleton: RedisStore | None = None
