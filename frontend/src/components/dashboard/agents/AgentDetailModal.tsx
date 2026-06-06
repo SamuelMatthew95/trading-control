@@ -153,6 +153,41 @@ export function AgentDetailModal({ name, onClose }: { name: string; onClose: () 
               </div>
             </div>
 
+            {/* Promotion standing */}
+            <div className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-600 dark:text-slate-300">
+                  A/A+ streak: <span className="font-mono">{data.grade_streak}</span>
+                </span>
+                <span className="text-slate-600 dark:text-slate-300">
+                  trust <span className="font-mono">{data.trust.toFixed(2)}</span>
+                  {data.target_trust !== data.trust && (
+                    <span className="text-slate-400">
+                      {' → '}
+                      <span className="font-mono">{data.target_trust.toFixed(2)}</span>
+                    </span>
+                  )}
+                </span>
+              </div>
+              {data.history.length > 1 && (
+                <div className="mt-2 flex items-center gap-1">
+                  {data.history
+                    .slice()
+                    .reverse()
+                    .map((h, i) => (
+                      <span
+                        key={`hist-${i}`}
+                        title={`${h.grade ?? '—'} · ${h.timestamp}`}
+                        className={cn(
+                          'inline-block h-4 w-2 rounded-sm',
+                          gradeBg(h.grade),
+                        )}
+                      />
+                    ))}
+                </div>
+              )}
+            </div>
+
             {/* Dimensions */}
             <div>
               <p className={cn(sectionTitleClass, 'mb-2')}>Grade Breakdown</p>
