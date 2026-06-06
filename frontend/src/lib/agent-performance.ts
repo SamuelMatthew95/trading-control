@@ -28,12 +28,20 @@ export interface AgentScore {
   score_pct: number | null
   tier: string
   promoted: boolean
+  grade_streak: number
   event_count: number
   total_runs: number
   completed_runs: number
   failed_runs: number
   dimensions: AgentDimension[]
   learnings: AgentLearning[]
+}
+
+export interface AgentGradeSnapshot {
+  grade: string | null
+  score_pct: number | null
+  tier: string
+  timestamp: string
 }
 
 export interface AgentPerformanceResponse {
@@ -61,7 +69,18 @@ export interface AgentHeartbeat {
 export interface AgentDetail extends AgentScore {
   heartbeat: AgentHeartbeat
   recent_activity: AgentActivity[]
+  history: AgentGradeSnapshot[]
+  trust: number
+  target_trust: number
   mode: string
+  timestamp: string
+}
+
+export interface PromotionApplyResult {
+  applied: Array<{ name: string; tier: string; trust: number }>
+  enabled: boolean
+  mode?: string
+  error?: string
   timestamp: string
 }
 
