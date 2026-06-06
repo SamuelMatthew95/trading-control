@@ -18,10 +18,15 @@ churn shown as pipeline output. The dedicated backend endpoints all filter by
 
 **Fix:** `frontend/src/lib/activity-timeline.ts` — `buildActivityTimeline` now
 skips lifecycle logs (`isLifecycleLog`, `log_type === 'lifecycle'`). Only genuine
-output logs surface, matching the backend.
+output logs surface, matching the backend. The same `isLifecycleLog` guard is
+applied at the per-agent count source (`DashboardView.tsx` `realAgents` reduce),
+so a spawn row no longer inflates an idle agent's "events" (IC / Reflection /
+Proposer now read 0, consistent with the Cognitive Engine's Agent Health).
 
 **Regression test:** `frontend/src/test/helpers/activity-timeline.test.ts` —
-"skips agent lifecycle logs so spawn churn is not shown as pipeline output".
+"skips agent lifecycle logs so spawn churn is not shown as pipeline output";
+`frontend/src/test/components/DashboardView.test.tsx` — "does not count agent
+lifecycle (spawn) logs as produced events".
 
 ## IC Updater displayed as "Indicator Cache Updater"
 
