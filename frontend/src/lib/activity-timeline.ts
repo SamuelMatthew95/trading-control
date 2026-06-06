@@ -92,6 +92,20 @@ const AGENT_STAGE: Record<string, { stage: ActivityStage; title: string }> = {
   [AGENT_PROPOSAL_APPLIER]: { stage: 'proposal', title: 'Proposal applied' },
 }
 
+// Agent lifecycle transitions (instance spawn / retire) are written to
+// agent_logs with log_type "lifecycle" and no real message — the backend's
+// in-memory writer falls the message back to the literal "lifecycle". They are
+// NOT pipeline output: an agent coming online is not a grade, a reflection, or
+// a drafted proposal. Rendering them here falsely showed "Trade graded" /
+// "Reflection" / "Proposal drafted" for agents that had merely started,
+// directly contradicting the (correctly empty) Proposals and Learning pages
+// when the learning loop is idle. The dedicated backend endpoints all filter by
+// log_type (GRADE / REFLECTION / PROPOSAL), so the feed must do the same and
+// surface only genuine output logs.
+function isLifecycleLog(log: AgentLog): boolean {
+  return String((log as { log_type?: unknown }).log_type ?? '').toLowerCase() === 'lifecycle'
+}
+
 // A decision is a rule-based fallback (not model reasoning) when the agent
 // could not run the LLM: it sets llm_succeeded=false and/or prefixes its
 // reasoning summary with "fallback:". Mirrors RecentDecisionsPanel.
@@ -231,6 +245,8 @@ export function buildActivityTimeline(
   let logIndex = 0
   for (const log of input.agentLogs ?? []) {
     logIndex += 1
+    // Agent spawn/retire churn is not pipeline output — skip it (see above).
+    if (isLifecycleLog(log)) continue
     const key = canonicalAgentKey(String(log.agent_name || log.agent || ''))
     const mapped = AGENT_STAGE[key]
     if (!mapped) continue
