@@ -829,3 +829,38 @@ sampling (future work).
 `EquityCurve range selector`) + `frontend/src/test/helpers/live-equity-series.test.ts`
 (`retains well past the old 200-point cap`, `restores history even when the newest
 sample is no longer current`).
+
+## Equity Curve "looks like a kid / bullshit" — gridded chart instead of the Robinhood line
+
+**Symptom:** Even after the range tabs landed, the chart read as amateurish: the
+same dollar value repeated ~4× (headline + Net/Peak/Range tiles), a heavy red
+area "block" filling from the line up to $0, 8–9 cramped dollar gridlines, and —
+for an all-underwater P&L — the line crammed against the bottom with a big dead
+gap up to the $0 line.
+
+**Root cause:** It was styled as a dense dashboard chart, not the Robinhood line
+the user asked for. Two specifics: (1) the fill used the default base (≈$0) so a
+−$1.10 curve drew a solid band between the line and $0; (2) `getNiceYAxis` always
+forces $0 into the domain, so an all-negative curve was pushed to the bottom with
+the $0 gridline stranded at the top.
+
+**Fix:** `EquityCurve` is now the bare Robinhood line:
+- Hidden Y-axis (no dollar labels), no `CartesianGrid`, 2px line, subtle
+  under-line gradient fading to transparent (`baseValue={yDomain[0]}`).
+- `getLineDomain` fits the data (min..max) with a `MIN_DOMAIN_HALF` ($0.25) floor
+  — it does **not** force $0 in — so a flat curve is a calm centred line, not
+  amplified noise and not crammed to an edge.
+- The baseline `ReferenceLine` uses `ifOverflow="discard"`, so the $0 / cost line
+  appears only when the visible curve actually crosses it.
+- Header shows the value once (headline) + a coloured arrow/period label; the
+  signed change shows only on sub-windows. Range tabs are a full-width row below
+  the chart.
+
+Verified by rendering the real chart subtree to PNG (react-dom/server →
+`@resvg/resvg-js`, installed `--no-save`, harness deleted after use) for the
+uptrend / flat-loss / downtrend cases before shipping — the sandbox has no
+browser, so this is how the look was checked rather than guessed.
+
+**Regression test:** `frontend/src/test/components/EquityCurve.test.tsx`
+(`getLineDomain` fits-data + min-height floor; `shows only the period label for
+the all-time range`; `shows the signed change over a selected sub-window`).
