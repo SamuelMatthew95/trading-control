@@ -52,6 +52,17 @@ export const RANGE_WINDOW_MS: Record<EquityRange, number> = {
   ALL: Number.POSITIVE_INFINITY,
 }
 
+// Human-readable label for the secondary header line (Robinhood-style: the
+// headline is the current value, this line names the period it's measured over).
+const RANGE_LABEL: Record<EquityRange, string> = {
+  LIVE: 'live',
+  '1H': 'past hour',
+  '1D': 'past day',
+  '1W': 'past week',
+  '1M': 'past month',
+  ALL: 'all time',
+}
+
 // Break the live line when two consecutive live samples are more than this far
 // apart (reload gap, backgrounded tab). 3s is the sampling cadence, so 45s is
 // many missed samples — a real discontinuity, not jitter.
@@ -213,7 +224,9 @@ export const buildRenderSeries = (windowed: CombinedPoint[]): RenderPoint[] => {
 // domain like [-6.15, 5] and Recharts labels it with junk (-$0.15, -$3.15…).
 function niceStep(range: number): number {
   if (!(range > 0)) return 1
-  const rough = range / 4
+  // Target ~3 divisions (plus one step of headroom each side ≈ 4–5 gridlines) so
+  // the axis stays clean instead of stacking 8–9 cramped dollar labels.
+  const rough = range / 3
   const mag = 10 ** Math.floor(Math.log10(rough))
   const norm = rough / mag
   const niceNorm = norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10
@@ -322,50 +335,58 @@ export function EquityCurve({
 
   const last = stats?.last ?? 0
   const change = stats?.change ?? 0
+  const peak = stats?.peak ?? 0
+  const trough = stats?.trough ?? 0
+  const swing = stats?.range ?? 0
   // Robinhood colours the curve by the move over the selected period, not by the
   // absolute sign — green when the window is up, red when it's down.
   const positive = change >= 0
   const strokeColor = positive ? '#10b981' : '#f43f5e'
-  const gradientTop = positive ? 'rgba(16,185,129,0.35)' : 'rgba(244,63,94,0.35)'
-  const gradientBottom = positive ? 'rgba(16,185,129,0.02)' : 'rgba(244,63,94,0.02)'
+  const fillColor = positive ? 'rgba(16,185,129,0.18)' : 'rgba(244,63,94,0.18)'
+  const valueClass = positive ? 'text-emerald-500' : 'text-rose-500'
 
   return (
-    <div className="rounded-xl border border-slate-200/90 bg-gradient-to-b from-white via-slate-50/60 to-white p-4 shadow-sm dark:border-slate-800 dark:from-slate-950 dark:via-slate-900/60 dark:to-slate-950">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
             {isLiveSeries ? 'Live P&L (open position)' : 'Cumulative P&L'}
           </p>
-          <p className={cn('text-xl font-semibold tabular-nums', positive ? 'text-emerald-500' : 'text-rose-500')}>{formatUSD(last)}</p>
-          <span className={cn('mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide', positive ? 'text-emerald-500' : 'text-rose-500')}>
-            {signedUSD(change)} · {range === 'ALL' ? 'all time' : range}
-          </span>
-          {isLiveSeries && (
-            <span className="ml-2 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-500">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-              Live · marks to market in real time
+          <p className={cn('mt-0.5 text-3xl font-semibold tabular-nums', valueClass)}>{formatUSD(last)}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-medium uppercase tracking-wide">
+            <span className={cn('inline-flex items-center gap-1', valueClass)}>
+              <span aria-hidden>{positive ? '▲' : '▼'}</span>
+              {RANGE_LABEL[effectiveRange]}
             </span>
-          )}
+            {isLiveSeries && (
+              <span className="inline-flex items-center gap-1 text-emerald-500">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+                Live · marks to market in real time
+              </span>
+            )}
+          </div>
         </div>
-        <div className="grid grid-cols-2 gap-2 text-right sm:grid-cols-3">
-          <div className="rounded-lg border border-slate-200 bg-white/70 px-2 py-1 dark:border-slate-800 dark:bg-slate-900/60">
-            <p className="text-[10px] uppercase tracking-wide text-slate-500">Net</p>
-            <p className={cn('text-xs font-medium tabular-nums', change >= 0 ? 'text-emerald-500' : 'text-rose-500')}>
-              {signedUSD(change)}
-            </p>
-          </div>
-          <div className="rounded-lg border border-slate-200 bg-white/70 px-2 py-1 dark:border-slate-800 dark:bg-slate-900/60">
-            <p className="text-[10px] uppercase tracking-wide text-slate-500">Peak</p>
-            <p className="text-xs font-medium tabular-nums text-slate-700 dark:text-slate-200">{stats != null ? formatUSD(stats.peak) : '--'}</p>
-          </div>
-          <div className="col-span-2 rounded-lg border border-slate-200 bg-white/70 px-2 py-1 dark:col-span-1 dark:border-slate-800 dark:bg-slate-900/60">
-            <p className="text-[10px] uppercase tracking-wide text-slate-500">Range</p>
-            <p className="text-xs font-medium tabular-nums text-slate-700 dark:text-slate-200">{stats != null ? formatUSD(stats.range) : '--'}</p>
-          </div>
+        <div className="flex flex-wrap items-center justify-end gap-x-5 gap-y-1 text-[11px] tabular-nums">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="uppercase tracking-wide text-slate-500">Net</span>
+            <span className={cn('font-medium', valueClass)}>{signedUSD(change)}</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="uppercase tracking-wide text-slate-500">Peak</span>
+            <span className="font-medium text-slate-600 dark:text-slate-300">{stats != null ? formatUSD(peak) : '--'}</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="uppercase tracking-wide text-slate-500">Low</span>
+            <span className="font-medium text-slate-600 dark:text-slate-300">{stats != null ? formatUSD(trough) : '--'}</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="uppercase tracking-wide text-slate-500">Range</span>
+            <span className="font-medium text-slate-600 dark:text-slate-300">{stats != null ? formatUSD(swing) : '--'}</span>
+          </span>
         </div>
       </div>
 
-      <div className="mb-3 inline-flex items-center gap-0.5 rounded-lg border border-slate-200 bg-slate-50 p-0.5 dark:border-slate-800 dark:bg-slate-900/60">
+      <div className="mb-3 inline-flex items-center gap-0.5 rounded-lg bg-slate-100/70 p-0.5 dark:bg-slate-900/70">
         {EQUITY_RANGES.map((key) => {
           const disabled = isRangeDisabled(key)
           const active = key === effectiveRange
@@ -390,37 +411,37 @@ export function EquityCurve({
         })}
       </div>
 
-      <div className="h-72 w-full rounded-lg border border-slate-200/70 bg-white/80 p-2 dark:border-slate-800/80 dark:bg-slate-950/40">
+      <div className="h-72 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={renderData} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
+          <AreaChart data={renderData} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={gradientTop} />
-                <stop offset="95%" stopColor={gradientBottom} />
+                <stop offset="0%" stopColor={fillColor} />
+                <stop offset="100%" stopColor={fillColor} stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="2 4" stroke="currentColor" className="text-slate-200 dark:text-slate-800" />
+            <CartesianGrid vertical={false} strokeDasharray="3 6" stroke="currentColor" className="text-slate-200/70 dark:text-slate-800/70" />
             <XAxis
               dataKey="timestamp"
               type="number"
               domain={["dataMin", "dataMax"]}
               tickFormatter={xTickFormatter}
-              tick={{ fill: '#64748b', fontSize: 11 }}
-              axisLine={{ stroke: '#334155' }}
-              tickLine={{ stroke: '#334155' }}
-              minTickGap={48}
+              tick={{ fill: '#94a3b8', fontSize: 10 }}
+              axisLine={false}
+              tickLine={false}
+              minTickGap={56}
             />
             <YAxis
               type="number"
               domain={domain}
               ticks={yTicks}
               tickFormatter={(value) => formatUSD(value)}
-              tick={{ fill: '#64748b', fontSize: 11 }}
-              axisLine={{ stroke: '#334155' }}
-              tickLine={{ stroke: '#334155' }}
-              width={86}
+              tick={{ fill: '#94a3b8', fontSize: 10 }}
+              axisLine={false}
+              tickLine={false}
+              width={64}
             />
-            <ReferenceLine y={0} stroke="#64748b" strokeDasharray="4 4" />
+            <ReferenceLine y={0} stroke="#64748b" strokeDasharray="4 4" strokeOpacity={0.6} />
             <Tooltip
               contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 10, boxShadow: '0 10px 25px rgba(2,6,23,0.35)' }}
               labelStyle={{ color: '#cbd5e1', fontSize: 12 }}
@@ -434,7 +455,7 @@ export function EquityCurve({
               type="monotoneX"
               dataKey="equity"
               stroke={strokeColor}
-              strokeWidth={2.5}
+              strokeWidth={2}
               fillOpacity={1}
               fill="url(#equityGradient)"
               isAnimationActive={false}
