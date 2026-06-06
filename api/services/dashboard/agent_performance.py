@@ -25,7 +25,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from api.config import settings
 from api.constants import (
+    AGENT_GRADE_HISTORY_DISPLAY,
+    AGENT_GRADE_HISTORY_MAX,
+    AGENT_GRADE_SNAPSHOT_INTERVAL_SECONDS,
     AGENT_PERF_LIVENESS_ACTIVE,
     AGENT_PERF_LIVENESS_STALE,
     AGENT_PERF_THROUGHPUT_SATURATION,
@@ -33,21 +37,35 @@ from api.constants import (
     AGENT_PERF_W_LIVENESS,
     AGENT_PERF_W_SUCCESS,
     AGENT_PERF_W_THROUGHPUT,
+    AGENT_PROMOTION_STREAK,
+    AGENT_TRUST_DEFAULT,
+    AGENT_TRUST_MAX,
+    AGENT_TRUST_MIN,
     ALL_AGENT_NAMES,
     CIRCUIT_BREAKER_MAX_LATENCY_MS,
     GRADE_TO_TIER,
+    LEARNING_CONTROL_TTL_SECONDS,
+    REDIS_KEY_AGENT_TRUST,
     SOURCE_TO_AGENT,
     TIER_PROMOTED,
+    TIER_TO_TRUST,
+    TIER_TRUSTED,
     TIER_UNRATED,
     FieldName,
     StatusValue,
 )
+from api.observability import log_structured
+from api.redis_client import get_redis
 from api.runtime_state import is_db_available
 from api.services.agents.scoring import score_to_grade
 from api.services.dashboard.agents import (
     get_agent_metrics_payload,
     get_agents_status_payload,
 )
+from api.services.redis_store import get_redis_store
+
+# Letter grades that count toward a promotion streak.
+_PROMOTION_GRADES = {"A", "A+"}
 
 # Dimension identifiers (StrEnum members reused so no raw-string keys leak in).
 _DIM_WEIGHTS: dict[str, float] = {
@@ -315,8 +333,11 @@ def _grade_agent(
         FieldName.GRADE: letter,
         FieldName.SCORE: score,
         FieldName.SCORE_PCT: round(score * 100, 1) if score is not None else None,
+        # Base tier from the current window; _finalize_promotion may downgrade a
+        # not-yet-sustained A/A+ to TRUSTED and set PROMOTED + GRADE_STREAK.
         FieldName.TIER: tier,
-        FieldName.PROMOTED: graded and tier == TIER_PROMOTED,
+        FieldName.PROMOTED: False,
+        FieldName.GRADE_STREAK: 0,
         FieldName.EVENT_COUNT: int(heartbeat.get(FieldName.EVENT_COUNT) or 0),
         FieldName.TOTAL_RUNS: len(runs),
         FieldName.COMPLETED_RUNS: completed,
@@ -359,13 +380,116 @@ def _mode() -> str:
     return "db" if is_db_available() else "memory"
 
 
+def _age_seconds(ts_iso: Any) -> float | None:
+    """Seconds since an ISO-8601 timestamp; ``None`` if unparseable."""
+    if ts_iso is None:
+        return None
+    try:
+        ts = datetime.fromisoformat(str(ts_iso).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - ts).total_seconds()
+
+
+def _streak_from_history(history: list[dict[str, Any]]) -> int:
+    """Consecutive A/A+ snapshots from newest backwards (history is newest-first)."""
+    streak = 0
+    for snapshot in history:
+        if snapshot.get(FieldName.GRADE) in _PROMOTION_GRADES:
+            streak += 1
+        else:
+            break
+    return streak
+
+
+def _should_record(history: list[dict[str, Any]], grade: str) -> bool:
+    """Throttle snapshots — record on a grade change or once per interval."""
+    if not history:
+        return True
+    latest = history[0]
+    if latest.get(FieldName.GRADE) != grade:
+        return True
+    age = _age_seconds(latest.get(FieldName.TIMESTAMP))
+    return age is None or age >= AGENT_GRADE_SNAPSHOT_INTERVAL_SECONDS
+
+
+async def _read_trust(agent_name: str) -> float:
+    """Current per-agent trust weight from the control plane (bounded)."""
+    try:
+        redis_client = await get_redis()
+        raw = await redis_client.get(REDIS_KEY_AGENT_TRUST.format(name=agent_name))
+        if raw is None:
+            return AGENT_TRUST_DEFAULT
+        return min(max(float(raw), AGENT_TRUST_MIN), AGENT_TRUST_MAX)
+    except (TypeError, ValueError):
+        return AGENT_TRUST_DEFAULT
+    except Exception:
+        log_structured("warning", "agent_trust_read_failed", exc_info=True)
+        return AGENT_TRUST_DEFAULT
+
+
+async def _finalize_promotion(
+    store: Any,
+    agent: dict[str, Any],
+    *,
+    include_history: bool,
+) -> dict[str, Any]:
+    """Refine an agent's tier using its durable grade streak (sustained → PROMOTED).
+
+    A single A/A+ window shows TRUSTED; only AGENT_PROMOTION_STREAK consecutive
+    A/A+ snapshots earn the PROMOTED tier. Degrades to current-window promotion
+    when no RedisStore is installed (no durable history available).
+    """
+    name = agent[FieldName.NAME]
+    grade = agent[FieldName.GRADE]
+    base_tier = agent[FieldName.TIER]
+    history: list[dict[str, Any]] = []
+
+    if store is None:
+        streak = 1 if grade in _PROMOTION_GRADES else 0
+    else:
+        history = await store.list_agent_grades(name, AGENT_GRADE_HISTORY_MAX)
+        if grade is not None and _should_record(history, grade):
+            snapshot = {
+                FieldName.GRADE: grade,
+                FieldName.SCORE_PCT: agent[FieldName.SCORE_PCT],
+                FieldName.TIER: base_tier,
+                FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+            }
+            await store.record_agent_grade(name, snapshot)
+            history = [snapshot, *history]
+        streak = _streak_from_history(history)
+
+    promoted = grade in _PROMOTION_GRADES and streak >= AGENT_PROMOTION_STREAK
+    if promoted:
+        final_tier = TIER_PROMOTED
+    elif grade in _PROMOTION_GRADES:
+        # Earned an A/A+ but not yet sustained — pending promotion.
+        final_tier = TIER_TRUSTED
+    else:
+        final_tier = base_tier
+
+    agent[FieldName.TIER] = final_tier
+    agent[FieldName.PROMOTED] = promoted
+    agent[FieldName.GRADE_STREAK] = streak
+
+    if include_history:
+        agent[FieldName.HISTORY] = history[:AGENT_GRADE_HISTORY_DISPLAY]
+        agent[FieldName.TRUST] = await _read_trust(name)
+        agent[FieldName.TARGET_TRUST] = TIER_TO_TRUST.get(final_tier, AGENT_TRUST_DEFAULT)
+    return agent
+
+
 async def get_agent_performance_payload() -> dict[str, Any]:
     """Grade every pipeline agent — the overview the dashboard table renders."""
     heartbeats, runs_by_agent = await _collect()
-    agents = [
-        _grade_agent(name, heartbeats.get(name, {}), runs_by_agent.get(name, []))
-        for name in ALL_AGENT_NAMES
-    ]
+    store = get_redis_store()
+    agents: list[dict[str, Any]] = []
+    for name in ALL_AGENT_NAMES:
+        graded = _grade_agent(name, heartbeats.get(name, {}), runs_by_agent.get(name, []))
+        agents.append(await _finalize_promotion(store, graded, include_history=False))
     promoted = sum(1 for a in agents if a[FieldName.PROMOTED])
     return {
         FieldName.AGENTS: agents,
@@ -388,6 +512,7 @@ async def get_agent_detail_payload(agent_name: str) -> dict[str, Any]:
     runs = runs_by_agent.get(agent_name, [])
 
     detail = _grade_agent(agent_name, heartbeat, runs)
+    detail = await _finalize_promotion(get_redis_store(), detail, include_history=True)
     detail[FieldName.HEARTBEAT] = {
         FieldName.STATUS: heartbeat.get(FieldName.STATUS),
         FieldName.EVENT_COUNT: heartbeat.get(FieldName.EVENT_COUNT),
@@ -399,3 +524,48 @@ async def get_agent_detail_payload(agent_name: str) -> dict[str, Any]:
     detail[FieldName.MODE] = _mode()
     detail[FieldName.TIMESTAMP] = datetime.now(timezone.utc).isoformat()
     return detail
+
+
+async def apply_agent_promotions_payload() -> dict[str, Any]:
+    """Behavioral promotion (explicit operator action): write each agent's trust
+    weight to the control plane from its current tier.
+
+    The weight only changes live trading when AGENT_TRUST_WEIGHTING_ENABLED is
+    on (ReasoningAgent reads it then); otherwise it is set but inert, so the UI
+    can preview the effect safely. Writing is gated to this explicit POST — it is
+    never a side effect of a dashboard GET.
+    """
+    perf = await get_agent_performance_payload()
+    applied: list[dict[str, Any]] = []
+    try:
+        redis_client = await get_redis()
+        for agent in perf[FieldName.AGENTS]:
+            tier = agent[FieldName.TIER]
+            trust = TIER_TO_TRUST.get(tier, AGENT_TRUST_DEFAULT)
+            await redis_client.set(
+                REDIS_KEY_AGENT_TRUST.format(name=agent[FieldName.NAME]),
+                f"{trust:.4f}",
+                ex=LEARNING_CONTROL_TTL_SECONDS,
+            )
+            applied.append(
+                {
+                    FieldName.NAME: agent[FieldName.NAME],
+                    FieldName.TIER: tier,
+                    FieldName.TRUST: trust,
+                }
+            )
+    except Exception:
+        log_structured("warning", "agent_promotion_apply_failed", exc_info=True)
+        return {
+            FieldName.APPLIED: [],
+            FieldName.ENABLED: settings.AGENT_TRUST_WEIGHTING_ENABLED,
+            FieldName.ERROR: "redis_unavailable",
+            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+        }
+
+    return {
+        FieldName.APPLIED: applied,
+        FieldName.ENABLED: settings.AGENT_TRUST_WEIGHTING_ENABLED,
+        FieldName.MODE: _mode(),
+        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+    }
