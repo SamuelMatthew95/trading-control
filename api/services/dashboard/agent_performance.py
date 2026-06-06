@@ -21,6 +21,7 @@ is ``UNRATED`` — dormant is not the same as failing.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -438,9 +439,11 @@ async def _finalize_promotion(
 ) -> dict[str, Any]:
     """Refine an agent's tier using its durable grade streak (sustained → PROMOTED).
 
-    A single A/A+ window shows TRUSTED; only AGENT_PROMOTION_STREAK consecutive
-    A/A+ snapshots earn the PROMOTED tier. Degrades to current-window promotion
-    when no RedisStore is installed (no durable history available).
+    READ-ONLY: it never writes history — the streak is built by the periodic
+    ``record_grade_snapshots`` background task (single writer), so this read path
+    (a dashboard GET) has no side effects and no writer race. A single A/A+
+    window shows TRUSTED; only AGENT_PROMOTION_STREAK consecutive A/A+ snapshots
+    earn PROMOTED. With no RedisStore installed it degrades to the current window.
     """
     name = agent[FieldName.NAME]
     grade = agent[FieldName.GRADE]
@@ -451,15 +454,6 @@ async def _finalize_promotion(
         streak = 1 if grade in _PROMOTION_GRADES else 0
     else:
         history = await store.list_agent_grades(name, AGENT_GRADE_HISTORY_MAX)
-        if grade is not None and _should_record(history, grade):
-            snapshot = {
-                FieldName.GRADE: grade,
-                FieldName.SCORE_PCT: agent[FieldName.SCORE_PCT],
-                FieldName.TIER: base_tier,
-                FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
-            }
-            await store.record_agent_grade(name, snapshot)
-            history = [snapshot, *history]
         streak = _streak_from_history(history)
 
     promoted = grade in _PROMOTION_GRADES and streak >= AGENT_PROMOTION_STREAK
@@ -569,3 +563,48 @@ async def apply_agent_promotions_payload() -> dict[str, Any]:
         FieldName.MODE: _mode(),
         FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
     }
+
+
+async def record_grade_snapshots() -> int:
+    """Append a throttled grade snapshot per agent — the SOLE writer of history.
+
+    Run periodically by a background task so promotion streaks build over time
+    regardless of whether anyone is viewing the dashboard. Throttled per agent
+    (a snapshot is written on a grade change or once per
+    AGENT_GRADE_SNAPSHOT_INTERVAL_SECONDS); ungraded/dormant agents are skipped.
+    Returns the number of snapshots written.
+    """
+    store = get_redis_store()
+    if store is None:
+        return 0
+    heartbeats, runs_by_agent = await _collect()
+    recorded = 0
+    for name in ALL_AGENT_NAMES:
+        graded = _grade_agent(name, heartbeats.get(name, {}), runs_by_agent.get(name, []))
+        grade = graded[FieldName.GRADE]
+        if grade is None:
+            continue
+        history = await store.list_agent_grades(name, AGENT_GRADE_HISTORY_MAX)
+        if not _should_record(history, grade):
+            continue
+        await store.record_agent_grade(
+            name,
+            {
+                FieldName.GRADE: grade,
+                FieldName.SCORE_PCT: graded[FieldName.SCORE_PCT],
+                FieldName.TIER: graded[FieldName.TIER],
+                FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        recorded += 1
+    return recorded
+
+
+async def agent_grade_snapshot_loop() -> None:
+    """Periodically record per-agent grade snapshots so streaks build autonomously."""
+    while True:
+        await asyncio.sleep(AGENT_GRADE_SNAPSHOT_INTERVAL_SECONDS)
+        try:
+            await record_grade_snapshots()
+        except Exception:
+            log_structured("warning", "agent_grade_snapshot_loop_failed", exc_info=True)
