@@ -844,9 +844,10 @@ the user asked for. Two specifics: (1) the fill used the default base (≈$0) so
 forces $0 into the domain, so an all-negative curve was pushed to the bottom with
 the $0 gridline stranded at the top.
 
-**Fix:** `EquityCurve` is now the bare Robinhood line:
-- Hidden Y-axis (no dollar labels), no `CartesianGrid`, 2px line, subtle
-  under-line gradient fading to transparent (`baseValue={yDomain[0]}`).
+**Fix:** `EquityCurve` is now the bare Robinhood line (the user picked the
+"Robinhood-minimal line — no fill" option):
+- Hidden Y-axis (no dollar labels), no `CartesianGrid`, no area fill —
+  a single 2.5px line.
 - `getLineDomain` fits the data (min..max) with a `MIN_DOMAIN_HALF` ($0.25) floor
   — it does **not** force $0 in — so a flat curve is a calm centred line, not
   amplified noise and not crammed to an edge.
