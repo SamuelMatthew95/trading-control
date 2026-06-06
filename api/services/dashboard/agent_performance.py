@@ -119,8 +119,19 @@ def _iso(value: Any) -> str | None:
     return str(value)
 
 
+def _status_text(raw: Any) -> str:
+    """Normalize a status that may be a plain str OR a StrEnum member.
+
+    Python 3.10's StrEnum backport (``class StrEnum(str, Enum)``) renders
+    ``str(member)`` as ``"StatusValue.X"`` rather than the value, unlike 3.11's
+    ``enum.StrEnum``. Memory-mode ``agent_runs`` store the enum member as their
+    status, so we go through ``.value`` when present to stay version-safe.
+    """
+    return str(getattr(raw, "value", raw) or "").strip().lower()
+
+
 def _liveness_dimension(heartbeat: dict[str, Any]) -> _Dimension:
-    status = str(heartbeat.get(FieldName.STATUS) or "").strip().lower()
+    status = _status_text(heartbeat.get(FieldName.STATUS))
     if status in _ACTIVE_STATES:
         return _Dimension(FieldName.LIVENESS, AGENT_PERF_LIVENESS_ACTIVE, True)
     if status in _RESTING_STATES:
@@ -134,7 +145,7 @@ def _run_tallies(runs: list[dict[str, Any]]) -> tuple[int, int, int]:
     completed = 0
     failed = 0
     for run in runs:
-        status = str(run.get(FieldName.STATUS) or "").strip().lower()
+        status = _status_text(run.get(FieldName.STATUS))
         if status == StatusValue.COMPLETED:
             completed += 1
         elif status in (StatusValue.FAILED, "error"):
