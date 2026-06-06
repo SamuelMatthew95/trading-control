@@ -16,7 +16,7 @@ import { toFiniteNum as toFinite, parseTimestampMs as parseTimestamp } from '@/l
 
 type EquityOrder = Record<string, unknown>
 
-type EquityPoint = {
+export type EquityPoint = {
   timestamp: number
   label: string
   pnl: number
@@ -81,27 +81,80 @@ export const buildEquitySeries = (orders: EquityOrder[]): EquityPoint[] => {
   })
 }
 
-export const getPaddedDomain = (series: EquityPoint[]): [number, number] => {
-  if (series.length === 0) return [-1, 1]
-  const values = series.map((point) => point.equity)
-  const min = Math.min(...values, 0)
-  const max = Math.max(...values, 0)
-  const range = max - min
-  const padding = Math.max(range * 0.12, 5)
-  return [min - padding, max + padding]
+// Round a range to a "nice" step (1/2/5 × 10ⁿ) so axis ticks land on clean
+// numbers. Otherwise a flat-ish curve worth a couple of dollars gets a padded
+// domain like [-6.15, 5] and Recharts labels it with junk (-$0.15, -$3.15…).
+function niceStep(range: number): number {
+  if (!(range > 0)) return 1
+  const rough = range / 4
+  const mag = 10 ** Math.floor(Math.log10(rough))
+  const norm = rough / mag
+  const niceNorm = norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10
+  return niceNorm * mag
 }
+
+// Y-axis domain + explicit ticks, snapped to a nice step, always spanning the
+// $0 baseline with one step of headroom each side so the line is never glued to
+// an edge and every gridline reads as a clean dollar amount.
+export const getNiceYAxis = (series: EquityPoint[]): { domain: [number, number]; ticks: number[] } => {
+  if (series.length === 0) return { domain: [-1, 1], ticks: [-1, 0, 1] }
+  const values = series.map((point) => point.equity)
+  let min = Math.min(...values, 0)
+  let max = Math.max(...values, 0)
+  if (min === max) {
+    min -= 1
+    max += 1
+  }
+  const step = Math.max(niceStep(max - min), 0.01)
+  const lo = Math.floor(min / step) * step - step
+  const hi = Math.ceil(max / step) * step + step
+  const ticks: number[] = []
+  // `+ 0` normalizes a -0 (or a sub-µ tick that toFixed renders as "-0.000000")
+  // to +0, so the axis never shows a spurious "-$0.00" label. The $0.01 step
+  // floor above keeps sub-cent P&L from collapsing every tick to 0.
+  for (let v = lo; v <= hi + step / 2; v += step) ticks.push(Number(v.toFixed(6)) + 0)
+  return { domain: [lo, hi], ticks }
+}
+
+export const getPaddedDomain = (series: EquityPoint[]): [number, number] => getNiceYAxis(series).domain
 
 export function EquityCurve({
   orders,
+  liveSeries,
   isLoading = false,
   hasError = false,
 }: {
   orders: EquityOrder[]
+  /** Real-time mark-to-market series, used as a fallback when no trade has
+   *  closed yet so an open position still renders a curve (see useLiveEquitySeries). */
+  liveSeries?: EquityPoint[]
   isLoading?: boolean
   hasError?: boolean
 }) {
-  const series = useMemo(() => buildEquitySeries(orders), [orders])
-  const domain = useMemo(() => getPaddedDomain(series), [series])
+  const orderSeries = useMemo(() => buildEquitySeries(orders), [orders])
+  // Prefer the realized, order-derived curve. When no trade has closed yet, fall
+  // back to the live mark-to-market series so an open position shows a real-time
+  // curve instead of an empty "No equity data yet" state.
+  const series = useMemo(
+    () => (orderSeries.length > 0 ? orderSeries : (liveSeries ?? [])),
+    [orderSeries, liveSeries],
+  )
+  const isLiveSeries = orderSeries.length === 0 && (liveSeries?.length ?? 0) > 0
+  const { domain, ticks: yTicks } = useMemo(() => getNiceYAxis(series), [series])
+  // Show seconds while the curve still spans only a few minutes (otherwise every
+  // HH:MM tick is the same minute and reads as "11:25 AM" four times); drop to
+  // HH:MM once it covers enough time for the minutes to differ.
+  const xTickFormatter = useMemo(() => {
+    const spanMs = series.length > 1 ? series[series.length - 1].timestamp - series[0].timestamp : 0
+    const showSeconds = spanMs > 0 && spanMs < 5 * 60 * 1000
+    return (ts: number) =>
+      new Date(ts).toLocaleTimeString(
+        [],
+        showSeconds
+          ? { hour: '2-digit', minute: '2-digit', second: '2-digit' }
+          : { hour: '2-digit', minute: '2-digit' },
+      )
+  }, [series])
   const stats = useMemo(() => {
     if (series.length === 0) return null
     const end = series[series.length - 1]?.equity ?? 0
@@ -134,8 +187,16 @@ export function EquityCurve({
     <div className="rounded-xl border border-slate-200/90 bg-gradient-to-b from-white via-slate-50/60 to-white p-4 shadow-sm dark:border-slate-800 dark:from-slate-950 dark:via-slate-900/60 dark:to-slate-950">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Cumulative P&amp;L</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+            {isLiveSeries ? 'Live P&L (open position)' : 'Cumulative P&L'}
+          </p>
           <p className={cn('text-xl font-semibold tabular-nums', positive ? 'text-emerald-500' : 'text-rose-500')}>{formatUSD(last)}</p>
+          {isLiveSeries && (
+            <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-500">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+              Live · marks to market in real time
+            </span>
+          )}
         </div>
         <div className="grid grid-cols-2 gap-2 text-right sm:grid-cols-3">
           <div className="rounded-lg border border-slate-200 bg-white/70 px-2 py-1 dark:border-slate-800 dark:bg-slate-900/60">
@@ -170,15 +231,16 @@ export function EquityCurve({
               dataKey="timestamp"
               type="number"
               domain={["dataMin", "dataMax"]}
-              tickFormatter={formatTickTime}
+              tickFormatter={xTickFormatter}
               tick={{ fill: '#64748b', fontSize: 11 }}
               axisLine={{ stroke: '#334155' }}
               tickLine={{ stroke: '#334155' }}
-              minTickGap={24}
+              minTickGap={48}
             />
             <YAxis
               type="number"
               domain={domain}
+              ticks={yTicks}
               tickFormatter={(value) => formatUSD(value)}
               tick={{ fill: '#64748b', fontSize: 11 }}
               axisLine={{ stroke: '#334155' }}

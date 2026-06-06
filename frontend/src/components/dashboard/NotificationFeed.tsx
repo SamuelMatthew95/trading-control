@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { parseTimestampMs } from '@/lib/formatters'
 import type { Notification } from '@/stores/useCodexStore'
 import { NOTIFICATION_FALLBACKS } from '@/constants/notifications'
 import { groupNotifications } from '@/lib/notification-grouping'
@@ -118,10 +119,19 @@ function displayValue(value: unknown, fallback = '--'): string {
   return String(value)
 }
 
-function formatRelativeTime(value?: string | null): string {
-  if (!value) return NOTIFICATION_FALLBACKS.emptyTimestamp
-  const ts = typeof value === 'number' ? (value > 1e12 ? value : value * 1000) : Date.parse(value)
-  if (!isFinite(ts)) return value
+/**
+ * Relative-time label for a notification timestamp.
+ *
+ * Exported for regression testing. Routes through the shared `parseTimestampMs`
+ * so epoch-seconds, epoch-ms, numeric strings, and ISO strings all parse. The
+ * previous hand-rolled `Date.parse` could not parse a float epoch-seconds string
+ * ("1780634112.7714157") and fell back to RETURNING THE RAW VALUE — which then
+ * rendered verbatim as a broken-looking number in the panel header and rows.
+ * Unparseable / missing now collapses to the '--' fallback instead.
+ */
+export function formatRelativeTime(value?: string | number | null): string {
+  const ts = parseTimestampMs(value)
+  if (ts == null) return NOTIFICATION_FALLBACKS.emptyTimestamp
   const diffSec = Math.floor((Date.now() - ts) / 1000)
   if (diffSec < 5) return 'just now'
   if (diffSec < 60) return `${diffSec}s ago`

@@ -75,6 +75,19 @@ describe('buildActivityTimeline', () => {
     expect(stages).toEqual(['market'])
   })
 
+  it('shows the symbol + price + direction for a market event (no more bare rows)', () => {
+    const recentEvents: RecentEvent[] = [
+      { stream: STREAM_MARKET_TICKS, msgId: 'm1', timestamp: iso(10), symbol: 'BTC/USD', price: 60781.58, change: -12.3 },
+    ]
+    const [item] = buildActivityTimeline({ recentEvents })
+    expect(item.detail).toBe('BTC/USD · $60,781.58 · ▼ 12.3')
+  })
+
+  it('leaves detail null when a market event carries no subject (no regression)', () => {
+    const recentEvents: RecentEvent[] = [{ stream: STREAM_MARKET_TICKS, msgId: 'm1', timestamp: iso(10) }]
+    expect(buildActivityTimeline({ recentEvents })[0].detail).toBeNull()
+  })
+
   it('merges all sources newest-first', () => {
     const items = buildActivityTimeline({
       recentDecisions: [{ id: 'd', action: 'buy', symbol: 'BTC/USD', timestamp: iso(5_000) }],

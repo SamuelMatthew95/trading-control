@@ -4,10 +4,9 @@ import { useMemo } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
 import { cn } from '@/lib/utils'
 import { deriveActivityIndicator, ACTIVITY_FRESH_MS } from '@/lib/agent-activity'
-import { formatUSD, formatTimeAgo, getField, getStr, isActivePosition, toFiniteNum as toNum } from '@/lib/formatters'
+import { formatUSD, formatQuantity, formatTimeAgo, getField, getStr, isActivePosition, toFiniteNum as toNum } from '@/lib/formatters'
 import { GRADE_STYLES } from '@/lib/grade-colors'
 import { Activity, BarChart2, TrendingDown, TrendingUp } from 'lucide-react'
-import { OpenPositionsPanel } from '@/components/dashboard/OpenPositionsPanel'
 import { useLivePnl } from '@/hooks/useLivePnl'
 import { useLivePositions } from '@/hooks/useLivePositions'
 import {
@@ -160,7 +159,7 @@ function TradeFeedPanel({
                       {trade.symbol}
                     </span>
                     {qty != null && (
-                      <span className="text-xs text-slate-500 dark:text-slate-400">{qty} units</span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">{formatQuantity(qty)} units</span>
                     )}
                   </div>
                   {entryPrice != null && exitPrice != null ? (
@@ -457,9 +456,6 @@ export function TradingView({
           <AgentActivityPanel setActiveTraceId={setActiveTraceId} />
         </div>
       </div>
-
-      {/* Open positions — full width */}
-      <OpenPositionsPanel />
     </div>
   )
 }

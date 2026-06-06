@@ -164,6 +164,23 @@ function agentLogTone(log: AgentLog): ActivityTone {
   return 'neutral'
 }
 
+// Market events carry the symbol + price the frame was about — surface them so a
+// market row reads "BTC/USD · $60,781.58 · ▼ 12.30" instead of a bare, repeated
+// "Market event" that tells the operator nothing about what actually happened.
+function marketEventDetail(e: RecentEvent): string | null {
+  const parts: string[] = []
+  if (e.symbol) parts.push(e.symbol)
+  if (typeof e.price === 'number' && Number.isFinite(e.price)) {
+    parts.push(`$${e.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}`)
+  }
+  if (typeof e.change === 'number' && Number.isFinite(e.change) && e.change !== 0) {
+    parts.push(
+      `${e.change > 0 ? '▲' : '▼'} ${Math.abs(e.change).toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
+    )
+  }
+  return parts.length > 0 ? parts.join(' · ') : null
+}
+
 /**
  * Merge market events, per-agent activity, decisions, and notifications into one
  * descending chronological feed. Pure + total — bad timestamps are skipped, ids
@@ -241,7 +258,7 @@ export function buildActivityTimeline(
       ts,
       stage: mapped.stage,
       title: mapped.title,
-      detail: null,
+      detail: marketEventDetail(e),
       tone: 'neutral',
       fallback: false,
     })

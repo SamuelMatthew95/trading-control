@@ -221,6 +221,63 @@ export function formatTimestamp(value?: string | null): string {
 }
 
 /**
+ * Format an asset quantity for display.
+ *
+ * Position sizes span whole equity shares down to tiny fractional-crypto
+ * amounts (e.g. 0.0001681861435210638 BTC). Rendering the raw float is
+ * unreadable, so precision is chosen by magnitude and trailing zeros are
+ * trimmed: |qty| >= 1 → up to 4 dp; |qty| < 1 → up to 8 dp (satoshi
+ * precision). Returns '--' for null/undefined/non-finite.
+ */
+export function formatQuantity(qty: number | null | undefined): string {
+  const n = toFiniteNum(qty)
+  if (n == null) return '--'
+  if (n === 0) return '0'
+  const maxFractionDigits = Math.abs(n) >= 1 ? 4 : 8
+  return n.toLocaleString(undefined, { maximumFractionDigits: maxFractionDigits })
+}
+
+/**
+ * Cost basis of a position — the cash actually put in.
+ *
+ * entry_price × |quantity|. Side-agnostic (uses absolute quantity) so a short
+ * reports the notional it was opened at. Returns null when entry price or
+ * quantity is unavailable, so the UI shows '--' rather than a misleading $0.00.
+ */
+export function positionCostBasis(pos: unknown): number | null {
+  const entry = toFiniteNum(getField(pos, 'entry_price'))
+  if (entry == null) return null
+  return entry * Math.abs(positionQty(pos))
+}
+
+/**
+ * Current market value of a position — what it is worth right now.
+ *
+ * current_price × |quantity|, where current_price prefers the live price
+ * stream ({@link livePriceFor}). Returns null when no price is available.
+ */
+export function positionMarketValue(pos: unknown, prices?: Record<string, unknown>): number | null {
+  const current = livePriceFor(pos, prices)
+  if (current == null) return null
+  return current * Math.abs(positionQty(pos))
+}
+
+/**
+ * Market value reconciled for 2-decimal display: round(invested) + round(pnl).
+ *
+ * Invested, value, and P&L are mathematically `value = invested + pnl`, but
+ * rounding all three independently breaks the eyeball subtraction — e.g.
+ * invested 11.2818→$11.28, value 10.1364→$10.14, pnl −1.1454→−$1.15, yet
+ * 11.28 − 10.14 reads as 1.14, not 1.15. Deriving the displayed value from the
+ * already-rounded invested and P&L guarantees `invested − value === −pnl` at
+ * the cents the user sees, so the row always ties out. P&L stays anchored to
+ * the live value shown in the header.
+ */
+export function reconciledMarketValue(invested: number, pnl: number): number {
+  return Math.round(invested * 100) / 100 + Math.round(pnl * 100) / 100
+}
+
+/**
  * Format a ratio or percentage as a percent string.
  *
  * Auto-scales fractional inputs: any |value| <= 1 is treated as a ratio and
