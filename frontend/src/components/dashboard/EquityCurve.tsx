@@ -4,7 +4,6 @@ import { useMemo, useState } from 'react'
 import {
   Area,
   AreaChart,
-  CartesianGrid,
   ResponsiveContainer,
   ReferenceLine,
   Tooltip,
@@ -258,6 +257,24 @@ export const getNiceYAxis = (series: EquityPoint[]): { domain: [number, number];
 
 export const getPaddedDomain = (series: EquityPoint[]): [number, number] => getNiceYAxis(series).domain
 
+// Minimum half-height ($) so a near-flat curve isn't amplified into dramatic
+// fake waves — a $1.10 line that barely moves should read as a flat line, not
+// noise filling the panel.
+const MIN_DOMAIN_HALF = 0.25
+
+// Y domain for the axis-less Robinhood view: fit the data (NOT forced through $0,
+// which would shove an all-underwater curve to the bottom behind a big dead gap)
+// with padding and a min-height floor. The $0 / baseline reference is drawn by a
+// ReferenceLine that simply doesn't show when it falls outside this window.
+export const getLineDomain = (series: EquityPoint[]): [number, number] => {
+  if (series.length === 0) return [-MIN_DOMAIN_HALF, MIN_DOMAIN_HALF]
+  const values = series.map((point) => point.equity)
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const pad = Math.max((max - min) * 0.15, MIN_DOMAIN_HALF)
+  return [min - pad, max + pad]
+}
+
 export function EquityCurve({
   orders,
   liveSeries,
@@ -304,7 +321,7 @@ export function EquityCurve({
 
   const stats = useMemo(() => computeWindowStats(combined, windowed), [combined, windowed])
   const renderData = useMemo(() => buildRenderSeries(windowed), [windowed])
-  const { domain, ticks: yTicks } = useMemo(() => getNiceYAxis(windowed), [windowed])
+  const yDomain = useMemo(() => getLineDomain(windowed), [windowed])
 
   // Seconds while the visible window spans only a few minutes, HH:MM up to a
   // day, and a date label once it covers multiple days — so ticks never repeat.
@@ -335,92 +352,45 @@ export function EquityCurve({
 
   const last = stats?.last ?? 0
   const change = stats?.change ?? 0
-  const peak = stats?.peak ?? 0
-  const trough = stats?.trough ?? 0
-  const swing = stats?.range ?? 0
+  const baseline = stats?.baseline ?? 0
   // Robinhood colours the curve by the move over the selected period, not by the
   // absolute sign — green when the window is up, red when it's down.
   const positive = change >= 0
   const strokeColor = positive ? '#10b981' : '#f43f5e'
-  const fillColor = positive ? 'rgba(16,185,129,0.18)' : 'rgba(244,63,94,0.18)'
+  const fillColor = positive ? 'rgba(16,185,129,0.16)' : 'rgba(244,63,94,0.16)'
   const valueClass = positive ? 'text-emerald-500' : 'text-rose-500'
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-            {isLiveSeries ? 'Live P&L (open position)' : 'Cumulative P&L'}
-          </p>
-          <p className={cn('mt-0.5 text-3xl font-semibold tabular-nums', valueClass)}>{formatUSD(last)}</p>
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-medium uppercase tracking-wide">
-            <span className={cn('inline-flex items-center gap-1', valueClass)}>
-              <span aria-hidden>{positive ? '▲' : '▼'}</span>
-              {RANGE_LABEL[effectiveRange]}
+      <div className="mb-3">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+          {isLiveSeries ? 'Live P&L (open position)' : 'Cumulative P&L'}
+        </p>
+        <p className={cn('mt-0.5 text-3xl font-semibold tabular-nums', valueClass)}>{formatUSD(last)}</p>
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+          <span className={cn('inline-flex items-center gap-1 font-semibold tabular-nums', valueClass)}>
+            <span aria-hidden>{positive ? '▲' : '▼'}</span>
+            {effectiveRange !== 'ALL' && <span>{formatUSD(Math.abs(change))}</span>}
+          </span>
+          <span className="font-medium uppercase tracking-wide text-slate-500">{RANGE_LABEL[effectiveRange]}</span>
+          {isLiveSeries && (
+            <span className="inline-flex items-center gap-1 font-medium uppercase tracking-wide text-emerald-500">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+              Live · marks to market in real time
             </span>
-            {isLiveSeries && (
-              <span className="inline-flex items-center gap-1 text-emerald-500">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-                Live · marks to market in real time
-              </span>
-            )}
-          </div>
+          )}
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-x-5 gap-y-1 text-[11px] tabular-nums">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="uppercase tracking-wide text-slate-500">Net</span>
-            <span className={cn('font-medium', valueClass)}>{signedUSD(change)}</span>
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="uppercase tracking-wide text-slate-500">Peak</span>
-            <span className="font-medium text-slate-600 dark:text-slate-300">{stats != null ? formatUSD(peak) : '--'}</span>
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="uppercase tracking-wide text-slate-500">Low</span>
-            <span className="font-medium text-slate-600 dark:text-slate-300">{stats != null ? formatUSD(trough) : '--'}</span>
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="uppercase tracking-wide text-slate-500">Range</span>
-            <span className="font-medium text-slate-600 dark:text-slate-300">{stats != null ? formatUSD(swing) : '--'}</span>
-          </span>
-        </div>
-      </div>
-
-      <div className="mb-3 inline-flex items-center gap-0.5 rounded-lg bg-slate-100/70 p-0.5 dark:bg-slate-900/70">
-        {EQUITY_RANGES.map((key) => {
-          const disabled = isRangeDisabled(key)
-          const active = key === effectiveRange
-          return (
-            <button
-              key={key}
-              type="button"
-              disabled={disabled}
-              onClick={() => setRange(key)}
-              aria-pressed={active}
-              className={cn(
-                'rounded-md px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide transition-colors',
-                active
-                  ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white'
-                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200',
-                disabled && 'cursor-not-allowed opacity-30 hover:text-slate-500',
-              )}
-            >
-              {key}
-            </button>
-          )
-        })}
       </div>
 
       <div className="h-72 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={renderData} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
+          <AreaChart data={renderData} margin={{ top: 12, right: 6, left: 6, bottom: 0 }}>
             <defs>
               <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={fillColor} />
                 <stop offset="100%" stopColor={fillColor} stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid vertical={false} strokeDasharray="3 6" stroke="currentColor" className="text-slate-200/70 dark:text-slate-800/70" />
             <XAxis
               dataKey="timestamp"
               type="number"
@@ -429,20 +399,14 @@ export function EquityCurve({
               tick={{ fill: '#94a3b8', fontSize: 10 }}
               axisLine={false}
               tickLine={false}
-              minTickGap={56}
+              minTickGap={64}
             />
-            <YAxis
-              type="number"
-              domain={domain}
-              ticks={yTicks}
-              tickFormatter={(value) => formatUSD(value)}
-              tick={{ fill: '#94a3b8', fontSize: 10 }}
-              axisLine={false}
-              tickLine={false}
-              width={64}
-            />
-            <ReferenceLine y={0} stroke="#64748b" strokeDasharray="4 4" strokeOpacity={0.6} />
+            <YAxis hide type="number" domain={yDomain} />
+            {/* Robinhood-style reference at the window's starting value (cost line);
+                ifOverflow="discard" hides it when it falls outside the fitted view. */}
+            <ReferenceLine y={baseline} ifOverflow="discard" stroke="#64748b" strokeDasharray="5 5" strokeOpacity={0.45} />
             <Tooltip
+              cursor={{ stroke: '#94a3b8', strokeDasharray: '3 3', strokeOpacity: 0.6 }}
               contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 10, boxShadow: '0 10px 25px rgba(2,6,23,0.35)' }}
               labelStyle={{ color: '#cbd5e1', fontSize: 12 }}
               formatter={(value: number, _name, item) => {
@@ -456,6 +420,7 @@ export function EquityCurve({
               dataKey="equity"
               stroke={strokeColor}
               strokeWidth={2}
+              baseValue={yDomain[0]}
               fillOpacity={1}
               fill="url(#equityGradient)"
               isAnimationActive={false}
@@ -467,7 +432,32 @@ export function EquityCurve({
         </ResponsiveContainer>
       </div>
 
-      {windowed.length < 2 && <p className="mt-2 text-xs text-slate-500">Need more points to render a full trend.</p>}
+      <div className="mt-2 flex items-center justify-between gap-1">
+        {EQUITY_RANGES.map((key) => {
+          const disabled = isRangeDisabled(key)
+          const active = key === effectiveRange
+          return (
+            <button
+              key={key}
+              type="button"
+              disabled={disabled}
+              onClick={() => setRange(key)}
+              aria-pressed={active}
+              className={cn(
+                'flex-1 rounded-md py-1 text-[10px] font-semibold uppercase tracking-wide transition-colors',
+                active
+                  ? cn('bg-slate-100 dark:bg-slate-800/80', valueClass)
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200',
+                disabled && 'cursor-not-allowed opacity-30 hover:text-slate-500',
+              )}
+            >
+              {key}
+            </button>
+          )
+        })}
+      </div>
+
+      {windowed.length < 2 && <p className="mt-2 text-center text-xs text-slate-500">Need more points to render a full trend.</p>}
     </div>
   )
 }
