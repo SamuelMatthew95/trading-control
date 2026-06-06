@@ -103,8 +103,10 @@ def _clean_runs(n=5):
 
 @pytest.mark.asyncio
 async def test_single_a_window_is_trusted_not_yet_promoted(monkeypatch):
-    # Fresh history → an A grade earns TRUSTED, promotion pending a streak.
-    _patch(monkeypatch, _active_signal_hb(), _clean_runs(), store=_FakeStore())
+    # Fresh history → an A grade earns TRUSTED, promotion pending a streak. The
+    # GET path is read-only: it must NOT write a snapshot.
+    store = _FakeStore()
+    _patch(monkeypatch, _active_signal_hb(), _clean_runs(), store=store)
 
     payload = await perf.get_agent_performance_payload()
     sig = _agent(payload, AGENT_SIGNAL)
@@ -112,8 +114,9 @@ async def test_single_a_window_is_trusted_not_yet_promoted(monkeypatch):
     assert sig["grade"] in ("A", "A+")
     assert sig["tier"] == TIER_TRUSTED
     assert sig["promoted"] is False
-    assert sig["grade_streak"] == 1
+    assert sig["grade_streak"] == 0  # no history yet (recorder hasn't run)
     assert payload["promoted"] == 0
+    assert store.recorded == []  # read path never writes
 
 
 @pytest.mark.asyncio
@@ -241,6 +244,51 @@ async def test_apply_promotions_writes_trust_weights(monkeypatch):
     assert key in redis.store
     entry = next(a for a in result["applied"] if a["name"] == AGENT_SIGNAL)
     assert entry["trust"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_record_grade_snapshots_writes_throttled_history(monkeypatch):
+    store = _FakeStore()
+    _patch(monkeypatch, _active_signal_hb(), _clean_runs(), store=store)
+
+    # First pass writes a snapshot for the graded agent.
+    n = await perf.record_grade_snapshots()
+    assert n >= 1
+    assert any(name == AGENT_SIGNAL for name, _ in store.recorded)
+    assert store._history[0][perf.FieldName.GRADE] in ("A", "A+")
+
+    # Immediate second pass is throttled (same grade, within interval) → no write.
+    before = len(store.recorded)
+    assert await perf.record_grade_snapshots() == 0
+    assert len(store.recorded) == before
+
+
+@pytest.mark.asyncio
+async def test_record_grade_snapshots_skips_dormant_agents(monkeypatch):
+    store = _FakeStore()
+    _patch(monkeypatch, [], [], store=store)  # no heartbeats, no runs → all UNRATED
+    assert await perf.record_grade_snapshots() == 0
+    assert store.recorded == []
+
+
+@pytest.mark.asyncio
+async def test_streak_promotion_uses_recorded_history(monkeypatch):
+    # The recorder builds history; once the streak is long enough the read path
+    # reports PROMOTED — end-to-end through the single-writer design.
+    store = _FakeStore()
+    _patch(monkeypatch, _active_signal_hb(), _clean_runs(), store=store)
+
+    # Seed a long streak by recording past the throttle (clear timestamps).
+    for _ in range(3):
+        await perf.record_grade_snapshots()
+        for snap in store._history:
+            snap[perf.FieldName.TIMESTAMP] = perf._iso(0)  # age out the throttle
+
+    payload = await perf.get_agent_performance_payload()
+    sig = _agent(payload, AGENT_SIGNAL)
+    assert sig["grade_streak"] >= 3
+    assert sig["promoted"] is True
+    assert sig["tier"] == TIER_PROMOTED
 
 
 @pytest.mark.asyncio
