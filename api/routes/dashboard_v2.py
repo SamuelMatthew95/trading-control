@@ -11,6 +11,7 @@ from fastapi import APIRouter, Body, HTTPException, Request
 
 from api.constants import FieldName
 from api.services.dashboard.agent_performance import (
+    apply_agent_promotions_payload,
     get_agent_detail_payload,
     get_agent_performance_payload,
 )
@@ -127,6 +128,13 @@ async def get_agents_status() -> dict[str, Any]:
 async def get_agent_performance() -> dict[str, Any]:
     """Per-agent grades, tiers, and learnings — the agent scorecard overview."""
     return await get_agent_performance_payload()
+
+
+@router.post("/agents/promotion/apply")
+async def apply_agent_promotions() -> dict[str, Any]:
+    """Behavioral promotion: write each agent's trust weight to the control plane
+    from its current tier. Inert until AGENT_TRUST_WEIGHTING_ENABLED is on."""
+    return await apply_agent_promotions_payload()
 
 
 @router.get("/agents/{agent_name}/detail")
