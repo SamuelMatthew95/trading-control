@@ -1,5 +1,43 @@
 # Frontend Troubleshooting
 
+## Live Activity shows "Trade graded" / "Reflection" / "Proposal drafted" while the learning loop is idle
+
+**Symptom:** The Agents "Live Activity" feed lists learning-loop outputs (Trade
+graded, Reflection, Factors reweighted, Proposal drafted, Proposal applied) for
+every learning agent, while the Proposals and Learning pages are empty and the
+Cognitive Engine reports `0/0 trades graded`, `0` proposals. The feed
+contradicts the detail pages and makes an idle loop look busy.
+
+**Root cause:** Agent-instance spawn/retire transitions are written to
+`agent_logs` with `log_type="lifecycle"` (the in-memory writer falls the message
+back to the literal `"lifecycle"`). `buildActivityTimeline` mapped any agent_log
+to a stage title purely by `agent_name`, so a spawn row for `STRATEGY_PROPOSER`
+rendered as "Proposal drafted", `GRADE_AGENT` as "Trade graded", etc. — agent
+churn shown as pipeline output. The dedicated backend endpoints all filter by
+`log_type` (GRADE / REFLECTION / PROPOSAL), so they correctly showed nothing.
+
+**Fix:** `frontend/src/lib/activity-timeline.ts` — `buildActivityTimeline` now
+skips lifecycle logs (`isLifecycleLog`, `log_type === 'lifecycle'`). Only genuine
+output logs surface, matching the backend.
+
+**Regression test:** `frontend/src/test/helpers/activity-timeline.test.ts` —
+"skips agent lifecycle logs so spawn churn is not shown as pipeline output".
+
+## IC Updater displayed as "Indicator Cache Updater"
+
+**Symptom:** The IC Updater agent is labeled "Indicator Cache Updater" across the
+dashboard — nonsensical, since no cache is involved.
+
+**Root cause:** `agentDisplayName` hard-coded a wrong expansion. "IC" is the
+Information Coefficient (Spearman rank correlation between an alpha factor's
+prediction and the realized return) the agent uses to reweight factors.
+
+**Fix:** `frontend/src/constants/agents.ts` — `agentDisplayName(IC_UPDATER)` now
+returns "Information Coefficient Updater", with a comment recording the meaning.
+
+**Regression test:** covered by `frontend/src/test/helpers/agent-pipeline.test.ts`
+(the IC pipeline stage resolves its label via `agentDisplayName(AGENT_IC_UPDATER)`).
+
 ## Session P&L tile loses negative sign
 
 **Symptom:** When session P&L is negative (e.g. -$20.00), the stats tile in the
