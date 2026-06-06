@@ -65,6 +65,27 @@ describe('buildActivityTimeline', () => {
     expect(items.some((i) => i.stage === 'decision')).toBe(false)
   })
 
+  it('skips agent lifecycle logs so spawn churn is not shown as pipeline output', () => {
+    // An agent coming online writes an agent_log with log_type "lifecycle" and a
+    // bare "lifecycle" message. These must NOT render as "Trade graded" /
+    // "Reflection" / "Proposal drafted" — that contradicts the empty Proposals
+    // and Learning pages when the loop is idle. A genuine output log (any other
+    // log_type) for the same agent must still be surfaced.
+    const items = buildActivityTimeline({
+      agentLogs: [
+        agentLog({ agent_name: 'GRADE_AGENT', message: 'lifecycle', log_type: 'lifecycle', timestamp: iso(10) }),
+        agentLog({ agent_name: 'STRATEGY_PROPOSER', message: 'lifecycle', log_type: 'lifecycle', timestamp: iso(20) }),
+        agentLog({ agent_name: 'REFLECTION_AGENT', message: 'lifecycle', log_type: 'lifecycle', timestamp: iso(30) }),
+        agentLog({ agent_name: 'IC_UPDATER', message: 'lifecycle', log_type: 'lifecycle', timestamp: iso(40) }),
+        // A real grade output still shows.
+        agentLog({ agent_name: 'GRADE_AGENT', message: 'scored B', log_type: 'grade', timestamp: iso(50) }),
+      ],
+    })
+    expect(items).toHaveLength(1)
+    expect(items[0].stage).toBe('grade')
+    expect(items[0].detail).toBe('scored B')
+  })
+
   it('surfaces market stream events only — richer stages come from logs/decisions', () => {
     const recentEvents: RecentEvent[] = [
       { stream: STREAM_MARKET_TICKS, msgId: 'm1', timestamp: iso(10) },
