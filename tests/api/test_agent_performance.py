@@ -316,3 +316,12 @@ async def test_detail_route_404_for_unknown_agent():
     with pytest.raises(HTTPException) as exc:
         await dashboard_v2.get_agent_detail("NOT_A_REAL_AGENT")
     assert exc.value.status_code == 404
+
+
+def test_status_text_handles_enum_and_string():
+    """Version-safe: StrEnum members (memory-mode run status) normalize to value
+    on both Python 3.10 (backport) and 3.11 (enum.StrEnum)."""
+    assert perf._status_text(StatusValue.COMPLETED) == "completed"
+    assert perf._status_text(StatusValue.FAILED) == "failed"
+    assert perf._status_text("Completed") == "completed"
+    assert perf._status_text(None) == ""
