@@ -22,6 +22,7 @@ import {
   filterByRange,
   getPaddedDomain,
   getNiceYAxis,
+  getLineDomain,
   EQUITY_RANGES,
 } from '@/components/dashboard/EquityCurve'
 
@@ -124,7 +125,7 @@ describe('EquityCurve', () => {
     expect(screen.getByText('Cumulative P&L').nextElementSibling).toHaveClass('text-emerald-500')
   })
 
-  it('shows net metric from zero baseline instead of first plotted point', () => {
+  it('shows only the period label for the all-time range (no repeated value)', () => {
     render(
       <EquityCurve
         orders={[
@@ -133,10 +134,30 @@ describe('EquityCurve', () => {
         ]}
       />,
     )
+    // ALL is the default: the headline already IS the all-time P&L, so the change
+    // line shows just the period label — the dollar value is not repeated.
+    expect(screen.getByText('all time')).toBeInTheDocument()
+    expect(screen.getAllByText('$50.00')).toHaveLength(1)
+  })
 
-    const netLabel = screen.getByText('Net')
-    expect(netLabel.nextElementSibling).toHaveTextContent('+$50.00')
-    expect(netLabel.nextElementSibling).toHaveClass('text-emerald-500')
+  it('shows the signed change over a selected sub-window', () => {
+    const now = Date.now()
+    const HOUR = 60 * 60 * 1000
+    render(
+      <EquityCurve
+        orders={[]}
+        liveSeries={[
+          livePoint(now - 2 * HOUR, 2),
+          livePoint(now - 30 * 60 * 1000, 5),
+          livePoint(now - 1000, 3),
+        ]}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '1H' }))
+    // Baseline is the pre-window value (2); last is 3 → +$1.00 over the past hour.
+    const amount = screen.getByText('$1.00')
+    expect(amount).toBeInTheDocument()
+    expect(amount.parentElement).toHaveClass('text-emerald-500')
   })
 
   it('produces clean, nicely-stepped y-axis ticks for small P&L (no -$6.15 junk)', () => {
@@ -185,6 +206,22 @@ describe('EquityCurve', () => {
 
     expect(min).toBeLessThanOrEqual(0)
     expect(max).toBeGreaterThan(200)
+  })
+})
+
+describe('getLineDomain', () => {
+  it('fits the data with padding (does not force $0 into view)', () => {
+    const [lo, hi] = getLineDomain([livePoint(0, 10), livePoint(1, 20)])
+    expect(lo).toBeGreaterThan(0) // an all-positive curve never drags the floor to 0
+    expect(lo).toBeLessThan(10)
+    expect(hi).toBeGreaterThan(20)
+  })
+
+  it('applies a min-height floor so a flat curve is not amplified into noise', () => {
+    const [lo, hi] = getLineDomain([livePoint(0, -1.1), livePoint(1, -1.1)])
+    expect(hi - lo).toBeGreaterThanOrEqual(0.5)
+    expect(lo).toBeLessThan(-1.1)
+    expect(hi).toBeGreaterThan(-1.1)
   })
 })
 
