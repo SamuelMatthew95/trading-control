@@ -1079,6 +1079,9 @@ class FieldName(StrEnum):
     THROUGHPUT = "throughput"
     TIER = "tier"
     TOTAL_RUNS = "total_runs"
+    GRADE_STREAK = "grade_streak"
+    TARGET_TRUST = "target_trust"
+    TRUST = "trust"
 
 
 class StatusValue(StrEnum):
@@ -1317,6 +1320,38 @@ SOURCE_TO_AGENT: Final[dict[str, str]] = {
     SOURCE_STRATEGY_PROPOSER: AGENT_STRATEGY_PROPOSER,
     SOURCE_NOTIFICATION: AGENT_NOTIFICATION,
     SOURCE_PROPOSAL_APPLIER: AGENT_PROPOSAL_APPLIER,
+}
+
+# Durable per-agent grade history (Redis list per agent, via RedisStore). A
+# snapshot is appended at most once per AGENT_GRADE_SNAPSHOT_INTERVAL_SECONDS (or
+# whenever the letter grade changes), so the list spans hours, not seconds.
+REDIS_KEY_AGENT_GRADE_HISTORY: Final[str] = "agent:grade_history:{name}"
+AGENT_GRADE_HISTORY_MAX: Final[int] = 50  # capped list length per agent
+AGENT_GRADE_HISTORY_DISPLAY: Final[int] = 20  # recent snapshots returned to the UI
+AGENT_GRADE_SNAPSHOT_INTERVAL_SECONDS: Final[int] = 300  # throttle: ≤1 write / 5 min
+
+# Promotion requires SUSTAINED top performance: the agent must hold an A/A+
+# grade for this many consecutive snapshots before it earns the PROMOTED tier
+# (a single good window shows TRUSTED until the streak is built).
+AGENT_PROMOTION_STREAK: Final[int] = 3
+
+# Behavioral promotion — per-agent trust weight (control plane). ReasoningAgent
+# multiplies its signal_weight_scale by this when AGENT_TRUST_WEIGHTING_ENABLED
+# is on; bounded so a promoted agent gains, and a struggling one loses, only a
+# capped amount of influence. Written by the explicit promotion-apply action.
+REDIS_KEY_AGENT_TRUST: Final[str] = "learning:agent_trust:{name}"
+AGENT_TRUST_DEFAULT: Final[float] = 1.0
+AGENT_TRUST_MIN: Final[float] = 0.5
+AGENT_TRUST_MAX: Final[float] = 1.25
+
+# Promotion tier → trust weight written to the control plane on apply.
+TIER_TO_TRUST: Final[dict[str, float]] = {
+    TIER_PROMOTED: 1.15,
+    TIER_TRUSTED: 1.0,
+    TIER_STANDARD: 1.0,
+    TIER_PROBATION: 0.8,
+    TIER_UNDER_REVIEW: 0.6,
+    TIER_UNRATED: AGENT_TRUST_DEFAULT,
 }
 
 # ---------------------------------------------------------------------------
