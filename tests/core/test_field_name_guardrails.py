@@ -202,6 +202,7 @@ CLEAN_FILES: frozenset[str] = frozenset(
         "api/services/system_metrics_consumer.py",
         "api/services/system_metrics_handler.py",
         "api/services/tool_registry.py",
+        "api/services/tool_telemetry.py",
         "api/services/trading.py",
         "api/services/websocket_broadcaster.py",
         "api/utils.py",
