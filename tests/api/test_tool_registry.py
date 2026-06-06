@@ -228,3 +228,42 @@ def test_new_perception_tools_registered_and_governable(registry: ToolRegistry):
     # Governable: they carry telemetry and appear in the attribution ranking.
     attributed = {t.name for t in registry.attribution()}
     assert {TOOL_ORDER_BOOK_DEPTH, TOOL_NEWS_SENTIMENT, TOOL_CORRELATION_CHECK} <= attributed
+
+
+# ---------------------------------------------------------------------------
+# Durable telemetry — snapshot / restore
+# ---------------------------------------------------------------------------
+
+
+def test_snapshot_and_restore_roundtrip():
+    reg = ToolRegistry()
+    reg.register(ToolMetadata(name="t", phase=ToolPhase.MEMORY))
+    reg.record_call("t", latency_ms=50.0, success=True, realized_pnl=5.0)
+
+    snap = reg.snapshot()
+
+    fresh = ToolRegistry()
+    fresh.register(ToolMetadata(name="t", phase=ToolPhase.MEMORY))
+    restored = fresh.restore(snap)
+
+    assert restored == 1
+    tool = fresh.get("t")
+    assert tool.call_count == 1
+    assert tool.success_count == 1
+    assert tool.alpha_score == 5.0
+    assert tool.latency_ms == 50.0
+
+
+def test_restore_ignores_unknown_tools():
+    reg = ToolRegistry()
+    reg.register(ToolMetadata(name="known", phase=ToolPhase.MEMORY))
+    restored = reg.restore({"gone": {"call_count": 9}})
+    assert restored == 0
+    assert reg.get("known").call_count == 0
+
+
+def test_restore_preserves_governance_enabled_state():
+    reg = ToolRegistry()
+    reg.register(ToolMetadata(name="t", phase=ToolPhase.MEMORY, enabled=True))
+    reg.restore({"t": {"enabled": False}})
+    assert reg.get("t").enabled is False
