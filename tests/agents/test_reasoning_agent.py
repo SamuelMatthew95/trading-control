@@ -1071,3 +1071,15 @@ async def test_get_agent_trust_clamps_out_of_range(agent, mock_redis):
     assert await agent._get_agent_trust(AGENT_REASONING) == AGENT_TRUST_MAX
     mock_redis.get = AsyncMock(return_value=b"0.01")
     assert await agent._get_agent_trust(AGENT_REASONING) == AGENT_TRUST_MIN
+
+
+async def test_apply_trust_weighting_preserves_dampening_and_caps_top():
+    """Trust must amplify (capped) but NEVER raise a Grade-C-dampened scale."""
+    from api.constants import AGENT_TRUST_MAX
+
+    # A heavily dampened signal_weight_scale stays dampened (no floor-raising).
+    assert ReasoningAgent._apply_trust_weighting(0.05, 1.0) == pytest.approx(0.05)
+    assert ReasoningAgent._apply_trust_weighting(0.1, 1.15) == pytest.approx(0.115)
+    # Promotion boost amplifies, capped at AGENT_TRUST_MAX.
+    assert ReasoningAgent._apply_trust_weighting(1.0, 1.15) == pytest.approx(1.15)
+    assert ReasoningAgent._apply_trust_weighting(1.0, 99.0) == AGENT_TRUST_MAX
