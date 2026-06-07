@@ -33,6 +33,7 @@ from api.constants import (
     AGENT_PROPOSAL_APPLIER,
     AGENT_REASONING,
     AGENT_SUSPEND_TTL_SECONDS,
+    APPROVAL_GATED_PROPOSAL_TYPES,
     LEARNING_CONTROL_TTL_SECONDS,
     REASONING_NODE,
     REDIS_KEY_AGENT_SUSPENDED,
@@ -56,6 +57,7 @@ from api.services.agent_state import AgentStateRegistry
 from api.services.agents.base import MultiStreamAgent
 from api.services.agents.db_helpers import write_agent_log
 from api.services.gitops_publisher import GitOpsPublisher
+from api.services.prompt_store import get_prompt_store
 from api.services.tool_registry import get_tool_registry
 from backtest.strategies import STRATEGIES
 
@@ -97,6 +99,7 @@ class ProposalApplier(MultiStreamAgent):
             ProposalType.CODE_CHANGE: self._file_code_change_issue,
             ProposalType.REGIME_ADJUSTMENT: self._file_regime_issue,
             ProposalType.TOOL_GOVERNANCE: self._apply_tool_governance,
+            ProposalType.CHALLENGER_PROMOTION: self._apply_challenger_promotion,
         }
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
@@ -106,6 +109,18 @@ class ProposalApplier(MultiStreamAgent):
         content = data.get(FieldName.CONTENT) or {}
         action = content.get(FieldName.ACTION) if isinstance(content, dict) else None
         trace_id = data.get(FieldName.TRACE_ID) or f"applier_{uuid.uuid4().hex[:8]}"
+
+        # Approval-gated types (e.g. challenger_promotion) must not auto-apply on
+        # first publish — they sit in the queue until an operator approves, at
+        # which point the approval path republishes them with APPROVED=True.
+        if proposal_type in APPROVAL_GATED_PROPOSAL_TYPES and not data.get(FieldName.APPROVED):
+            log_structured(
+                "info",
+                "proposal_pending_approval",
+                proposal_type=proposal_type,
+                trace_id=trace_id,
+            )
+            return
 
         handler = self._handlers.get(proposal_type)
         if handler is None:
@@ -195,8 +210,6 @@ class ProposalApplier(MultiStreamAgent):
         if not settings.PROMPT_EVOLUTION_AUTO_APPLY:
             log_structured("info", "prompt_evolution_skipped_manual_apply", trace_id=trace_id)
             return None
-        from api.services.prompt_store import get_prompt_store  # noqa: PLC0415
-
         store = get_prompt_store()
         if store is None:
             log_structured("warning", "prompt_evolution_no_store", trace_id=trace_id)
@@ -303,6 +316,84 @@ class ProposalApplier(MultiStreamAgent):
             FieldName.TOOLS: disabled,
             FieldName.REASON: content.get(FieldName.REASON, ""),
         }
+
+    async def _apply_challenger_promotion(
+        self, content: dict[str, Any], trace_id: str
+    ) -> dict[str, Any] | None:
+        """Apply an APPROVED challenger promotion — both halves of the loop.
+
+        1. *Advise agent behavior* (durable, visible): append a promotion advisory
+           to the adaptive directive via ``PromptStore`` — the same Redis-backed,
+           versioned, history-capped channel ``PROMPT_EVOLUTION`` uses. It survives
+           restarts/deploys (Redis is external, no TTL), the ReasoningAgent already
+           reads it at prompt-assembly, and it renders in the Prompt Evolution
+           panel. No new hidden state.
+        2. *Promote to a live candidate*: spawn the strategy as a shadow
+           ChallengerAgent via the injected spawner (pure config, no deploy) when
+           its strategy exists in ``backtest.strategies.STRATEGIES`` — visible in
+           the Challengers panel.
+
+        Only reached after the approval path republishes with ``APPROVED=True`` —
+        a human always gates this; nothing auto-promotes. Re-approving the same
+        promotion is idempotent (the advisory de-dupes).
+        """
+        strategy = str(content.get(FieldName.STRATEGY) or "")
+        if not strategy:
+            return None
+        edge = content.get(FieldName.SHADOW_EDGE)
+        confidence = content.get(FieldName.CONFIDENCE)
+        advisory = (
+            f"Promoted strategy '{strategy}': favor {strategy}-aligned setups "
+            f"(beat baseline by edge {edge}, shadow win-rate {confidence})."
+        )
+        directive = await self._bias_directive_toward(strategy, advisory)
+
+        spawned: dict[str, Any] = {}
+        config = content.get(FieldName.CHALLENGER_CONFIG) or {FieldName.STRATEGY: strategy}
+        if self.spawner is not None and strategy in STRATEGIES:
+            spawned = await self.spawner.spawn(config)
+
+        if directive is None and not spawned:
+            return None  # nothing actually changed (no store + nothing to spawn)
+        result: dict[str, Any] = {
+            FieldName.MESSAGE: (
+                f"challenger '{strategy}' promoted: "
+                + ("directive biased" if directive else "directive unchanged")
+                + (" + candidate spawned" if spawned else "")
+            ),
+            FieldName.PROPOSAL_TYPE: ProposalType.CHALLENGER_PROMOTION,
+            FieldName.STRATEGY: strategy,
+            FieldName.ADVISORY: advisory,
+            FieldName.SHADOW_EDGE: edge,
+            **spawned,
+        }
+        if directive is not None:
+            result[FieldName.VERSION] = directive[FieldName.VERSION]
+        return result
+
+    async def _bias_directive_toward(self, strategy: str, advisory: str) -> dict[str, Any] | None:
+        """Append *advisory* to the durable adaptive directive (idempotent).
+
+        Reuses the ``PromptStore`` so the bias is persistent (Redis, no TTL —
+        survives restarts/deploys), versioned/auditable, and visible in the Prompt
+        Evolution panel. Appends beneath any existing (e.g. LLM-evolved) directive
+        rather than replacing it; de-dupes so re-approval is a no-op. Returns the
+        new directive record, or ``None`` when no store is installed or the line
+        is already present."""
+        store = get_prompt_store()
+        if store is None:
+            log_structured("warning", "challenger_promotion_no_prompt_store", strategy=strategy)
+            return None
+        current = await store.get_active_text(REASONING_NODE) or ""
+        if advisory in current:
+            return None  # already biased toward this strategy — idempotent
+        new_text = f"{current}\n{advisory}".strip() if current else advisory
+        return await store.set_directive(
+            REASONING_NODE,
+            new_text,
+            rationale=f"operator-approved challenger promotion: {strategy}",
+            source=AGENT_PROPOSAL_APPLIER,
+        )
 
     async def _apply_signal_weight_reduction(
         self, content: dict[str, Any], trace_id: str = ""
