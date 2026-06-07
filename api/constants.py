@@ -1475,8 +1475,8 @@ REDIS_KEY_LLM_METRICS: Final[str] = "llm:metrics"
 # Cooling-off: recent trade PnL outcomes (LPUSH, LTRIM cap COOLING_OFF_WINDOW+5)
 REDIS_KEY_RECENT_OUTCOMES: Final[str] = "trading:recent_outcomes"
 REDIS_RECENT_OUTCOMES_MAXLEN: Final[int] = 10
-REDIS_NOTIFICATIONS_MAX: Final[int] = 200
-REDIS_DECISIONS_MAX: Final[int] = 500
+REDIS_NOTIFICATIONS_MAX: Final[int] = 20
+REDIS_DECISIONS_MAX: Final[int] = 50
 
 # Stream names
 STREAM_MARKET_TICKS: Final[str] = "market_ticks"
