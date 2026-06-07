@@ -329,7 +329,9 @@ describe('DashboardView — agents', () => {
     expect(screen.getByText(/Agents Online/i)).toBeInTheDocument()
     expect(screen.getByText(/System Diagnostics/i)).toBeInTheDocument()
     expect(screen.getByText(/Heartbeats \(in-memory\/Redis\)/i)).toBeInTheDocument()
-    expect(screen.getByText(/No instances registered yet/i)).toBeInTheDocument()
+    // Agent Instances merged into the single Agent Status table.
+    expect(screen.getByText('Agent Status')).toBeInTheDocument()
+    expect(screen.queryByText(/No instances registered yet/i)).toBeNull()
   })
 
   it('does not count agent lifecycle (spawn) logs as produced events', () => {
