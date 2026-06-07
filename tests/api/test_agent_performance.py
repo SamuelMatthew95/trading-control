@@ -204,6 +204,38 @@ async def test_dormant_agent_is_unrated_not_failed(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_alive_but_idle_agent_is_unrated_not_graded(monkeypatch):
+    # Regression: an agent that is heartbeating but has processed 0 events and
+    # has no runs must NOT earn a letter grade purely for being alive. Before the
+    # fix it scored liveness/(liveness+throughput) = 0.40/0.55 = 72.7% → a fake
+    # "B" / TRUSTED tier. It must read as UNRATED instead.
+    agents = [
+        {
+            "name": AGENT_SIGNAL,
+            "status": "ACTIVE",
+            "event_count": 0,
+            "last_event": "",
+            "seconds_ago": 2,
+            "last_seen": 100,
+        }
+    ]
+    _patch(monkeypatch, agents, [], store=_FakeStore())
+
+    payload = await perf.get_agent_performance_payload()
+    sig = _agent(payload, AGENT_SIGNAL)
+
+    assert sig["grade"] is None
+    assert sig["score"] is None
+    assert sig["tier"] == TIER_UNRATED
+    assert sig["promoted"] is False
+    # Throughput is no longer a scored dimension at 0 events.
+    throughput = next(d for d in sig["dimensions"] if d["key"] == "throughput")
+    assert throughput["data_available"] is False
+    # Honest learning: "alive but idle", not "dormant / no heartbeat".
+    assert "Idle" in sig["learnings"][0]["text"]
+
+
+@pytest.mark.asyncio
 async def test_detail_has_heartbeat_activity_history_and_trust(monkeypatch):
     runs = [
         {
