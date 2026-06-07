@@ -39,6 +39,7 @@ from api.runtime_state import (
     set_db_available,
     set_runtime_store,
 )
+from api.services.agent_pnl_store import AgentPnLStore, set_agent_pnl_store
 from api.services.agent_state import AGENT_NAMES, AgentStateRegistry
 from api.services.agent_supervisor import AgentSupervisor
 from api.services.agents.pipeline_agents import (
@@ -174,6 +175,11 @@ async def _init_redis(app: FastAPI):
     prompt_store = PromptStore(redis_client)
     app.state.prompt_store = prompt_store
     set_prompt_store(prompt_store)
+    # Durable per-agent realized-PnL accumulator (Redis — survives restarts with
+    # no Postgres) so the trading agents can be graded on whether they make money.
+    pnl_store = AgentPnLStore(redis_client)
+    app.state.agent_pnl_store = pnl_store
+    set_agent_pnl_store(pnl_store)
     # Restore durable tool telemetry so the dashboard reflects cumulative usage
     # across restarts instead of resetting every tool to its seeded prior.
     await hydrate_tool_registry()
