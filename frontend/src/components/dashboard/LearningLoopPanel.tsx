@@ -357,8 +357,15 @@ export function LearningLoopPanel() {
 
       {/* Challenger shadows */}
       <div className="mt-4">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
           Challenger Shadows
+        </p>
+        <p className="mb-2 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+          Rival strategies shadow-trading the live price stream — they never place real orders.
+          Each must close enough shadow round-trips to be graded; when one beats the live baseline
+          it fires a promotion proposal you approve on the{' '}
+          <span className="font-medium text-slate-600 dark:text-slate-300">Proposals</span> page.
+          Nothing auto-promotes.
         </p>
         {challengers.length === 0 ? (
           <p className="text-xs text-slate-500">No shadow challengers running.</p>
