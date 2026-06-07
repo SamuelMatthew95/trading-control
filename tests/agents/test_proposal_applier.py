@@ -40,6 +40,7 @@ class _FakeRedis:
     def __init__(self, initial: dict[str, str] | None = None) -> None:
         self._store: dict[str, str] = dict(initial or {})
         self._ttl: dict[str, int] = {}
+        self._lists: dict[str, list[str]] = {}
         self.set_calls: list[tuple[str, str, int | None]] = []
 
     async def get(self, key: str) -> str | None:
@@ -51,6 +52,20 @@ class _FakeRedis:
             self._ttl[key] = ex
         self.set_calls.append((key, str(value), ex))
         return True
+
+    # Minimal list ops so PromptStore (directive history) works in these tests.
+    async def lpush(self, key: str, value: str) -> int:
+        self._lists.setdefault(key, []).insert(0, str(value))
+        return len(self._lists[key])
+
+    async def ltrim(self, key: str, start: int, end: int) -> bool:
+        if key in self._lists:
+            self._lists[key] = self._lists[key][start : end + 1]
+        return True
+
+    async def lrange(self, key: str, start: int, end: int) -> list[str]:
+        items = self._lists.get(key, [])
+        return items[start : (end + 1) if end != -1 else None]
 
 
 def _make_applier(redis: _FakeRedis) -> ProposalApplier:
@@ -403,3 +418,161 @@ async def test_new_agent_unknown_strategy_files_issue(monkeypatch):
     }
     await applier.process("proposals", "1-0", proposal)
     applier.spawner.spawn.assert_not_awaited()  # unknown strategy → issue, not spawn
+
+
+# ---------------------------------------------------------------------------
+# Challenger promotion — approval-gated; on approval does BOTH halves of the
+# loop (bias the ReasoningAgent + spawn the winning strategy as a candidate).
+# ---------------------------------------------------------------------------
+
+
+async def _install_prompt_store():
+    """Install a real Redis-backed PromptStore for directive assertions."""
+    from api.services.prompt_store import PromptStore, set_prompt_store  # noqa: PLC0415
+
+    store = PromptStore(_FakeRedis())
+    set_prompt_store(store)
+    return store
+
+
+async def test_challenger_promotion_pending_without_approval(monkeypatch):
+    """On first publish (no APPROVED flag) nothing is applied — it stays pending.
+
+    This is what makes "a human approves, never the system" true: the applier
+    leaves the proposal in the queue rather than auto-promoting."""
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    from api.constants import REASONING_NODE  # noqa: PLC0415
+    from api.services.prompt_store import set_prompt_store  # noqa: PLC0415
+
+    write_log = AsyncMock()
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", write_log)
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    monkeypatch.setattr(
+        "api.services.agents.proposal_applier.STRATEGIES", {"mean_reversion": object()}
+    )
+    store = await _install_prompt_store()
+    try:
+        applier = _make_applier(_FakeRedis())
+        applier.spawner = _AsyncMock()
+        applier.spawner.spawn = _AsyncMock()
+
+        proposal = {
+            FieldName.PROPOSAL_TYPE: ProposalType.CHALLENGER_PROMOTION,
+            FieldName.REQUIRES_APPROVAL: True,
+            FieldName.CONTENT: {
+                FieldName.STRATEGY: "mean_reversion",
+                FieldName.SHADOW_EDGE: 2121.0,
+                FieldName.CONFIDENCE: 0.66,
+            },
+            FieldName.TRACE_ID: "t-promo",
+        }
+        await applier.process("proposals", "1-0", proposal)
+
+        assert await store.get_active_text(REASONING_NODE) is None  # no directive written
+        applier.spawner.spawn.assert_not_awaited()  # nothing spawned
+        write_log.assert_not_awaited()  # nothing applied/logged
+    finally:
+        set_prompt_store(None)
+
+
+async def test_challenger_promotion_approved_biases_and_spawns(monkeypatch):
+    """An APPROVED promotion appends a durable directive advisory AND spawns the
+    strategy as a live candidate — both halves the operator asked for. The
+    directive lives in the (Redis-backed, versioned) PromptStore that the
+    ReasoningAgent reads and the Prompt Evolution panel shows."""
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    from api.constants import REASONING_NODE  # noqa: PLC0415
+    from api.services.prompt_store import set_prompt_store  # noqa: PLC0415
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    monkeypatch.setattr(
+        "api.services.agents.proposal_applier.STRATEGIES", {"mean_reversion": object()}
+    )
+    store = await _install_prompt_store()
+    try:
+        applier = _make_applier(_FakeRedis())
+        spawner = _AsyncMock()
+        spawner.spawn = _AsyncMock(
+            return_value={FieldName.CHALLENGER_ID: "ch1", FieldName.STATUS: "spawned"}
+        )
+        applier.spawner = spawner
+
+        proposal = {
+            FieldName.PROPOSAL_TYPE: ProposalType.CHALLENGER_PROMOTION,
+            FieldName.APPROVED: True,
+            FieldName.CONTENT: {
+                FieldName.STRATEGY: "mean_reversion",
+                FieldName.SHADOW_EDGE: 2121.0,
+                FieldName.CONFIDENCE: 0.66,
+                FieldName.CHALLENGER_CONFIG: {FieldName.STRATEGY: "mean_reversion"},
+            },
+            FieldName.TRACE_ID: "t-promo2",
+        }
+        await applier.process("proposals", "1-0", proposal)
+
+        # (1) durable directive advisory mentions the promoted strategy
+        directive = await store.get_active_text(REASONING_NODE)
+        assert directive is not None and "mean_reversion" in directive
+        # (2) the winning strategy spawned as a live candidate
+        spawner.spawn.assert_awaited_once()
+    finally:
+        set_prompt_store(None)
+
+
+async def test_challenger_promotion_approved_without_spawner_still_biases(monkeypatch):
+    """With no spawner (or unknown strategy) the bias still applies — the advisory
+    half never depends on the spawn half."""
+    from api.constants import REASONING_NODE  # noqa: PLC0415
+    from api.services.prompt_store import set_prompt_store  # noqa: PLC0415
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.STRATEGIES", {})
+    store = await _install_prompt_store()
+    try:
+        applier = _make_applier(_FakeRedis())  # spawner stays None
+
+        proposal = {
+            FieldName.PROPOSAL_TYPE: ProposalType.CHALLENGER_PROMOTION,
+            FieldName.APPROVED: True,
+            FieldName.CONTENT: {FieldName.STRATEGY: "mean_reversion", FieldName.CONFIDENCE: 0.7},
+            FieldName.TRACE_ID: "t-promo3",
+        }
+        await applier.process("proposals", "1-0", proposal)
+        directive = await store.get_active_text(REASONING_NODE)
+        assert directive is not None and "mean_reversion" in directive
+    finally:
+        set_prompt_store(None)
+
+
+async def test_challenger_promotion_reapproval_is_idempotent(monkeypatch):
+    """The loop runs again and again — re-approving the same promotion must not
+    keep stacking duplicate advisory lines or bumping the version forever."""
+    from api.constants import REASONING_NODE  # noqa: PLC0415
+    from api.services.prompt_store import set_prompt_store  # noqa: PLC0415
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.STRATEGIES", {})
+    store = await _install_prompt_store()
+    try:
+        applier = _make_applier(_FakeRedis())
+        proposal = {
+            FieldName.PROPOSAL_TYPE: ProposalType.CHALLENGER_PROMOTION,
+            FieldName.APPROVED: True,
+            FieldName.CONTENT: {FieldName.STRATEGY: "mean_reversion", FieldName.CONFIDENCE: 0.7},
+            FieldName.TRACE_ID: "t-promo4",
+        }
+        await applier.process("proposals", "1-0", proposal)
+        first = await store.get_directive(REASONING_NODE)
+        await applier.process("proposals", "1-1", proposal)  # same promotion again
+        second = await store.get_directive(REASONING_NODE)
+
+        assert first[FieldName.VERSION] == second[FieldName.VERSION]  # no re-bump
+        # the advisory line was appended exactly once (no duplicate stacking)
+        assert second[FieldName.TEXT].count("Promoted strategy 'mean_reversion'") == 1
+    finally:
+        set_prompt_store(None)
