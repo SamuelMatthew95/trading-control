@@ -95,15 +95,14 @@ Memory-mode `/learning/*` and `/dashboard/state` responses carry
    computed on a smaller window. *Accepted:* self-healing, and realized PnL is
    separately durable.
 
-3. **Memory-mode execution idempotency on crash-before-ack (narrow).** The
-   ExecutionEngine's `idempotency_key` dedup is a Postgres `SELECT`, so in memory
-   mode it doesn't run. The **primary** guard is the Redis Streams consumer-group
-   ack (acked messages are never redelivered) plus the `order_lock` mutex; the
-   exposure is only a crash *between* broker fill and ack, in memory mode, within
-   the same minute bucket. *Recommendation (not yet implemented):* add a Redis
-   `SET NX exec:done:{idempotency_key}` guard in `_process_in_memory` to mirror
-   the DB dedup durably. Deferred because the execution path's integration tests
-   can't be exercised in the current sandbox; tracked here so it isn't lost.
+3. **Memory-mode execution idempotency — handled.** The ExecutionEngine dedups
+   redelivered decisions in BOTH paths: the DB path via a `SELECT` on
+   `idempotency_key`, and the memory path via a Redis `SET NX`
+   (`order:dedup:{idempotency_key}`, `ORDER_DEDUP_TTL_SECONDS` = 24h —
+   `execution_engine.py:682`). Because that dedup key is in Redis (durable) and
+   the key is deterministic, a redelivery after a crash/restart in memory mode is
+   a silent no-op. Combined with the consumer-group ack (acked messages aren't
+   redelivered) and the `order_lock` mutex, there is no double-execution gap.
 
 ---
 
@@ -118,7 +117,8 @@ Memory-mode `/learning/*` and `/dashboard/state` responses carry
 | Seeded agents never "Live" without heartbeat | `tests/core/test_in_memory_store.py` |
 | Idle agent UNRATED (no fabricated grade) | `tests/api/test_agent_performance.py::test_alive_but_idle_agent_is_unrated_not_graded` |
 | Prompt directive durability (Redis) | `tests/agents/test_proposal_applier.py` (challenger-promotion directive) |
+| Memory-mode order idempotency (Redis SET NX) | `tests/**` execution-engine dedup tests (`order:dedup:{key}`) |
 
-**Gaps (documented, not yet covered):** memory-mode execution idempotency on
-crash-before-ack (item 3 above); restart-window grade degradation is by design
-(no assertion needed).
+**By design (no assertion needed):** restart-window grade/challenger buffer
+degradation is intentional self-healing; InMemoryStore history panels reset on
+restart in no-Postgres mode.
