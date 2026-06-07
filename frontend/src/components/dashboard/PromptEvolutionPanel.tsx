@@ -94,10 +94,43 @@ export function PromptEvolutionPanel() {
       </p>
 
       {!active ? (
-        <p className="text-xs text-slate-500">
-          No directive yet — the reasoning agent runs on the constitution alone until the learning
-          loop proposes one.
-        </p>
+        <div className="space-y-2 text-xs text-slate-500 dark:text-slate-400">
+          <p>
+            No evolved directive yet — the reasoning agent runs on the{' '}
+            <span className="font-medium text-slate-600 dark:text-slate-300">immutable constitution</span>{' '}
+            alone. A directive is the learned guidance layered <em>beneath</em> it, and only
+            appears after the learning loop closes a full cycle:
+          </p>
+          <ol className="space-y-1">
+            <li className="flex gap-2">
+              <span className="font-mono text-slate-400">1</span>
+              <span>closed trades are graded</span>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-mono text-slate-400">2</span>
+              <span>Reflection drafts an improved directive</span>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-mono text-slate-400">3</span>
+              <span>
+                it ships as a <span className="font-medium">PROMPT_EVOLUTION</span> proposal —
+                review it on the Proposals page
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-mono text-slate-400">4</span>
+              <span>
+                on {data?.auto_apply ? 'auto-apply' : 'approval'} it becomes the active directive,
+                shown here with its version &amp; full history
+              </span>
+            </li>
+          </ol>
+          <p className="italic">
+            {data?.enabled
+              ? 'Evolution is on — nothing proposed yet (the loop is still warming up).'
+              : 'Evolution is frozen — enable PROMPT_EVOLUTION to let the directive learn.'}
+          </p>
+        </div>
       ) : (
         <div className="space-y-3">
           <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 px-3 py-2 dark:border-indigo-900/50 dark:bg-indigo-950/20">
