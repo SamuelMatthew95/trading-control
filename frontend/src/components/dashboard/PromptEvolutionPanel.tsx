@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 
 import { API_ENDPOINTS, apiFetch } from '@/lib/apiClient'
+import { formatTimeAgo } from '@/lib/formatters'
 import { LEARNING_REFRESH_MS } from '@/lib/grade-colors'
 import { cardClass, sectionTitleClass, mutedClass } from '@/lib/dashboard-styles'
 import { cn } from '@/lib/utils'
@@ -32,6 +33,24 @@ function VersionTag({ version }: { version: number }) {
     <span className="shrink-0 rounded bg-indigo-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">
       v{version}
     </span>
+  )
+}
+
+// Provenance line: WHERE a directive version came from (e.g. PROPOSAL_APPLIER
+// for a challenger promotion, or reflection for an LLM-evolved one) and WHEN —
+// so the operator can read the full lineage of past + current, not just text.
+function MetaLine({ source, updatedAt }: { source?: string; updatedAt?: string }) {
+  const ago = formatTimeAgo(updatedAt)
+  if (!source && !ago) return null
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-slate-400 dark:text-slate-500">
+      {source && (
+        <span className="rounded bg-slate-500/10 px-1.5 py-0.5 font-mono uppercase tracking-wide">
+          {source}
+        </span>
+      )}
+      {ago && <span>{ago}</span>}
+    </div>
   )
 }
 
@@ -148,23 +167,32 @@ export function PromptEvolutionPanel() {
                 why: {active.rationale}
               </p>
             )}
+            <MetaLine source={active.source} updatedAt={active.updated_at} />
           </div>
 
           {history.length > 0 && (
             <div>
               <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                History
+                History · {history.length} prior {history.length === 1 ? 'version' : 'versions'}
               </p>
               <div className="space-y-1.5">
                 {history.map((d) => (
                   <div
                     key={d.version}
-                    className="flex items-start gap-2 rounded-lg border border-slate-200 px-3 py-1.5 dark:border-slate-800"
+                    className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800"
                   >
-                    <VersionTag version={d.version} />
-                    <p className="min-w-0 flex-1 truncate text-[11px] text-slate-500 dark:text-slate-400">
+                    <div className="mb-1 flex items-center gap-2">
+                      <VersionTag version={d.version} />
+                    </div>
+                    <p className="whitespace-pre-wrap text-[11px] leading-snug text-slate-600 dark:text-slate-300">
                       {d.text}
                     </p>
+                    {d.rationale && (
+                      <p className="mt-1 text-[10px] italic text-slate-400 dark:text-slate-500">
+                        why: {d.rationale}
+                      </p>
+                    )}
+                    <MetaLine source={d.source} updatedAt={d.updated_at} />
                   </div>
                 ))}
               </div>
