@@ -159,13 +159,16 @@ def _success_dimension(completed: int, terminal: int) -> _Dimension:
     return _Dimension(FieldName.SUCCESS_RATE, completed / terminal, True)
 
 
-def _throughput_dimension(heartbeat: dict[str, Any], live_available: bool) -> _Dimension:
+def _throughput_dimension(heartbeat: dict[str, Any]) -> _Dimension:
     try:
         events = int(heartbeat.get(FieldName.EVENT_COUNT) or 0)
     except (TypeError, ValueError):
         events = 0
-    # Absent a heartbeat, an event_count of 0 is missing data, not zero work.
-    if not live_available and events == 0:
+    # Zero events is "no work measured yet", not a real 0-score. An agent that is
+    # merely alive (heartbeating) but has processed nothing must NOT be graded on
+    # throughput — otherwise it scores a letter purely for being up. Throughput
+    # only becomes a scored dimension once the agent has done at least one event.
+    if events == 0:
         return _Dimension(FieldName.THROUGHPUT, 0.0, False)
     value = min(events / AGENT_PERF_THROUGHPUT_SATURATION, 1.0)
     return _Dimension(FieldName.THROUGHPUT, value, True)
@@ -206,12 +209,13 @@ def _build_learnings(
     """Deterministic, evidence-backed insights — no LLM, no fabrication."""
     learnings: list[dict[str, str]] = []
     if not graded:
-        learnings.append(
-            {
-                FieldName.TEXT: "Dormant — no heartbeat, events, or runs recorded yet; not graded.",
-                FieldName.TONE: _TONE_NEUTRAL,
-            }
+        # Distinguish "alive but idle" from "never seen" so the card reads honestly.
+        text = (
+            "Idle — alive but no events or completed runs to grade yet; not graded."
+            if dims[FieldName.LIVENESS].available
+            else "Dormant — no heartbeat, events, or runs recorded yet; not graded."
         )
+        learnings.append({FieldName.TEXT: text, FieldName.TONE: _TONE_NEUTRAL})
         return learnings
 
     last_event = str(heartbeat.get(FieldName.LAST_EVENT) or "").strip() or "n/a"
@@ -313,7 +317,7 @@ def _grade_agent(
     live = _liveness_dimension(heartbeat)
     completed, failed, terminal = _run_tallies(runs)
     success = _success_dimension(completed, terminal)
-    throughput = _throughput_dimension(heartbeat, live.available)
+    throughput = _throughput_dimension(heartbeat)
     latency, p95_latency = _latency_dimension(runs)
 
     dims = {
@@ -323,8 +327,13 @@ def _grade_agent(
         FieldName.LATENCY: latency,
     }
     available = [d for d in dims.values() if d.available]
+    # Liveness alone (just being up) is not performance. Require at least one
+    # WORK dimension — success rate, throughput, or latency — before assigning a
+    # grade, so an idle agent that has done nothing reads as UNRATED instead of
+    # earning a letter for heartbeating. This is the fix for "0 events but graded".
+    work_available = [d for d in available if d.key != FieldName.LIVENESS]
 
-    if available:
+    if work_available:
         total_weight = sum(_DIM_WEIGHTS[d.key] for d in available)
         raw = sum(d.value * _DIM_WEIGHTS[d.key] for d in available) / total_weight
         score: float | None = round(min(max(raw, 0.0), 1.0), 4)
