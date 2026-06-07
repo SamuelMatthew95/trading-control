@@ -258,11 +258,13 @@ export function ToolGovernancePanel() {
         )}
       </div>
       <p className={cn(mutedClass, 'mb-3')}>
-        Tools the reasoning LLM can call, grouped by DAG phase.{' '}
-        <span className="font-mono">Calls</span> = times used ·{' '}
-        <span className="font-mono">Alpha</span> = realized-PnL attribution (a{' '}
-        <span className="font-mono">prior</span> tag = seeded estimate, not yet earned).{' '}
-        {exercisedCount}/{tools.length} exercised live.
+        Tools are the data look-ups and actions the trading AI is allowed to use.{' '}
+        <span className="font-semibold">On</span> = the AI may use it ·{' '}
+        <span className="font-semibold">Off</span> = switched off, the AI won&apos;t.{' '}
+        Tools earn their place by making money: <span className="font-mono">Alpha</span> is how much
+        profit each one is credited with (a <span className="font-mono">prior</span> tag = an early
+        estimate before any trade has scored it). <span className="font-mono">Calls</span> = how many
+        times it&apos;s been used. {exercisedCount}/{tools.length} have run on a live trade so far.
       </p>
 
       {tools.length > 0 && exercisedCount === 0 && (
@@ -277,11 +279,17 @@ export function ToolGovernancePanel() {
       {suggestions.length > 0 && (
         <div className="mb-4 space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Governance Recommendations
+            What the system suggests
           </p>
           <p className="text-xs leading-snug text-slate-400">
-            Suggested actions — <span className="font-semibold">nothing here is applied
-            automatically</span>; a human (or an approved TOOL_GOVERNANCE proposal) acts on them.
+            <span className="font-semibold text-rose-600 dark:text-rose-400">Disable</span> = losing
+            money, switch it off ·{' '}
+            <span className="font-semibold text-emerald-600 dark:text-emerald-400">Prioritize</span> =
+            the best earner, keep it ·{' '}
+            <span className="font-semibold">Review</span> = not used yet, just watching. Disable
+            suggestions become a proposal on the{' '}
+            <span className="font-semibold">Proposals</span> page; approve it there and the tool is
+            switched off automatically.
           </p>
           {suggestions.map((s, i) => (
             <SuggestionRow key={`${s.tool}-${s.action}-${i}`} suggestion={s} />
