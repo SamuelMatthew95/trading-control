@@ -187,6 +187,7 @@ CLEAN_FILES: frozenset[str] = frozenset(
         "api/services/multi_agent_tools.py",
         "api/services/notification_summary.py",
         "api/services/persistence_routing.py",
+        "api/services/agent_pnl_store.py",
         "api/services/promotion_gate.py",
         "api/services/prompt_assembly.py",
         "api/services/prompt_store.py",

@@ -105,21 +105,21 @@ describe('ToolGovernancePanel', () => {
     expect(container.textContent).toContain('prior')
     // …while an exercised tool shows its call/success ledger.
     expect(container.textContent).toContain('30× · 12 ok')
-    // Header summarises live coverage (1 of 3 tools has been exercised).
-    expect(container.textContent).toContain('1/3 exercised live')
+    // Header summarises live coverage (1 of 3 tools has run on a live trade).
+    expect(container.textContent).toContain('1/3 have run on a live trade')
   })
 
-  it('frames recommendations as not-auto-applied, distinct from tool state', async () => {
+  it('frames recommendations in plain English, routed to the Proposals page', async () => {
     mockApiFetch.mockResolvedValue(REGISTRY)
     const { container } = render(<ToolGovernancePanel />)
 
-    expect(await screen.findByText('Governance Recommendations')).toBeInTheDocument()
+    expect(await screen.findByText('What the system suggests')).toBeInTheDocument()
     // The recommendation badges are present…
     expect(container.textContent).toContain('disable')
     expect(container.textContent).toContain('prioritize')
     expect(container.textContent).toContain('negative alpha')
-    // …but clearly framed as recommendations, not applied state.
-    expect(container.textContent).toContain('nothing here is applied')
+    // …and the plain-English explainer routes disable actions to Proposals.
+    expect(container.textContent).toContain('Proposals')
   })
 
   it('explains WHY each unused tool is unused (no mystery dead tools)', async () => {

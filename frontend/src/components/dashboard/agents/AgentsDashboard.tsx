@@ -28,7 +28,9 @@ import { RecentDecisionsPanel } from '@/components/dashboard/RecentDecisionsPane
 import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
 import { ActivityTimeline } from './ActivityTimeline'
 import { KpiCard } from './KpiCard'
+import { TraceModal } from '@/components/dashboard/TraceModal'
 import { AgentStatusTable } from './AgentStatusTable'
+import { AgentDetailModal } from './AgentDetailModal'
 import { AgentScorecards } from './AgentScorecards'
 import { SystemDiagnostics } from './SystemDiagnostics'
 import { GroupLabel, type WiringFreshness } from './shared'
@@ -84,6 +86,11 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
   // decisions, notifications, agent logs, and market events the panels below
   // show as state.
   const activityItems = buildActivityTimeline({ recentEvents, recentDecisions, notifications, agentLogs })
+
+  // Drill-down: which agent's detail modal is open (null = none).
+  const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
+  // Drill-down: which trace's modal is open — shared by decisions + notifications.
+  const [activeTraceId, setActiveTraceId] = useState<string | null>(null)
 
   // Only surface "no agents" after a grace period — agent data can arrive a beat
   // after the WebSocket connects.
@@ -147,7 +154,7 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
           <KpiCard
             label="Notifications · 1h"
             value={sanitizeValue(recentNotificationCount)}
-            lines={[`${notifications.length} stored (max 200)`, lastNotificationLabel(notifications)]}
+            lines={[`${notifications.length} stored (max 20)`, lastNotificationLabel(notifications)]}
           />
         </div>
       </section>
@@ -183,14 +190,23 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
           realAgents={realAgents}
           agentInstances={agentInstances}
           showNoAgentDataMessage={showNoAgentDataMessage}
+          onSelect={setSelectedAgent}
         />
       </section>
 
       <section className="space-y-2">
         <GroupLabel>Activity</GroupLabel>
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 xl:items-start">
-          <RecentDecisionsPanel stats={decisionStats} recent={recentDecisions} />
-          <NotificationFeed notifications={notifications} wsConnected={wsConnected} />
+          <RecentDecisionsPanel
+            stats={decisionStats}
+            recent={recentDecisions}
+            onSelectTrace={setActiveTraceId}
+          />
+          <NotificationFeed
+            notifications={notifications}
+            wsConnected={wsConnected}
+            onSelectTrace={setActiveTraceId}
+          />
         </div>
       </section>
 
@@ -205,6 +221,13 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
           apiHealth={apiHealth}
         />
       </section>
+
+      {selectedAgent && (
+        <AgentDetailModal name={selectedAgent} onClose={() => setSelectedAgent(null)} />
+      )}
+      {activeTraceId && (
+        <TraceModal traceId={activeTraceId} onClose={() => setActiveTraceId(null)} />
+      )}
     </div>
   )
 }

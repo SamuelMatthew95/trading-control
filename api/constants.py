@@ -96,6 +96,21 @@ class ProposalType(StrEnum):
     NEW_AGENT = "new_agent"
     TOOL_GOVERNANCE = "tool_governance"
     PROMPT_EVOLUTION = "prompt_evolution"
+    # A shadow challenger that beat baseline. Human-approval-gated (not
+    # auto-applied on stream consume): on approval the ProposalApplier both
+    # biases the ReasoningAgent toward the winning strategy AND spawns it as a
+    # live candidate. See api/services/agents/proposal_applier.py.
+    CHALLENGER_PROMOTION = "challenger_promotion"
+
+
+# Proposal types that must NOT be auto-applied when first seen on
+# STREAM_PROPOSALS — the ProposalApplier leaves them pending until an operator
+# approves, at which point the approval path republishes them with
+# ``FieldName.APPROVED=True`` and the applier acts. Everything else is a
+# learning-loop safety reaction that applies on consume.
+APPROVAL_GATED_PROPOSAL_TYPES: Final[frozenset[str]] = frozenset(
+    {ProposalType.CHALLENGER_PROMOTION}
+)
 
 
 class HypothesisType(StrEnum):
@@ -233,6 +248,7 @@ class FieldName(StrEnum):
     ACKNOWLEDGED = "acknowledged"
     ACTION = "action"
     ACTIVE = "active"
+    ADVISORY = "advisory"
     ALPHA = "alpha"
     ACTIVE_AGENTS = "active_agents"
     ACTIVE_AGENT_COUNT = "active_agent_count"
@@ -863,6 +879,7 @@ class FieldName(StrEnum):
     SESSION_ID = "session_id"
     SEVERITY = "severity"
     SEVERITY_COUNTS = "severity_counts"
+    SHADOW_EDGE = "shadow_edge"
     SHARPE_RATIO = "sharpe_ratio"
     SHORT_TRADES = "short_trades"
     SID = "sid"
@@ -1040,6 +1057,7 @@ class FieldName(StrEnum):
     WINNING_FACTORS = "winning_factors"
     WINNING_TRADES = "winning_trades"
     WINS = "wins"
+    WIN_COUNT = "win_count"
     WIN_RATE = "win_rate"
     WIN_RATE_PERCENT = "win_rate_percent"
     WORKER_HEARTBEATS = "worker_heartbeats"
@@ -1281,6 +1299,10 @@ AGENT_PERF_W_LIVENESS: Final[float] = 0.40
 AGENT_PERF_W_SUCCESS: Final[float] = 0.30
 AGENT_PERF_W_THROUGHPUT: Final[float] = 0.15
 AGENT_PERF_W_LATENCY: Final[float] = 0.15
+# Realized-PnL dimension — only applies to the trading agents (see
+# PNL_GRADED_AGENTS). Weighted heavily because, for a trading agent, making
+# money is the point; it dominates the blended score once enough trades exist.
+AGENT_PERF_W_PNL: Final[float] = 0.50
 
 # Liveness dimension score by heartbeat state (ACTIVE vs STALE/IDLE).
 AGENT_PERF_LIVENESS_ACTIVE: Final[float] = 1.0
@@ -1343,6 +1365,24 @@ AGENT_GRADE_SNAPSHOT_INTERVAL_SECONDS: Final[int] = 300  # throttle: ≤1 write 
 # grade for this many consecutive snapshots before it earns the PROMOTED tier
 # (a single good window shows TRUSTED until the streak is built).
 AGENT_PROMOTION_STREAK: Final[int] = 3
+
+# ── Realized-PnL agent grading (durable in Redis — no Postgres) ──────────────
+# The agents whose decisions produce realized PnL. GradeAgent attributes each
+# closed trade's PnL to these, and agent_performance grades them on it.
+PNL_GRADED_AGENTS: Final[frozenset[str]] = frozenset(
+    {AGENT_SIGNAL, AGENT_REASONING, AGENT_EXECUTION}
+)
+# Durable per-agent PnL accumulator (Redis hash, no TTL → survives restarts /
+# deploys; InMemoryStore is NOT used because it is wiped on restart).
+REDIS_KEY_AGENT_PNL: Final[str] = "agent:pnl:{name}"
+# A trading agent must have closed at least this many trades before its PnL
+# dimension is scored (avoids grading on a 1-trade fluke) AND before PnL can
+# gate promotion. Below this the dimension reads "no data", never fabricated.
+AGENT_PNL_MIN_TRADES: Final[int] = 10
+# Promotion gate: a trading agent cannot reach PROMOTED unless its realized win
+# rate clears this bar (with ≥ AGENT_PNL_MIN_TRADES trades). Stops an agent
+# being promoted on liveness/throughput while its trades bleed money.
+AGENT_PNL_PROMOTION_MIN_WIN_RATE: Final[float] = 0.50
 
 # Behavioral promotion — per-agent trust weight (control plane). ReasoningAgent
 # multiplies its signal_weight_scale by this when AGENT_TRUST_WEIGHTING_ENABLED
@@ -1475,8 +1515,8 @@ REDIS_KEY_LLM_METRICS: Final[str] = "llm:metrics"
 # Cooling-off: recent trade PnL outcomes (LPUSH, LTRIM cap COOLING_OFF_WINDOW+5)
 REDIS_KEY_RECENT_OUTCOMES: Final[str] = "trading:recent_outcomes"
 REDIS_RECENT_OUTCOMES_MAXLEN: Final[int] = 10
-REDIS_NOTIFICATIONS_MAX: Final[int] = 200
-REDIS_DECISIONS_MAX: Final[int] = 500
+REDIS_NOTIFICATIONS_MAX: Final[int] = 20
+REDIS_DECISIONS_MAX: Final[int] = 50
 
 # Stream names
 STREAM_MARKET_TICKS: Final[str] = "market_ticks"

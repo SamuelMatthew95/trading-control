@@ -63,7 +63,7 @@ volatility-normalized trigger (`move > k·sigma`). See
   `tool_registry.default_tools()` and are overwritten by live EMA telemetry once
   the ReasoningAgent actually exercises each tool (which needs the LLM up).
 - **Recent Decisions `Total`** is the all-time `decisions:recent` list (capped
-  at 500); `Buys/Sells/Holds` are last-hour. These are now explicitly labelled
+  at 50); `Buys/Sells/Holds` are last-hour. These are now explicitly labelled
   in the panel so they aren't misread as one running total.
 
 ## After both root causes are resolved

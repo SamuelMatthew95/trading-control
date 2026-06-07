@@ -187,13 +187,13 @@ read `200` even though nothing had just happened and the feed looked idle. The
 number never reflected "what's happening now".
 
 **Root cause:** The tile rendered `notifications.length`. The store hydrates the
-Redis `notifications:recent` backlog and caps it at 200 (`useCodexStore`), so the
-length is the stored-history size, not recent activity — it pins at 200 on any
-established session.
+Redis `notifications:recent` backlog and caps it at 20 (`useCodexStore`, matching
+the backend `REDIS_NOTIFICATIONS_MAX`), so the length is the stored-history size,
+not recent activity — it pins at the cap on any established session.
 
 **Fix:** `components/dashboard/agents/AgentsDashboard.tsx` now shows
 `countRecentNotifications(notifications, 1h)` as the headline ("Notifications · 1h")
-with `N stored (max 200)` and the last-activity time as secondary context. The
+with `N stored (max 20)` and the last-activity time as secondary context. The
 recent-count + last-activity helpers live in `frontend/src/lib/notification-metrics.ts`.
 
 **Regression test:** `frontend/src/test/helpers/notification-metrics.test.ts` —
@@ -209,8 +209,8 @@ reported the count as wrong/corrupt — `0 + 0 + 14` plainly does not equal `500
 windows* but were rendered side by side with no labels. In
 `api/services/redis_store.py::decision_stats`, `buys`/`sells`/`holds` count only
 decisions newer than `now - 3600` (last hour), while `total` is the length of
-the whole `decisions:recent` list (LTRIM-capped at 500). An established session
-pins `total` at the 500 cap regardless of recent activity, so the two figures
+the whole `decisions:recent` list (LTRIM-capped at 50). An established session
+pins `total` at the 50 cap regardless of recent activity, so the two figures
 are unrelated and were never meant to sum.
 
 **Fix:** `components/dashboard/RecentDecisionsPanel.tsx` now labels the windows

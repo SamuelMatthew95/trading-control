@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
 
 import { AgentStatusTable } from '@/components/dashboard/agents/AgentStatusTable'
 import type { AgentSummary } from '@/lib/agent-pipeline'
@@ -52,5 +52,30 @@ describe('AgentStatusTable', () => {
   it('shows the empty state when the grace period elapses with no agent data', () => {
     render(<AgentStatusTable realAgents={[]} agentInstances={[]} showNoAgentDataMessage={true} />)
     expect(screen.getByText('No active agents')).toBeInTheDocument()
+  })
+
+  it('drills into an agent on row click and keyboard when onSelect is wired', () => {
+    const onSelect = vi.fn()
+    render(
+      <AgentStatusTable
+        realAgents={agents}
+        agentInstances={[]}
+        showNoAgentDataMessage={false}
+        onSelect={onSelect}
+      />,
+    )
+    const row = screen.getByRole('button', { name: /view .* details/i })
+    fireEvent.click(row)
+    expect(onSelect).toHaveBeenCalledWith('SIGNAL_AGENT')
+
+    fireEvent.keyDown(row, { key: 'Enter' })
+    expect(onSelect).toHaveBeenCalledTimes(2)
+  })
+
+  it('rows are non-interactive (no button role) when onSelect is absent', () => {
+    render(
+      <AgentStatusTable realAgents={agents} agentInstances={[]} showNoAgentDataMessage={false} />,
+    )
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 })

@@ -525,14 +525,27 @@ async def get_learning_proposals_payload(limit: int) -> dict[str, Any]:
 
 
 async def update_proposal_status_payload(trace_id: str, status: str) -> dict[str, Any]:
-    """Persist proposal approval or rejection back to agent_logs payload."""
-    from api.services.dashboard.proposals import _update_in_memory_proposal_status  # noqa: PLC0415
+    """Persist proposal approval/rejection, then act on approval.
+
+    Approval is no longer a cosmetic flag: an approved, approval-gated proposal
+    (e.g. ``challenger_promotion``) is republished to STREAM_PROPOSALS so the
+    ProposalApplier applies it. Challenger proposals persist to the ``events``
+    table rather than ``agent_logs``, so the DB path falls back to events —
+    previously that mismatch made approving them 404.
+    """
+    from api.services.dashboard.proposals import (  # noqa: PLC0415
+        _get_in_memory_proposal_payload,
+        _update_in_memory_proposal_status,
+        republish_approved_proposal,
+    )
 
     if status not in {ProposalStatus.APPROVED, ProposalStatus.REJECTED}:
         raise HTTPException(status_code=400, detail="status must be 'approved' or 'rejected'")
     if not is_db_available():
         if not _update_in_memory_proposal_status(trace_id, status):
             raise HTTPException(status_code=404, detail="Proposal not found")
+        if status == ProposalStatus.APPROVED:
+            await republish_approved_proposal(_get_in_memory_proposal_payload(trace_id))
         return {"trace_id": trace_id, "status": status, "source": "in_memory"}
 
     try:
@@ -542,17 +555,52 @@ async def update_proposal_status_payload(trace_id: str, status: str) -> dict[str
                     UPDATE agent_logs
                     SET payload = (payload::jsonb || jsonb_build_object('status', :status::text))::text
                     WHERE trace_id = :trace_id AND log_type = :log_type
-                    RETURNING trace_id
+                    RETURNING payload
                 """),
                 {"trace_id": trace_id, "status": status, "log_type": LogType.PROPOSAL},
             )
             updated = result.fetchone()
             await session.commit()
-        if updated is None:
+        payload = _as_dict(updated[0]) if updated is not None else None
+        if payload is None:
+            # Challenger-style proposals live in the events table, not agent_logs.
+            payload = await _approve_events_proposal(trace_id, status)
+        if payload is None:
             raise HTTPException(status_code=404, detail="Proposal not found")
+        if status == ProposalStatus.APPROVED:
+            await republish_approved_proposal(payload)
         return {"trace_id": trace_id, "status": status}
     except HTTPException:
         raise
     except Exception:
         log_structured("error", "proposal_status_update_failed", trace_id=trace_id, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error") from None
+
+
+async def _approve_events_proposal(proposal_id: str, status: str) -> dict[str, Any] | None:
+    """Set status on an events-table proposal, by row id or embedded trace_id.
+
+    Returns the updated proposal ``data`` dict (so the caller can republish an
+    approval), or ``None`` when no matching events row exists.
+    """
+    async with AsyncSessionFactory() as session:
+        async with session.begin():
+            result = await session.execute(
+                text(
+                    "SELECT id, data FROM events "
+                    "WHERE event_type = 'strategy.proposal' "
+                    "AND (CAST(id AS TEXT) = :pid OR to_jsonb(data)->>'trace_id' = :pid) "
+                    "ORDER BY created_at DESC LIMIT 1"
+                ),
+                {"pid": str(proposal_id)},
+            )
+            row = result.first()
+            if not row:
+                return None
+            data = _as_dict(row[1])
+            data[FieldName.STATUS] = status
+            await session.execute(
+                text("UPDATE events SET data = :data WHERE id = :id"),
+                {"data": json.dumps(data), FieldName.ID: row[0]},
+            )
+    return data

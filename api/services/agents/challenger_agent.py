@@ -43,7 +43,7 @@ class ChallengerAgent(MultiStreamAgent):
       - Computes its own grade using its ``challenger_config`` overrides
       - Records results in ``agent_grades`` and ``trade_lifecycle`` under its
         own ``instance_id``, so performance can be compared in the dashboard
-      - Retires itself after ``max_fills`` events (default: 200) and publishes
+      - Retires itself after ``max_fills`` events (default: 20) and publishes
         a final comparison summary to the ``proposals`` stream
 
     The orchestrator must call ``.start()`` after instantiation and ``.stop()``
@@ -52,7 +52,7 @@ class ChallengerAgent(MultiStreamAgent):
 
     _state_name = AGENT_CHALLENGER
 
-    DEFAULT_MAX_FILLS = 200
+    DEFAULT_MAX_FILLS = 20
 
     def __init__(
         self,
@@ -312,7 +312,7 @@ class ChallengerAgent(MultiStreamAgent):
             FieldName.CONFIDENCE: win_rate,
             FieldName.CONTENT: {
                 FieldName.STRATEGY: strategy_name,
-                "shadow_edge": edge,
+                FieldName.SHADOW_EDGE: edge,
                 FieldName.CONFIDENCE: win_rate,
                 FieldName.REASON: (
                     f"Shadow challenger '{strategy_name}' beats baseline by {edge:+.2f} PnL "

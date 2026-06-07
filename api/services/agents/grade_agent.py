@@ -17,6 +17,7 @@ from api.constants import (
     LLM_DELAY_ADJUSTMENT_STEP_MS,
     LLM_DELAY_MAX_MS,
     LLM_RATE_LIMIT_GRADE_THRESHOLD,
+    PNL_GRADED_AGENTS,
     SOURCE_GRADE,
     STREAM_AGENT_GRADES,
     STREAM_DECISIONS,
@@ -39,6 +40,7 @@ from api.events.dlq import DLQManager
 from api.observability import log_structured
 from api.runtime_state import is_db_available
 from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
+from api.services.agent_pnl_store import get_agent_pnl_store
 from api.services.agent_state import AgentStateRegistry
 from api.services.agents.base import MultiStreamAgent
 from api.services.agents.db_helpers import (
@@ -181,6 +183,28 @@ class GradeAgent(MultiStreamAgent):
         # tool alpha. This is what makes suggest_tool_changes (negative-alpha →
         # disable) and the tool-governance proposal driven by real outcomes.
         self._attribute_pnl_to_tools(data)
+
+        # Agent grading — attribute the same realized PnL to the trading agents
+        # so agent_performance can grade them on whether they make money (durable
+        # in Redis; see api/services/agent_pnl_store.py).
+        await self._attribute_pnl_to_agents(data)
+
+    async def _attribute_pnl_to_agents(self, data: dict[str, Any]) -> None:
+        """Fold a completed trade's realized PnL into each trading agent's durable
+        record. Best-effort: no store installed or a Redis hiccup is a quiet no-op
+        (grading just reads "no data")."""
+        pnl = data.get(FieldName.PNL)
+        if pnl is None:
+            return
+        store = get_agent_pnl_store()
+        if store is None:
+            return
+        try:
+            value = float(pnl)
+        except (TypeError, ValueError):
+            return
+        for agent_name in PNL_GRADED_AGENTS:
+            await store.record_trade(agent_name, value)
 
     def _remember_decision_tools(self, data: dict[str, Any]) -> None:
         """Cache trace_id -> tool names from a decision event (bounded LRU)."""

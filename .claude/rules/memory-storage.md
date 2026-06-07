@@ -94,8 +94,20 @@ survives overnight so ReasoningAgent always has weights even if no trades ran.
 | `REDIS_KEY_PROMPT_DIRECTIVE_HISTORY` | `prompt:directive:history:{node}` | None | ProposalApplier (capped {PROMPT_DIRECTIVE_HISTORY_CAP}) |
 | `REDIS_KEY_NEWS_SENTIMENT` | `news_sentiment:{symbol}` | 300s | market_intel (reasoning perception tool) |
 | `REDIS_KEY_CORRELATION` | `correlation:{symbol}` | 120s | market_intel (reasoning perception tool) |
+| `REDIS_KEY_AGENT_PNL` | `agent:pnl:{name}` | None | GradeAgent (writes), agent_performance (reads) |
 
 **Fallback if absent:** Proceed with empty weights (no crash; degraded reasoning).
+
+**Per-agent realized PnL (`agent:pnl:{name}`):** a durable accumulator (one
+small Redis hash per trading agent: `trade_count` / `win_count` / `total_pnl` /
+`updated_at`) so the dashboard can grade the trading agents on whether they make
+money — and gate promotion on it. **No Postgres in this deployment, and
+InMemoryStore is wiped on restart, so Redis (no TTL) is the ONLY correct home**:
+the track record must survive restarts/deploys. Written by `GradeAgent` when a
+trade closes (one attribution per agent in `PNL_GRADED_AGENTS`); read by
+`agent_performance`. Absent / < `AGENT_PNL_MIN_TRADES` → the PnL dimension reads
+"no data" (UNRATED on PnL), never a fabricated 0%. Managed via
+`api.services.agent_pnl_store` (`get_agent_pnl_store()` / `set_agent_pnl_store()`).
 
 **Self-evolving prompt directive (`prompt:directive:{node}`):** the learned
 "adaptive directive" — guidance assembled BENEATH the immutable constitution.
@@ -199,9 +211,9 @@ routes in `api/routes/{notifications,decisions,llm_health}.py`.
 
 | Constant | Key Pattern | TTL | Owner |
 |----------|------------|-----|-------|
-| `REDIS_KEY_NOTIFICATIONS_RECENT` | `notifications:recent` (LPUSH, LTRIM cap 200) | None | NotificationAgent + ReasoningAgent |
+| `REDIS_KEY_NOTIFICATIONS_RECENT` | `notifications:recent` (LPUSH, LTRIM cap 20) | None | NotificationAgent + ReasoningAgent |
 | `REDIS_KEY_NOTIFICATIONS_READ` | `notifications:read` (SET of read ids) | None | REST POST `/notifications/{id}/read` |
-| `REDIS_KEY_DECISIONS_RECENT` | `decisions:recent` (LPUSH, LTRIM cap 500) | None | ReasoningAgent |
+| `REDIS_KEY_DECISIONS_RECENT` | `decisions:recent` (LPUSH, LTRIM cap 50) | None | ReasoningAgent |
 | `REDIS_KEY_LLM_METRICS` | `llm:metrics` hash: `total_calls`, `successes`, `rate_limits`, `timeouts`, `errors`, `last_success_at`, `last_latency_ms` | None | `LLMMetricsCollector` fire-and-forget |
 
 **Rules:**
@@ -214,7 +226,7 @@ routes in `api/routes/{notifications,decisions,llm_health}.py`.
   lists / zero counters, not raise.
 - `notifications:read` is pruned on every `push_notification` to drop
   ids no longer present in `notifications:recent`. This keeps the set
-  bounded by the live-list cap (~200) even over a long-running
+  bounded by the live-list cap (~20) even over a long-running
   deployment.
 
 ```python

@@ -49,3 +49,38 @@ raised any dampened scale up to the 0.5 floor, overriding the learning loop.
 in (0, AGENT_TRUST_MAX].
 
 **Regression test:** `tests/agents/test_reasoning_agent.py::test_apply_trust_weighting_preserves_dampening_and_caps_top`
+
+## Trading agents were never graded on whether they made money (only liveness)
+
+**Symptom:** The Agent Scorecards graded every agent on operational telemetry
+only — liveness, success rate, throughput, latency. A SignalGenerator could read
+"A / PROMOTED" while the decisions it fed lost money, because realized PnL was
+never part of an agent's grade. (PnL was attributed to *tools*, never to agents.)
+
+**Root cause:** `agent_performance._grade_agent` had no PnL dimension, and there
+was no per-agent realized-PnL state to read. `GradeAgent` only folded PnL into
+tool alpha.
+
+**Fix (durable, no Postgres):**
+- `api/services/agent_pnl_store.py` — a Redis-backed `AgentPnLStore`
+  (`agent:pnl:{name}` hash, no TTL) accumulating `trade_count` / `win_count` /
+  `total_pnl` per agent. Redis is the only correct home: this record must
+  survive restarts/deploys and there is no Postgres; InMemoryStore is wiped on
+  restart so is deliberately NOT used.
+- `GradeAgent._attribute_pnl_to_agents` records each closed trade's realized PnL
+  against every agent in `PNL_GRADED_AGENTS` (Signal / Reasoning / Execution).
+- `agent_performance` adds a `Realized PnL` dimension (weight `AGENT_PERF_W_PNL`)
+  for those agents, and a **promotion gate**: a trading agent cannot reach
+  PROMOTED unless its realized win rate clears `AGENT_PNL_PROMOTION_MIN_WIN_RATE`
+  over ≥ `AGENT_PNL_MIN_TRADES` trades — a sustained A on liveness alone no
+  longer promotes a money-losing agent.
+
+**No bad-data rule:** below the min-trades sample, or with no store, the PnL
+dimension reads "no data" (UNRATED on PnL) — never a fabricated 0%, and the gate
+treats unproven as not-promotable rather than guessing.
+
+**Regression tests:**
+`tests/agents/test_agent_pnl_store.py`,
+`tests/agents/test_grade_agent.py::test_attributes_realized_pnl_to_trading_agents`,
+`tests/api/test_agent_performance.py::test_trading_agent_graded_on_realized_pnl`,
+`::test_pnl_gate_blocks_promotion_when_losing`

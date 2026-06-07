@@ -1,7 +1,7 @@
 /**
  * Notification headline metrics for the dashboard.
  *
- * The stored notification list is a capped backlog (max 200), so its raw length
+ * The stored notification list is a capped backlog (max 20), so its raw length
  * is a poor "what's happening now" number — a freshly opened app shows 200 even
  * when nothing new arrived. These helpers derive the *recent* count and a
  * last-activity label instead.

@@ -36,8 +36,11 @@ from api.constants import (
     AGENT_PERF_THROUGHPUT_SATURATION,
     AGENT_PERF_W_LATENCY,
     AGENT_PERF_W_LIVENESS,
+    AGENT_PERF_W_PNL,
     AGENT_PERF_W_SUCCESS,
     AGENT_PERF_W_THROUGHPUT,
+    AGENT_PNL_MIN_TRADES,
+    AGENT_PNL_PROMOTION_MIN_WIN_RATE,
     AGENT_PROMOTION_STREAK,
     AGENT_TRUST_DEFAULT,
     AGENT_TRUST_MAX,
@@ -46,6 +49,7 @@ from api.constants import (
     CIRCUIT_BREAKER_MAX_LATENCY_MS,
     GRADE_TO_TIER,
     LEARNING_CONTROL_TTL_SECONDS,
+    PNL_GRADED_AGENTS,
     REDIS_KEY_AGENT_TRUST,
     SOURCE_TO_AGENT,
     TIER_PROMOTED,
@@ -58,6 +62,7 @@ from api.constants import (
 from api.observability import log_structured
 from api.redis_client import get_redis
 from api.runtime_state import is_db_available
+from api.services.agent_pnl_store import get_agent_pnl_store
 from api.services.agents.scoring import score_to_grade
 from api.services.dashboard.agents import (
     get_agent_metrics_payload,
@@ -74,12 +79,14 @@ _DIM_WEIGHTS: dict[str, float] = {
     FieldName.SUCCESS_RATE: AGENT_PERF_W_SUCCESS,
     FieldName.THROUGHPUT: AGENT_PERF_W_THROUGHPUT,
     FieldName.LATENCY: AGENT_PERF_W_LATENCY,
+    FieldName.PNL: AGENT_PERF_W_PNL,
 }
 _DIM_LABELS: dict[str, str] = {
     FieldName.LIVENESS: "Liveness",
     FieldName.SUCCESS_RATE: "Success rate",
     FieldName.THROUGHPUT: "Throughput",
     FieldName.LATENCY: "Latency",
+    FieldName.PNL: "Realized PnL",
 }
 
 # Heartbeat status buckets (compared case-insensitively).
@@ -159,16 +166,33 @@ def _success_dimension(completed: int, terminal: int) -> _Dimension:
     return _Dimension(FieldName.SUCCESS_RATE, completed / terminal, True)
 
 
-def _throughput_dimension(heartbeat: dict[str, Any], live_available: bool) -> _Dimension:
+def _throughput_dimension(heartbeat: dict[str, Any]) -> _Dimension:
     try:
         events = int(heartbeat.get(FieldName.EVENT_COUNT) or 0)
     except (TypeError, ValueError):
         events = 0
-    # Absent a heartbeat, an event_count of 0 is missing data, not zero work.
-    if not live_available and events == 0:
+    # Zero events is "no work measured yet", not a real 0-score. An agent that is
+    # merely alive (heartbeating) but has processed nothing must NOT be graded on
+    # throughput — otherwise it scores a letter purely for being up. Throughput
+    # only becomes a scored dimension once the agent has done at least one event.
+    if events == 0:
         return _Dimension(FieldName.THROUGHPUT, 0.0, False)
     value = min(events / AGENT_PERF_THROUGHPUT_SATURATION, 1.0)
     return _Dimension(FieldName.THROUGHPUT, value, True)
+
+
+def _pnl_dimension(pnl_stats: dict[str, Any] | None) -> _Dimension:
+    """Score a trading agent on realized win rate. Unavailable (→ UNRATED on PnL,
+    never a fabricated 0%) until it has closed AGENT_PNL_MIN_TRADES trades — a
+    handful of trades is noise, and grading on noise is exactly the "bad data"
+    failure we avoid."""
+    if not pnl_stats:
+        return _Dimension(FieldName.PNL, 0.0, False)
+    trades = int(pnl_stats.get(FieldName.TRADE_COUNT) or 0)
+    if trades < AGENT_PNL_MIN_TRADES:
+        return _Dimension(FieldName.PNL, 0.0, False)
+    win_rate = float(pnl_stats.get(FieldName.WIN_RATE) or 0.0)
+    return _Dimension(FieldName.PNL, min(max(win_rate, 0.0), 1.0), True)
 
 
 def _p95(values: list[float]) -> float:
@@ -206,12 +230,13 @@ def _build_learnings(
     """Deterministic, evidence-backed insights — no LLM, no fabrication."""
     learnings: list[dict[str, str]] = []
     if not graded:
-        learnings.append(
-            {
-                FieldName.TEXT: "Dormant — no heartbeat, events, or runs recorded yet; not graded.",
-                FieldName.TONE: _TONE_NEUTRAL,
-            }
+        # Distinguish "alive but idle" from "never seen" so the card reads honestly.
+        text = (
+            "Idle — alive but no events or completed runs to grade yet; not graded."
+            if dims[FieldName.LIVENESS].available
+            else "Dormant — no heartbeat, events, or runs recorded yet; not graded."
         )
+        learnings.append({FieldName.TEXT: text, FieldName.TONE: _TONE_NEUTRAL})
         return learnings
 
     last_event = str(heartbeat.get(FieldName.LAST_EVENT) or "").strip() or "n/a"
@@ -309,11 +334,12 @@ def _grade_agent(
     agent_name: str,
     heartbeat: dict[str, Any],
     runs: list[dict[str, Any]],
+    pnl_stats: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     live = _liveness_dimension(heartbeat)
     completed, failed, terminal = _run_tallies(runs)
     success = _success_dimension(completed, terminal)
-    throughput = _throughput_dimension(heartbeat, live.available)
+    throughput = _throughput_dimension(heartbeat)
     latency, p95_latency = _latency_dimension(runs)
 
     dims = {
@@ -322,9 +348,19 @@ def _grade_agent(
         FieldName.THROUGHPUT: throughput,
         FieldName.LATENCY: latency,
     }
+    # The realized-PnL dimension applies ONLY to the trading agents — grading,
+    # say, the ReflectionAgent on PnL would be meaningless. For those agents the
+    # dimension is always present (so the UI shows "no data" until trades exist).
+    if agent_name in PNL_GRADED_AGENTS:
+        dims[FieldName.PNL] = _pnl_dimension(pnl_stats)
     available = [d for d in dims.values() if d.available]
+    # Liveness alone (just being up) is not performance. Require at least one
+    # WORK dimension — success rate, throughput, or latency — before assigning a
+    # grade, so an idle agent that has done nothing reads as UNRATED instead of
+    # earning a letter for heartbeating. This is the fix for "0 events but graded".
+    work_available = [d for d in available if d.key != FieldName.LIVENESS]
 
-    if available:
+    if work_available:
         total_weight = sum(_DIM_WEIGHTS[d.key] for d in available)
         raw = sum(d.value * _DIM_WEIGHTS[d.key] for d in available) / total_weight
         score: float | None = round(min(max(raw, 0.0), 1.0), 4)
@@ -442,11 +478,25 @@ async def _read_trust(agent_name: str) -> float:
         return AGENT_TRUST_DEFAULT
 
 
+def _pnl_clears_promotion_gate(pnl_stats: dict[str, Any] | None) -> bool:
+    """A trading agent's realized record must clear the bar before it is promoted.
+
+    Requires a meaningful sample (≥ AGENT_PNL_MIN_TRADES) AND a win rate at or
+    above AGENT_PNL_PROMOTION_MIN_WIN_RATE. No data ⇒ not gated through (an agent
+    is never promoted on liveness alone while its trades are unproven)."""
+    if not pnl_stats:
+        return False
+    if int(pnl_stats.get(FieldName.TRADE_COUNT) or 0) < AGENT_PNL_MIN_TRADES:
+        return False
+    return float(pnl_stats.get(FieldName.WIN_RATE) or 0.0) >= AGENT_PNL_PROMOTION_MIN_WIN_RATE
+
+
 async def _finalize_promotion(
     store: Any,
     agent: dict[str, Any],
     *,
     include_history: bool,
+    pnl_stats: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Refine an agent's tier using its durable grade streak (sustained → PROMOTED).
 
@@ -467,11 +517,17 @@ async def _finalize_promotion(
         history = await store.list_agent_grades(name, AGENT_GRADE_HISTORY_MAX)
         streak = _streak_from_history(history)
 
-    promoted = grade in _PROMOTION_GRADES and streak >= AGENT_PROMOTION_STREAK
+    streak_ok = grade in _PROMOTION_GRADES and streak >= AGENT_PROMOTION_STREAK
+    # PnL gate: a TRADING agent must also be making money to be promoted — a
+    # sustained A on liveness/throughput while it loses money must NOT promote.
+    # Non-trading agents are unaffected (gate passes through).
+    pnl_ok = name not in PNL_GRADED_AGENTS or _pnl_clears_promotion_gate(pnl_stats)
+    promoted = streak_ok and pnl_ok
     if promoted:
         final_tier = TIER_PROMOTED
     elif grade in _PROMOTION_GRADES:
-        # Earned an A/A+ but not yet sustained — pending promotion.
+        # Earned an A/A+ but not yet sustained (or PnL gate not cleared) —
+        # pending promotion.
         final_tier = TIER_TRUSTED
     else:
         final_tier = base_tier
@@ -487,14 +543,35 @@ async def _finalize_promotion(
     return agent
 
 
+async def _collect_pnl() -> dict[str, dict[str, Any]]:
+    """Realized-PnL stats for the trading agents (durable Redis store).
+
+    Degrades to ``{}`` when the store is absent so grading reads "no data"
+    rather than crashing or fabricating a record."""
+    pnl_store = get_agent_pnl_store()
+    if pnl_store is None:
+        return {}
+    try:
+        return await pnl_store.get_all(list(PNL_GRADED_AGENTS))
+    except Exception:
+        log_structured("warning", "agent_pnl_collect_failed", exc_info=True)
+        return {}
+
+
 async def get_agent_performance_payload() -> dict[str, Any]:
     """Grade every pipeline agent — the overview the dashboard table renders."""
     heartbeats, runs_by_agent = await _collect()
+    pnl_by_agent = await _collect_pnl()
     store = get_redis_store()
     agents: list[dict[str, Any]] = []
     for name in ALL_AGENT_NAMES:
-        graded = _grade_agent(name, heartbeats.get(name, {}), runs_by_agent.get(name, []))
-        agents.append(await _finalize_promotion(store, graded, include_history=False))
+        pnl_stats = pnl_by_agent.get(name)
+        graded = _grade_agent(
+            name, heartbeats.get(name, {}), runs_by_agent.get(name, []), pnl_stats
+        )
+        agents.append(
+            await _finalize_promotion(store, graded, include_history=False, pnl_stats=pnl_stats)
+        )
     promoted = sum(1 for a in agents if a[FieldName.PROMOTED])
     return {
         FieldName.AGENTS: agents,
@@ -515,9 +592,12 @@ async def get_agent_detail_payload(agent_name: str) -> dict[str, Any]:
     heartbeats, runs_by_agent = await _collect()
     heartbeat = heartbeats.get(agent_name, {})
     runs = runs_by_agent.get(agent_name, [])
+    pnl_stats = (await _collect_pnl()).get(agent_name)
 
-    detail = _grade_agent(agent_name, heartbeat, runs)
-    detail = await _finalize_promotion(get_redis_store(), detail, include_history=True)
+    detail = _grade_agent(agent_name, heartbeat, runs, pnl_stats)
+    detail = await _finalize_promotion(
+        get_redis_store(), detail, include_history=True, pnl_stats=pnl_stats
+    )
     detail[FieldName.HEARTBEAT] = {
         FieldName.STATUS: heartbeat.get(FieldName.STATUS),
         FieldName.EVENT_COUNT: heartbeat.get(FieldName.EVENT_COUNT),

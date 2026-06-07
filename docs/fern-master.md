@@ -270,7 +270,7 @@ PricePoller ── market_ticks ──▶ SignalGenerator
 - **Input:** all key streams (`agent_logs`, `risk_alerts`, `proposals`, etc.)
 - **Output:** formatted notifications → `notifications`
 - **Logic:** classifies by severity (CRITICAL / URGENT / WARNING / INFO), deduplicates within 60s
-- **Writes to:** `notifications:recent` (capped Redis list, max 200), `notifications` table
+- **Writes to:** `notifications:recent` (capped Redis list, max 20), `notifications` table
 
 #### ChallengerAgent
 
@@ -701,8 +701,8 @@ These REST endpoints work without Postgres because producers write to Redis list
 
 | Endpoint | Redis key | Producer |
 |---|---|---|
-| `GET /notifications` | `notifications:recent` (cap 200) | NotificationAgent, ReasoningAgent |
-| `GET /decisions` | `decisions:recent` (cap 500) | ReasoningAgent |
+| `GET /notifications` | `notifications:recent` (cap 20) | NotificationAgent, ReasoningAgent |
+| `GET /decisions` | `decisions:recent` (cap 50) | ReasoningAgent |
 | `GET /llm/health` | `llm:metrics` hash | LLMMetricsCollector |
 
 Writers must always go through `RedisStore.push_notification()` / `push_decision()` — these wrap LPUSH+LTRIM in a pipeline to prevent the cap being exceeded concurrently.

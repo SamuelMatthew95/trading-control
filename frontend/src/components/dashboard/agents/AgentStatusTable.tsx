@@ -44,6 +44,9 @@ export interface AgentStatusTableProps {
   realAgents: AgentSummary[]
   agentInstances: AgentInstance[]
   showNoAgentDataMessage: boolean
+  /** Drill-down: open the agent detail modal for this agent. Optional so the
+   *  table still renders (non-interactive) where no handler is wired. */
+  onSelect?: (name: string) => void
 }
 
 /** One row per agent: status, produced events, uptime, last heartbeat. */
@@ -51,6 +54,7 @@ export function AgentStatusTable({
   realAgents,
   agentInstances,
   showNoAgentDataMessage,
+  onSelect,
 }: AgentStatusTableProps) {
   const uptimes = uptimeByAgent(agentInstances)
   return (
@@ -58,7 +62,7 @@ export function AgentStatusTable({
       <p className={sectionTitleClass}>Agent Status</p>
       <p className={cn(mutedClass, 'mb-3')}>
         One row per agent — status, what it has produced, uptime, and last heartbeat.
-        The single source of truth for the pipeline above.
+        {onSelect ? ' Click a row to drill into its grade, dimensions, and recent activity.' : ''}
       </p>
       <div className="overflow-x-auto">
         <table className="min-w-full">
@@ -84,8 +88,30 @@ export function AgentStatusTable({
             ) : (
               realAgents.map((agent) => {
                 const uptime = uptimes.get(canonicalAgentKey(agent.name))
+                const clickable = Boolean(onSelect)
                 return (
-                  <tr key={agent.name} className="border-t border-slate-200 py-2 dark:border-slate-800">
+                  <tr
+                    key={agent.name}
+                    className={cn(
+                      'border-t border-slate-200 py-2 dark:border-slate-800',
+                      clickable &&
+                        'cursor-pointer hover:bg-slate-50 focus:bg-slate-50 focus:outline-none dark:hover:bg-slate-800/40 dark:focus:bg-slate-800/40',
+                    )}
+                    onClick={clickable ? () => onSelect?.(agent.name) : undefined}
+                    tabIndex={clickable ? 0 : undefined}
+                    role={clickable ? 'button' : undefined}
+                    aria-label={clickable ? `View ${agentDisplayName(agent.name)} details` : undefined}
+                    onKeyDown={
+                      clickable
+                        ? (e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              onSelect?.(agent.name)
+                            }
+                          }
+                        : undefined
+                    }
+                  >
                     <td className="px-2 py-2 text-sm font-sans text-slate-900 dark:text-slate-100">
                       {agentDisplayName(agent.name)}
                     </td>

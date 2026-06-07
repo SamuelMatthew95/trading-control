@@ -22,6 +22,11 @@ Each file covers one subsystem. When a bug is found and fixed, add it to the rig
 
 New subsystem → create `docs/troubleshooting/<subsystem>.md` and add a row above.
 
+> **Restart / redeploy consistency:** for the full map of what state survives a
+> restart (Redis = durable), what rebuilds (in-process windows), and what is
+> transient (`InMemoryStore`, no Postgres), see
+> [../durability-audit.md](../durability-audit.md).
+
 ---
 
 ## Entry format

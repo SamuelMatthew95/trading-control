@@ -54,6 +54,17 @@ export function TraceModal({ traceId, onClose }: { traceId: string; onClose: () 
         {loading && <p className={mutedClass}>Loading…</p>}
         {error && <p className="text-sm text-rose-500">{error}</p>}
 
+        {data &&
+          data.agent_runs.length === 0 &&
+          data.agent_logs.length === 0 &&
+          data.agent_grades.length === 0 && (
+            <p className={mutedClass}>
+              No details found for this trace. In memory mode (no database) trace
+              history is cleared on restart — only live, in-session traces are
+              available here.
+            </p>
+          )}
+
         {data && (
           <div className="space-y-4">
             {data.agent_runs.length > 0 && (

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useLivePositions } from '@/hooks/useLivePositions'
 import { cn } from '@/lib/utils'
 import {
@@ -17,6 +17,7 @@ import {
 } from '@/lib/formatters'
 import { Layers } from 'lucide-react'
 import { LiveNumber } from '@/components/dashboard/LiveNumber'
+import { PositionDetailModal } from '@/components/dashboard/PositionDetailModal'
 import { positionSideBadgeClass } from '@/lib/dashboard-helpers'
 
 // `Invested` (cost basis) and `Value` (current market value) are the two numbers
@@ -49,6 +50,8 @@ export function OpenPositionsPanel() {
   // backend position pushes.
   const positions = useLivePositions()
   const openPositions = useMemo(() => positions.filter(isActivePosition), [positions])
+  // Drill-down: which symbol's detail modal is open (null = none).
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null)
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
@@ -116,7 +119,17 @@ export function OpenPositionsPanel() {
                 return (
                   <tr
                     key={`${symbol}-${i}`}
-                    className="transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                    className="cursor-pointer transition-colors hover:bg-slate-50 focus:bg-slate-50 focus:outline-none dark:hover:bg-slate-800/40 dark:focus:bg-slate-800/40"
+                    onClick={() => setSelectedSymbol(symbol)}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`View ${symbol} position details`}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setSelectedSymbol(symbol)
+                      }
+                    }}
                   >
                     <td className="py-3 pl-5 pr-4 font-mono font-bold text-slate-900 dark:text-slate-100">
                       {symbol}
@@ -176,6 +189,10 @@ export function OpenPositionsPanel() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {selectedSymbol && (
+        <PositionDetailModal symbol={selectedSymbol} onClose={() => setSelectedSymbol(null)} />
       )}
     </div>
   )

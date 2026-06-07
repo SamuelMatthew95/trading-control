@@ -317,8 +317,8 @@ How the dashboard is hydrated on load / reconnect:
 | `agent_statuses` | Redis `REDIS_AGENT_STATUS_KEY.format(name=n)` | `/dashboard/state` enrichment |
 | `ic_weights` | Redis `REDIS_KEY_IC_WEIGHTS` | `/dashboard/state` enrichment |
 | `prices` | Redis `REDIS_KEY_PRICES.format(symbol=s)` | `/dashboard/state` enrichment |
-| `notifications` (REST catch-up) | Redis list `notifications:recent` (cap 200) | `GET /notifications` |
-| `decisions` (REST catch-up) | Redis list `decisions:recent` (cap 500) | `GET /decisions` |
+| `notifications` (REST catch-up) | Redis list `notifications:recent` (cap 20) | `GET /notifications` |
+| `decisions` (REST catch-up) | Redis list `decisions:recent` (cap 50) | `GET /decisions` |
 | `llm_metrics` (durable) | Redis hash `llm:metrics` | `GET /llm/health` (`redis_metrics` block) |
 | `tools` + `suggestions` + `attribution` | in-process `ToolRegistry` (seeded catalog; telemetry + realized-PnL alpha from `GradeAgent`) | `GET /dashboard/tools` → `ToolGovernancePanel` |
 | `prompt_evolution` (active directive + version + history) | Redis `REDIS_KEY_PROMPT_DIRECTIVE` via `PromptStore` | `GET /dashboard/prompt-evolution` → `PromptEvolutionPanel` |

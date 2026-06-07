@@ -14,6 +14,7 @@ import {
 import { proposalRouting, type ProposalRouting } from "@/lib/proposal-routing";
 import { cn } from "@/lib/utils";
 import { useCodexStore, type Proposal } from "@/stores/useCodexStore";
+import { ProposalDetailModal } from "@/components/dashboard/ProposalDetailModal";
 
 function routingBadgeClass(kind: ProposalRouting["kind"]): string {
   if (kind === "config-pr")
@@ -58,6 +59,8 @@ export function ProposalsSection() {
     (state) => state.updateProposalStatus,
   );
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  // Drill-down: which proposal's detail modal is open (null = none).
+  const [selectedProposal, setSelectedProposal] = useState<Proposal | null>(null);
 
   const summary = useMemo(
     () => ({
@@ -143,10 +146,17 @@ export function ProposalsSection() {
                     className="align-top text-slate-600 dark:text-slate-300"
                   >
                     <td className="max-w-[360px] px-3 py-2">
-                      <p className="line-clamp-2 font-medium text-slate-900 dark:text-slate-100">
-                        {proposalLabel(proposal)}
-                      </p>
-                      <p className={cn(mutedClass, "mt-1")}>ID {proposal.id}</p>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedProposal(proposal)}
+                        title="View the full proposal — change, what happens on approve, evidence, traceability"
+                        className="text-left"
+                      >
+                        <p className="line-clamp-2 font-medium text-slate-900 underline-offset-2 hover:underline dark:text-slate-100">
+                          {proposalLabel(proposal)}
+                        </p>
+                        <p className={cn(mutedClass, "mt-1")}>ID {proposal.id} · details</p>
+                      </button>
                     </td>
                     <td className="px-3 py-2 text-slate-500 dark:text-slate-400">
                       {proposal.proposal_type.replace(/_/g, " ")}
@@ -229,6 +239,13 @@ export function ProposalsSection() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {selectedProposal && (
+        <ProposalDetailModal
+          proposal={selectedProposal}
+          onClose={() => setSelectedProposal(null)}
+        />
       )}
     </section>
   );
