@@ -21,6 +21,7 @@ import { SystemDashboard } from '@/components/dashboard/system'
 import { AgentsDashboard } from '@/components/dashboard/agents'
 import { ALL_AGENT_NAMES, agentDisplayName, canonicalAgentKey } from '@/constants/agents'
 import type { AgentSummary } from '@/lib/agent-pipeline'
+import { isLifecycleLog } from '@/lib/activity-timeline'
 import { cardClass, sectionTitleClass, mutedClass, valueClass } from '@/lib/dashboard-styles'
 import {
   agentCardBorderClass,
@@ -496,6 +497,11 @@ export function DashboardView({ section }: { section: Section }) {
 
   const realAgents = useMemo(() => {
     const grouped = agentLogs.reduce<Record<string, { displayName: string; count: number; lastSeen: Date | null }>>((acc, log) => {
+      // Agent spawn/retire rows (log_type='lifecycle') are not produced output —
+      // counting them made idle learning agents (IC / Reflection / Proposer)
+      // read "1 event" while the Cognitive Engine correctly showed 0. Skip them
+      // so the per-agent count reflects real work, consistent across all panels.
+      if (isLifecycleLog(log)) return acc
       const name = sanitizeValue(log?.agent_name || log?.agent)
       if (name === '--') return acc
       const agentKey = canonicalAgentKey(name)

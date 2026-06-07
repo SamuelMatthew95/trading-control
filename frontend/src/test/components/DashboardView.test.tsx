@@ -329,7 +329,28 @@ describe('DashboardView — agents', () => {
     expect(screen.getByText(/Agents Online/i)).toBeInTheDocument()
     expect(screen.getByText(/System Diagnostics/i)).toBeInTheDocument()
     expect(screen.getByText(/Heartbeats \(in-memory\/Redis\)/i)).toBeInTheDocument()
-    expect(screen.getByText(/No instances registered yet/i)).toBeInTheDocument()
+    // Agent Instances merged into the single Agent Status table.
+    expect(screen.getByText('Agent Status')).toBeInTheDocument()
+    expect(screen.queryByText(/No instances registered yet/i)).toBeNull()
+  })
+
+  it('does not count agent lifecycle (spawn) logs as produced events', () => {
+    // Regression: an agent coming online writes an agent_log with
+    // log_type="lifecycle". Counting it made idle learning agents read "1 event"
+    // while the Cognitive Engine correctly showed 0. Only the real (grade) log
+    // should be counted.
+    mockStore.agentLogs = [
+      { agent_name: 'STRATEGY_PROPOSER', log_type: 'lifecycle', message: 'lifecycle', timestamp: new Date().toISOString() },
+      { agent_name: 'GRADE_AGENT', log_type: 'grade', message: 'scored', timestamp: new Date().toISOString() },
+    ]
+    render(<DashboardView section="agents" />)
+    // Exactly one Agent Status row shows an event count — Grade's real output.
+    // The proposer's only log was a spawn, so it is not counted (renders "—").
+    const eventCells = screen.getAllByText(
+      (_, el) => el?.tagName === 'TD' && /^\d+ events$/.test(el.textContent ?? ''),
+    )
+    expect(eventCells).toHaveLength(1)
+    expect(eventCells[0].textContent).toBe('1 events')
   })
 
   it('renders heartbeat-wired agent status rows (in-memory running -> Live)', () => {

@@ -52,7 +52,9 @@ describe('SystemDashboard integration', () => {
     expect(screen.getByText('Cognitive Evolution')).toBeInTheDocument()
     expect(screen.getByText('Agent Activity')).toBeInTheDocument()
     expect(screen.getByText('System Health')).toBeInTheDocument()
-    expect(screen.getByText('Proposal Center')).toBeInTheDocument()
+    // Proposal Center was removed from the System page — proposals live only on
+    // /dashboard/proposals (no duplicated, always-empty queue here).
+    expect(screen.queryByText('Proposal Center')).toBeNull()
   })
 
   it('renders the six operator headline metrics', () => {

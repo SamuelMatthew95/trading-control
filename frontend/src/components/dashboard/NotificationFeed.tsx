@@ -23,6 +23,18 @@ const cardClass =
 const sectionTitleClass = 'text-xs font-semibold uppercase font-sans text-slate-500 dark:text-slate-400'
 const mutedClass = 'text-xs font-sans text-slate-500 dark:text-slate-400'
 
+// The Redis-backed notifications list survives restarts, so without an age cap a
+// 3-day-old fill sits at the top of the feed and makes a live system look stale.
+// Drop anything older than this from the live feed (the count below still
+// reflects the live set; the full list remains queryable via the REST history).
+// Unparseable timestamps are kept — we can't prove they're stale.
+const NOTIFICATION_LIVE_WINDOW_MS = 3_600_000 // 1 hour
+
+function isLiveNotification(n: Notification, cutoffMs: number): boolean {
+  const ts = parseTimestampMs(n.timestamp)
+  return ts == null || ts >= cutoffMs
+}
+
 const iconByName: Record<string, ComponentType<{ className?: string }>> = {
   'arrow-down-right': ArrowDownRight,
   'arrow-up-right': ArrowUpRight,
@@ -155,7 +167,11 @@ export function NotificationFeed({
   wsConnected: boolean
   onClearAll?: () => void
 }) {
-  const lastTimestamp = notifications[0]?.timestamp ?? null
+  // Only show notifications from the last hour so the feed reads live, not
+  // stale (see NOTIFICATION_LIVE_WINDOW_MS). The store still holds the rest.
+  const cutoffMs = Date.now() - NOTIFICATION_LIVE_WINDOW_MS
+  const liveNotifications = notifications.filter((n) => isLiveNotification(n, cutoffMs))
+  const lastTimestamp = liveNotifications[0]?.timestamp ?? null
 
   return (
     <div className={cardClass}>
@@ -163,9 +179,9 @@ export function NotificationFeed({
         <div className="flex items-center gap-2">
           <Bell className="h-4 w-4 text-slate-500" />
           <p className={sectionTitleClass}>Notifications</p>
-          {notifications.length > 0 && (
+          {liveNotifications.length > 0 && (
             <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-slate-200 px-1.5 text-[10px] font-bold tabular-nums text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-              {notifications.length}
+              {liveNotifications.length}
             </span>
           )}
         </div>
@@ -173,7 +189,7 @@ export function NotificationFeed({
           {lastTimestamp && (
             <p className={mutedClass}>{formatRelativeTime(lastTimestamp)}</p>
           )}
-          {onClearAll && notifications.length > 0 && (
+          {onClearAll && liveNotifications.length > 0 && (
             <button
               onClick={onClearAll}
               className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
@@ -186,11 +202,19 @@ export function NotificationFeed({
         </div>
       </div>
 
-      {notifications.length === 0 ? (
-        <NotificationEmptyState message={wsConnected ? 'No notifications yet' : 'Stream disconnected'} />
+      {liveNotifications.length === 0 ? (
+        <NotificationEmptyState
+          message={
+            !wsConnected
+              ? 'Stream disconnected'
+              : notifications.length > 0
+                ? 'No notifications in the last hour'
+                : 'No notifications yet'
+          }
+        />
       ) : (
         <div className="max-h-[22rem] space-y-2 overflow-y-auto pr-0.5">
-          {groupNotifications(notifications).map(({ latest: notification, count }) => {
+          {groupNotifications(liveNotifications).map(({ latest: notification, count }) => {
             const display = notification.display
             const tone = normalizeTone(display?.tone || notification.severity)
             const style = toneStyles[tone]

@@ -45,10 +45,13 @@ export function canonicalAgentKey(name: string): string {
 
 /**
  * Human-readable label for an agent name. Title-cases the SCREAMING_SNAKE_CASE
- * key, with a friendlier expansion for the IC updater.
+ * key, with a friendlier expansion for the IC updater — "IC" is the
+ * Information Coefficient (Spearman rank correlation between an alpha factor's
+ * prediction and the realized return), which this agent uses to reweight
+ * factors. It has nothing to do with a cache.
  */
 export function agentDisplayName(rawName: string): string {
-  if (canonicalAgentKey(rawName) === AGENT_IC_UPDATER) return 'Indicator Cache Updater'
+  if (canonicalAgentKey(rawName) === AGENT_IC_UPDATER) return 'Information Coefficient Updater'
   return rawName
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .replace(/[_-]+/g, ' ')
