@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
 
 import { RecentDecisionsPanel } from '@/components/dashboard/RecentDecisionsPanel'
 import type { DecisionStats } from '@/hooks/useRestPoll'
@@ -61,6 +61,32 @@ describe('RecentDecisionsPanel', () => {
   it('renders the empty state when there are no actionable decisions', () => {
     render(<RecentDecisionsPanel stats={null} recent={[]} />)
     expect(screen.getByText('No buy/sell decisions yet')).toBeInTheDocument()
+  })
+
+  it('drills into a decision trace when wired and the decision has a trace_id', () => {
+    const onSelectTrace = vi.fn()
+    const recent = [
+      {
+        id: '1',
+        trace_id: 'trace-abc',
+        action: 'buy',
+        symbol: 'BTC/USD',
+        price: 43000,
+        confidence: 0.8,
+        timestamp: '2026-05-30T12:00:00Z',
+      },
+    ]
+    render(<RecentDecisionsPanel stats={STATS} recent={recent} onSelectTrace={onSelectTrace} />)
+    fireEvent.click(screen.getByRole('button', { name: /trace/i }))
+    expect(onSelectTrace).toHaveBeenCalledWith('trace-abc')
+  })
+
+  it('shows no trace button when the decision lacks a trace_id', () => {
+    const recent = [
+      { id: '1', action: 'buy', symbol: 'BTC/USD', price: 43000, confidence: 0.8, timestamp: null },
+    ]
+    render(<RecentDecisionsPanel stats={STATS} recent={recent} onSelectTrace={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: /trace/i })).not.toBeInTheDocument()
   })
 
   it('flags rule-based fallback decisions so they are not read as model reasoning', () => {
