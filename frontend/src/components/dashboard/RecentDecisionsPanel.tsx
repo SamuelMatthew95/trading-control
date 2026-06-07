@@ -66,12 +66,12 @@ export function RecentDecisionsPanel({
             <span>Holds: {stats.last_hour.holds}</span>
             <span className="text-slate-300 dark:text-slate-700">·</span>
             <span
-              title="All decisions stored (most-recent, capped at 500) — not a last-hour figure, so it won't equal Buys + Sells + Holds"
+              title="All decisions stored (most-recent, capped at 50) — not a last-hour figure, so it won't equal Buys + Sells + Holds"
               className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600"
             >
               all-time
             </span>
-            <span title="All decisions stored (most-recent, capped at 500) — not a last-hour figure, so it won't equal Buys + Sells + Holds">
+            <span title="All decisions stored (most-recent, capped at 50) — not a last-hour figure, so it won't equal Buys + Sells + Holds">
               Total: {stats.total}
             </span>
           </div>
