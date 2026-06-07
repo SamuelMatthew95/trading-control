@@ -124,7 +124,7 @@ tick-driven shadow trades, but the only paths that emitted a proposal —
 `_grade()` and `_retire_with_summary()` — are gated on `self._fills`, which only
 increments on live `STREAM_TRADE_PERFORMANCE` events. With the live pipeline idle
 (no closed trades), `_fills` stays 0, so a challenger never grades, never retires
-at `max_fills` (200), and never proposes — no matter how decisively it beats
+at `max_fills` (20), and never proposes — no matter how decisively it beats
 baseline in shadow. (Separately, `PromotionGate` has no caller at all.)
 
 **Fix:** Added `ChallengerAgent._maybe_propose_shadow_promotion()`, invoked from
