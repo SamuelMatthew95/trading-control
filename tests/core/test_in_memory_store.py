@@ -56,6 +56,34 @@ def test_dashboard_fallback_snapshot_includes_orders():
     assert snapshot["orders"][0]["order_id"] == "o1"
 
 
+def test_seeded_agents_never_appear_live_without_heartbeat():
+    """Regression: a DEFAULT_AGENTS entry that has never written a heartbeat must
+    NOT be stamped with the current time (which painted never-started agents
+    'Live'). It reports last_seen=0 and seconds_ago=-1 so the dashboard ages it
+    out to Idle/offline."""
+    import time
+
+    from api.constants import AGENT_SIGNAL, ALL_AGENT_NAMES
+
+    store = InMemoryStore()
+    snapshot = store.dashboard_fallback_snapshot()
+    statuses = {s["name"]: s for s in snapshot["agent_statuses"]}
+
+    # Every seeded-but-idle agent reports the sentinels, never a fresh timestamp.
+    now = time.time()
+    for name in ALL_AGENT_NAMES:
+        row = statuses[name]
+        assert row["last_seen"] == 0.0, f"{name} fabricated a last_seen"
+        assert row["seconds_ago"] == -1, f"{name} looks freshly seen"
+        assert now - row["last_seen"] > 60  # would age out to Idle/offline
+
+    # An agent that DID heartbeat keeps a real, recent timestamp.
+    store.upsert_agent(AGENT_SIGNAL, {"status": "ACTIVE", "last_seen": now, "event_count": 3})
+    refreshed = {s["name"]: s for s in store.dashboard_fallback_snapshot()["agent_statuses"]}
+    assert refreshed[AGENT_SIGNAL]["last_seen"] == now
+    assert refreshed[AGENT_SIGNAL]["seconds_ago"] >= 0
+
+
 def test_dashboard_fallback_snapshot_excludes_flat_positions():
     """Positions with qty=0 must NOT appear in the snapshot."""
     store = InMemoryStore()
