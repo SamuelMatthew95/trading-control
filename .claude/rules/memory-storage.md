@@ -94,8 +94,20 @@ survives overnight so ReasoningAgent always has weights even if no trades ran.
 | `REDIS_KEY_PROMPT_DIRECTIVE_HISTORY` | `prompt:directive:history:{node}` | None | ProposalApplier (capped {PROMPT_DIRECTIVE_HISTORY_CAP}) |
 | `REDIS_KEY_NEWS_SENTIMENT` | `news_sentiment:{symbol}` | 300s | market_intel (reasoning perception tool) |
 | `REDIS_KEY_CORRELATION` | `correlation:{symbol}` | 120s | market_intel (reasoning perception tool) |
+| `REDIS_KEY_AGENT_PNL` | `agent:pnl:{name}` | None | GradeAgent (writes), agent_performance (reads) |
 
 **Fallback if absent:** Proceed with empty weights (no crash; degraded reasoning).
+
+**Per-agent realized PnL (`agent:pnl:{name}`):** a durable accumulator (one
+small Redis hash per trading agent: `trade_count` / `win_count` / `total_pnl` /
+`updated_at`) so the dashboard can grade the trading agents on whether they make
+money — and gate promotion on it. **No Postgres in this deployment, and
+InMemoryStore is wiped on restart, so Redis (no TTL) is the ONLY correct home**:
+the track record must survive restarts/deploys. Written by `GradeAgent` when a
+trade closes (one attribution per agent in `PNL_GRADED_AGENTS`); read by
+`agent_performance`. Absent / < `AGENT_PNL_MIN_TRADES` → the PnL dimension reads
+"no data" (UNRATED on PnL), never a fabricated 0%. Managed via
+`api.services.agent_pnl_store` (`get_agent_pnl_store()` / `set_agent_pnl_store()`).
 
 **Self-evolving prompt directive (`prompt:directive:{node}`):** the learned
 "adaptive directive" — guidance assembled BENEATH the immutable constitution.
