@@ -64,7 +64,7 @@ import { DashboardView } from '@/app/dashboard/DashboardView'
 const makeInstance = (overrides: Partial<AgentInstance> = {}): AgentInstance => ({
   id: 'inst-1',
   instance_key: 'signal_agent_pool_0',
-  pool_name: 'signal_pool',
+  pool_name: 'SIGNAL_AGENT',
   status: 'active',
   started_at: new Date().toISOString(),
   retired_at: null,
@@ -73,7 +73,10 @@ const makeInstance = (overrides: Partial<AgentInstance> = {}): AgentInstance => 
   ...overrides,
 })
 
-describe('AgentInstances panel', () => {
+// The standalone Agent Instances panel was merged into the single Agent Status
+// table — instance uptime is now folded into each agent's row, so there is one
+// source of truth instead of two overlapping agent tables.
+describe('Agent Status table — instance uptime merge', () => {
   beforeEach(() => {
     mockStore.agentInstances = []
     mockStore.tradeFeed = []
@@ -88,30 +91,21 @@ describe('AgentInstances panel', () => {
     mockStore.proposals = []
   })
 
-  it('renders empty state when agentInstances is empty', () => {
+  it('renders the single Agent Status table (no separate instances panel)', () => {
     render(<DashboardView section="agents" />)
-    expect(screen.getByText(/no instances registered yet/i)).toBeInTheDocument()
+    expect(screen.getByText('Agent Status')).toBeInTheDocument()
+    expect(screen.queryByText(/no instances registered yet/i)).toBeNull()
   })
 
-  it('shows green dot and event count for an active instance', () => {
+  it("folds an active instance's uptime into its agent row (4980s -> 1h 23m)", () => {
     mockStore.agentInstances = [makeInstance()]
     render(<DashboardView section="agents" />)
-    expect(screen.getByText('signal_agent_pool_0')).toBeInTheDocument()
-    expect(screen.getAllByText('42').length).toBeGreaterThan(0)
-    // active status labels appear in both status matrix + instance row
-    expect(screen.getAllByText('active').length).toBeGreaterThan(0)
+    expect(screen.getByText('1h 23m')).toBeInTheDocument()
   })
 
-  it('shows retired status for a retired instance', () => {
+  it('ignores retired instances when showing uptime', () => {
     mockStore.agentInstances = [makeInstance({ status: 'retired', retired_at: new Date().toISOString() })]
     render(<DashboardView section="agents" />)
-    expect(screen.getByText('retired')).toBeInTheDocument()
-  })
-
-  it('formats uptime as hours and minutes style', () => {
-    // 4980 seconds = 1h 23m
-    mockStore.agentInstances = [makeInstance({ uptime_seconds: 4980 })]
-    render(<DashboardView section="agents" />)
-    expect(screen.getByText('1h 23m')).toBeInTheDocument()
+    expect(screen.queryByText('1h 23m')).toBeNull()
   })
 })
