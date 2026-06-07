@@ -459,6 +459,30 @@ class InMemoryStore:
         safe_limit = max(1, min(limit, 50))
         return list(reversed(self.strategies[-safe_limit:]))
 
+    def _agent_status_row(self, name: str, data: dict[str, Any], now: float) -> dict[str, Any]:
+        """One agent_statuses row for the memory-mode dashboard snapshot.
+
+        An agent that has never written a heartbeat is still seeded in
+        ``DEFAULT_AGENTS`` (so the roster is stable), but it carries no
+        ``last_seen``. We must NOT fabricate ``now`` for it — doing so made the
+        dashboard age it to ~0s and paint a never-started agent "Live" (the
+        phantom-agent bug). Emit a sentinel of 0 instead so the UI ages it out
+        to Idle/offline. See docs/troubleshooting/system-routes.md.
+        """
+        has_heartbeat = data.get(FieldName.LAST_SEEN) is not None
+        last_seen = self._safe_float(data.get(FieldName.LAST_SEEN)) or 0.0
+        return {
+            FieldName.NAME: name,
+            FieldName.STATUS: data.get(FieldName.STATUS, "idle"),
+            FieldName.LAST_SEEN: last_seen,
+            FieldName.LAST_SEEN_AT: data.get(FieldName.LAST_SEEN_AT),
+            FieldName.LAST_EVENT: data.get(FieldName.LAST_EVENT, ""),
+            FieldName.EVENT_COUNT: int(data.get(FieldName.EVENT_COUNT, 0) or 0),
+            FieldName.SOURCE: data.get(FieldName.SOURCE, "in_memory"),
+            # Never-seen agents report -1 ("unknown / no heartbeat"), not 0s-ago.
+            FieldName.SECONDS_AGO: max(0, int(now - last_seen)) if has_heartbeat else -1,
+        }
+
     def dashboard_fallback_snapshot(self) -> dict[str, Any]:
         now = time.time()
         notifications = list(self.notifications[-100:])
@@ -490,20 +514,7 @@ class InMemoryStore:
             FieldName.PRICES: {},
             FieldName.IC_WEIGHTS: {},
             FieldName.AGENT_STATUSES: [
-                {
-                    FieldName.NAME: name,
-                    FieldName.STATUS: data.get(FieldName.STATUS, "unknown"),
-                    FieldName.LAST_SEEN: data.get(FieldName.LAST_SEEN, now),
-                    FieldName.LAST_SEEN_AT: data.get(FieldName.LAST_SEEN_AT),
-                    FieldName.LAST_EVENT: data.get(FieldName.LAST_EVENT, ""),
-                    FieldName.EVENT_COUNT: int(data.get(FieldName.EVENT_COUNT, 0) or 0),
-                    FieldName.SOURCE: data.get(FieldName.SOURCE, "in_memory"),
-                    FieldName.SECONDS_AGO: max(
-                        0,
-                        int(now - (self._safe_float(data.get(FieldName.LAST_SEEN)) or now)),
-                    ),
-                }
-                for name, data in self.agents.items()
+                self._agent_status_row(name, data, now) for name, data in self.agents.items()
             ],
             FieldName.NOTIFICATIONS: notifications,
             FieldName.DECISIONS: list(reversed(self.decisions[-50:])),
