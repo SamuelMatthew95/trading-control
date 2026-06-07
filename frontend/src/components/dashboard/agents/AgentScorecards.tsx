@@ -117,7 +117,7 @@ export function AgentScorecards() {
             onClick={applyPromotions}
             disabled={applying}
             className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-            title="Write each agent's trust weight to the control plane from its tier"
+            title="Give top-graded agents more say, and underperformers less. Safe and optional — nothing trades differently unless trust-weighting is turned on."
           >
             {applying ? 'Applying…' : 'Apply promotions'}
           </button>
@@ -127,9 +127,12 @@ export function AgentScorecards() {
         <p className="mb-1 text-xs text-slate-500 dark:text-slate-400">{applyMsg}</p>
       )}
       <p className={cn(mutedClass, 'mb-3')}>
-        Each agent graded on its own telemetry — liveness, run success, throughput, and latency.
-        Click a card to see what it did, its grade breakdown, and its learnings. Sustained{' '}
-        <span className="font-semibold">A</span> work earns a <span className="font-semibold">★ Promoted</span> tier.
+        A report card per agent, scored on the work it actually did (completed runs, throughput,
+        speed). An agent that hasn&apos;t done measurable work yet shows{' '}
+        <span className="font-semibold">unrated</span> — no grade until it earns one. Click a card
+        for the full breakdown. <span className="font-semibold">Apply promotions</span> rewards
+        sustained <span className="font-semibold">A</span> agents (★ Promoted) with more influence
+        and trims weak ones — optional, and safe to click.
       </p>
 
       {agents.length === 0 ? (
