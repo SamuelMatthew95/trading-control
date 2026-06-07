@@ -29,6 +29,7 @@ import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
 import { ActivityTimeline } from './ActivityTimeline'
 import { KpiCard } from './KpiCard'
 import { AgentStatusTable } from './AgentStatusTable'
+import { AgentDetailModal } from './AgentDetailModal'
 import { AgentScorecards } from './AgentScorecards'
 import { SystemDiagnostics } from './SystemDiagnostics'
 import { GroupLabel, type WiringFreshness } from './shared'
@@ -84,6 +85,9 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
   // decisions, notifications, agent logs, and market events the panels below
   // show as state.
   const activityItems = buildActivityTimeline({ recentEvents, recentDecisions, notifications, agentLogs })
+
+  // Drill-down: which agent's detail modal is open (null = none).
+  const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
 
   // Only surface "no agents" after a grace period — agent data can arrive a beat
   // after the WebSocket connects.
@@ -183,6 +187,7 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
           realAgents={realAgents}
           agentInstances={agentInstances}
           showNoAgentDataMessage={showNoAgentDataMessage}
+          onSelect={setSelectedAgent}
         />
       </section>
 
@@ -205,6 +210,10 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
           apiHealth={apiHealth}
         />
       </section>
+
+      {selectedAgent && (
+        <AgentDetailModal name={selectedAgent} onClose={() => setSelectedAgent(null)} />
+      )}
     </div>
   )
 }
