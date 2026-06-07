@@ -55,7 +55,29 @@ class _FakeStore:
         return snapshot
 
 
-def _patch(monkeypatch, agents, runs, *, store=None, redis=None):
+class _FakePnlStore:
+    """Stand-in for AgentPnLStore — returns the per-agent stats it was given."""
+
+    def __init__(self, stats_by_agent: dict[str, dict[str, Any]] | None = None) -> None:
+        self._stats = dict(stats_by_agent or {})
+
+    async def get_all(self, names: list[str]) -> dict[str, dict[str, Any]]:
+        return {n: self._stats[n] for n in names if n in self._stats}
+
+
+def _pnl_stats(trade_count: int, win_rate: float, total_pnl: float = 0.0) -> dict[str, Any]:
+    from api.constants import FieldName  # noqa: PLC0415
+
+    return {
+        FieldName.TRADE_COUNT: trade_count,
+        FieldName.WIN_COUNT: round(trade_count * win_rate),
+        FieldName.WIN_RATE: win_rate,
+        FieldName.TOTAL_PNL: total_pnl,
+        FieldName.UPDATED_AT: None,
+    }
+
+
+def _patch(monkeypatch, agents, runs, *, store=None, redis=None, pnl=None):
     async def _status():
         return {"agents": agents}
 
@@ -69,6 +91,8 @@ def _patch(monkeypatch, agents, runs, *, store=None, redis=None):
     monkeypatch.setattr(perf, "get_agent_metrics_payload", _metrics)
     monkeypatch.setattr(perf, "get_redis_store", lambda: store)
     monkeypatch.setattr(perf, "get_redis", _get_redis)
+    # PnL store: None (no data) unless the test supplies stats.
+    monkeypatch.setattr(perf, "get_agent_pnl_store", lambda: _FakePnlStore(pnl) if pnl else None)
 
 
 def _agent(payload, name):
@@ -130,7 +154,15 @@ async def test_sustained_a_streak_earns_promotion(monkeypatch):
     now = datetime.now(timezone.utc).isoformat()
     for h in history:
         h["timestamp"] = now
-    _patch(monkeypatch, _active_signal_hb(), _clean_runs(), store=_FakeStore(history))
+    # SIGNAL is a trading agent, so promotion now also requires a winning realized
+    # record (the PnL gate) — supply one alongside the sustained A streak.
+    _patch(
+        monkeypatch,
+        _active_signal_hb(),
+        _clean_runs(),
+        store=_FakeStore(history),
+        pnl={AGENT_SIGNAL: _pnl_stats(trade_count=20, win_rate=0.65, total_pnl=500.0)},
+    )
 
     payload = await perf.get_agent_performance_payload()
     sig = _agent(payload, AGENT_SIGNAL)
@@ -357,3 +389,79 @@ def test_status_text_handles_enum_and_string():
     assert perf._status_text(StatusValue.FAILED) == "failed"
     assert perf._status_text("Completed") == "completed"
     assert perf._status_text(None) == ""
+
+
+# ── Realized-PnL grading for trading agents (durable Redis store) ────────────
+
+
+@pytest.mark.asyncio
+async def test_trading_agent_graded_on_realized_pnl(monkeypatch):
+    """A trading agent with enough closed trades gets a scored PnL dimension."""
+    _patch(
+        monkeypatch,
+        _active_signal_hb(),
+        _clean_runs(),
+        store=_FakeStore(),
+        pnl={AGENT_SIGNAL: _pnl_stats(trade_count=20, win_rate=0.7, total_pnl=900.0)},
+    )
+    payload = await perf.get_agent_performance_payload()
+    sig = _agent(payload, AGENT_SIGNAL)
+    pnl_dim = next(d for d in sig["dimensions"] if d["label"] == "Realized PnL")
+    assert pnl_dim["data_available"] is True
+    assert pnl_dim["value"] == pytest.approx(0.7, rel=1e-3)
+
+
+@pytest.mark.asyncio
+async def test_trading_agent_pnl_unrated_below_min_trades(monkeypatch):
+    """Below the min-trades sample the PnL dimension is 'no data', not a fake 0%."""
+    _patch(
+        monkeypatch,
+        _active_signal_hb(),
+        _clean_runs(),
+        store=_FakeStore(),
+        pnl={AGENT_SIGNAL: _pnl_stats(trade_count=3, win_rate=1.0, total_pnl=50.0)},
+    )
+    payload = await perf.get_agent_performance_payload()
+    sig = _agent(payload, AGENT_SIGNAL)
+    pnl_dim = next(d for d in sig["dimensions"] if d["label"] == "Realized PnL")
+    assert pnl_dim["data_available"] is False
+
+
+@pytest.mark.asyncio
+async def test_pnl_gate_blocks_promotion_when_losing(monkeypatch):
+    """A sustained A streak does NOT promote a trading agent that loses money."""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+    history = [{"grade": "A", "tier": TIER_TRUSTED, "timestamp": now} for _ in range(3)]
+    _patch(
+        monkeypatch,
+        _active_signal_hb(),
+        _clean_runs(),
+        store=_FakeStore(history),
+        pnl={AGENT_SIGNAL: _pnl_stats(trade_count=20, win_rate=0.25, total_pnl=-800.0)},
+    )
+    payload = await perf.get_agent_performance_payload()
+    sig = _agent(payload, AGENT_SIGNAL)
+    assert sig["promoted"] is False  # losing money → gate blocks promotion
+    assert sig["tier"] == TIER_TRUSTED  # A grade still shows TRUSTED, just not promoted
+
+
+@pytest.mark.asyncio
+async def test_non_trading_agent_has_no_pnl_dimension(monkeypatch):
+    """The PnL dimension applies only to trading agents — others never carry it."""
+    from api.constants import AGENT_REFLECTION
+
+    hb = [
+        {
+            "name": AGENT_REFLECTION,
+            "status": "ACTIVE",
+            "event_count": 12,
+            "seconds_ago": 2,
+            "last_seen": 100,
+        }
+    ]
+    _patch(monkeypatch, hb, [], store=_FakeStore())
+    payload = await perf.get_agent_performance_payload()
+    refl = _agent(payload, AGENT_REFLECTION)
+    assert all(d["label"] != "Realized PnL" for d in refl["dimensions"])
