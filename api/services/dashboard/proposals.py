@@ -5,9 +5,18 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy import text
 
-from api.constants import FieldName, LogType, OrderStatus, ProposalStatus
+from api.constants import (
+    APPROVAL_GATED_PROPOSAL_TYPES,
+    STREAM_PROPOSALS,
+    FieldName,
+    LogType,
+    OrderStatus,
+    ProposalStatus,
+)
 from api.database import AsyncSessionFactory
+from api.events.bus import EventBus
 from api.observability import log_structured
+from api.redis_client import get_redis
 from api.runtime_state import get_runtime_store, is_db_available
 from api.services.dashboard.utils import _as_dict, _timestamp_to_iso
 
@@ -98,6 +107,50 @@ def _update_in_memory_proposal_status(proposal_id: str, status: str) -> bool:
                 _set_payload_status(record, status)
                 updated = True
     return updated
+
+
+def _get_in_memory_proposal_payload(proposal_id: str) -> dict[str, Any] | None:
+    """The stored proposal body for *proposal_id* (proposal_type/content/config)."""
+    store = get_runtime_store()
+    for collection in (store.event_history, store.agent_logs):
+        for record in collection:
+            if record.get(FieldName.LOG_TYPE) == LogType.PROPOSAL and _proposal_matches(
+                record, proposal_id
+            ):
+                return _as_dict(record.get(FieldName.PAYLOAD))
+    return None
+
+
+async def republish_approved_proposal(payload: dict[str, Any] | None) -> bool:
+    """Re-emit an approved, approval-gated proposal to STREAM_PROPOSALS.
+
+    The ProposalApplier deliberately skips approval-gated proposals (e.g.
+    ``challenger_promotion``) on first publish; this re-emits them with
+    ``APPROVED=True`` so the applier acts on operator approval — the bridge that
+    makes "Approve" actually do something. Best-effort: a non-gated proposal, a
+    missing payload, or a Redis hiccup is a quiet no-op (the status flip already
+    persisted). Returns True only when a republish was sent.
+    """
+    if not payload:
+        return False
+    if payload.get(FieldName.PROPOSAL_TYPE) not in APPROVAL_GATED_PROPOSAL_TYPES:
+        return False
+    republished = dict(payload)
+    republished[FieldName.APPROVED] = True
+    # The applier's handler only receives `content`, but challenger proposals
+    # carry the spawn config at top-level `config` — fold it in so a promotion
+    # can spawn the live candidate.
+    content = dict(_as_dict(republished.get(FieldName.CONTENT)))
+    if not content.get(FieldName.CHALLENGER_CONFIG):
+        content[FieldName.CHALLENGER_CONFIG] = republished.get(FieldName.CONFIG) or {}
+    republished[FieldName.CONTENT] = content
+    try:
+        redis = await get_redis()
+        await EventBus(redis).publish(STREAM_PROPOSALS, republished)
+        return True
+    except Exception:
+        log_structured("warning", "approval_republish_failed", exc_info=True)
+        return False
 
 
 async def list_proposals_payload() -> dict[str, Any]:
