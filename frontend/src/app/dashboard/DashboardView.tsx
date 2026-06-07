@@ -96,15 +96,13 @@ function SectionHeader({ section }: { section: Section }) {
 }
 
 const TICKER_SYMBOLS = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'AAPL', 'TSLA', 'SPY'] as const
-// Liveness windows mirror the backend heartbeat contract (api/constants.py):
+// Liveness window mirrors the backend heartbeat contract (api/constants.py):
 //   AGENT_STALE_THRESHOLD_SECONDS = 120 → an agent stays "Live" while its last
-//     heartbeat is < 2 min old. Agents heartbeat every 15–60s, so the previous
-//     10s window painted every healthy agent "Stale" and contradicted the
-//     "active" Agent Instances table right next to it.
-//   AGENT_HEARTBEAT_TTL_SECONDS  = 300 → the Redis key expires after 5 min;
-//     past that the agent is treated as Idle/offline.
+//     heartbeat is < 2 min old. Agents heartbeat every 15–60s.
+// Agent status is intentionally binary — Live (recent heartbeat) or Idle (not).
+// The old amber "Stale" middle state was removed: it confused operators and
+// contradicted the "active" Agent Instances table right next to it.
 const AGENT_LIVE_THRESHOLD_MS = 120_000
-const AGENT_STALE_THRESHOLD_MS = 300_000
 
 function isClosedTrade(order: Record<string, unknown> | null | undefined): boolean {
   if (!order) return false
@@ -338,7 +336,7 @@ function PriceFreshnessStatus({
     .reduce((min, ms) => Math.min(min, ms), Infinity)
 
   const isLive = Number.isFinite(freshestMs) && freshestMs <= PRICE_FRESHNESS_MS
-  return <StatusDot live={isLive} label={isLive ? 'Live' : 'Stale'} />
+  return <StatusDot live={isLive} label={isLive ? 'Live' : 'Offline'} />
 }
 
 export function DashboardView({ section }: { section: Section }) {
@@ -515,7 +513,7 @@ export function DashboardView({ section }: { section: Section }) {
     const now = Date.now()
     const incomingAgents = Object.entries(grouped).map<AgentSummary>(([, data]) => {
       const ageMs = data.lastSeen ? now - data.lastSeen.getTime() : Infinity
-      const status: AgentSummary['status'] = ageMs <= AGENT_LIVE_THRESHOLD_MS ? 'Live' : ageMs <= AGENT_STALE_THRESHOLD_MS ? 'Stale' : 'Idle'
+      const status: AgentSummary['status'] = ageMs <= AGENT_LIVE_THRESHOLD_MS ? 'Live' : 'Idle'
       const tier: AgentSummary['tier'] = status === 'Live' ? 'active' : data.count > 0 ? 'challenger' : 'inactive'
       return {
         name: data.displayName,
@@ -534,8 +532,7 @@ export function DashboardView({ section }: { section: Section }) {
       const existing = normalizedByName.get(agentKey)
       const statusDate = parseHeartbeatTimestamp(status)
       const ageMs = statusDate ? now - statusDate.getTime() : Number.POSITIVE_INFINITY
-      const eventCount = status.event_count ?? 0
-      const mappedStatus: AgentSummary['status'] = ageMs <= AGENT_LIVE_THRESHOLD_MS ? 'Live' : eventCount === 0 ? 'Idle' : 'Stale'
+      const mappedStatus: AgentSummary['status'] = ageMs <= AGENT_LIVE_THRESHOLD_MS ? 'Live' : 'Idle'
       const mergedStatus = pickHigherPriorityStatus(existing?.status, mappedStatus)
       const lastSeen = [existing?.lastSeen, statusDate]
         .filter((d): d is Date => d instanceof Date)
@@ -555,7 +552,8 @@ export function DashboardView({ section }: { section: Section }) {
       const agentKey = canonicalAgentKey(inst.pool_name)
       const existing = normalizedByName.get(agentKey)
       const startedDate = parseTimestamp(inst.started_at)
-      const mappedStatus: AgentSummary['status'] = inst.status === 'active' ? 'Stale' : 'Idle'
+      // Lifecycle snapshots are not real-time health — they never claim "Live".
+      const mappedStatus: AgentSummary['status'] = 'Idle'
       const mergedStatus = pickHigherPriorityStatus(existing?.status, mappedStatus)
       const lastSeen = [existing?.lastSeen, startedDate]
         .filter((d): d is Date => d instanceof Date)
