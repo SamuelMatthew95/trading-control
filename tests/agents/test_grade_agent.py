@@ -548,3 +548,36 @@ async def test_grade_proposals_carry_measured_backtest_evidence(grade_agent):
     assert evidence[FieldName.TOTAL_PNL] == pytest.approx(16.0)
     assert "win_rate" in evidence
     assert "false_positive_rate" in evidence
+
+
+@pytest.mark.asyncio
+async def test_attributes_realized_pnl_to_trading_agents(grade_agent):
+    """A closed trade's realized PnL is recorded against each trading agent in
+    the durable PnL store, so agent_performance can grade them on it."""
+    from api.constants import PNL_GRADED_AGENTS, FieldName
+    from api.services.agent_pnl_store import set_agent_pnl_store
+
+    recorded: list[tuple[str, float]] = []
+
+    class _CaptureStore:
+        async def record_trade(self, agent_name: str, pnl: float) -> None:
+            recorded.append((agent_name, pnl))
+
+    set_agent_pnl_store(_CaptureStore())
+    try:
+        await grade_agent._attribute_pnl_to_agents({FieldName.PNL: 42.0})
+    finally:
+        set_agent_pnl_store(None)
+
+    assert {name for name, _ in recorded} == set(PNL_GRADED_AGENTS)
+    assert all(pnl == 42.0 for _, pnl in recorded)
+
+
+@pytest.mark.asyncio
+async def test_pnl_attribution_noop_without_store(grade_agent):
+    """No store installed → attribution is a quiet no-op (never raises)."""
+    from api.constants import FieldName
+    from api.services.agent_pnl_store import set_agent_pnl_store
+
+    set_agent_pnl_store(None)
+    await grade_agent._attribute_pnl_to_agents({FieldName.PNL: 10.0})  # must not raise
