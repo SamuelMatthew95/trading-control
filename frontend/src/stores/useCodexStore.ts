@@ -667,7 +667,9 @@ export const useCodexStore = create<CodexState>((set) => ({
     const normalized = normalizeStoredNotification(notification)
     if (!normalized) return state
     if (state.notifications.some((n) => n.id === normalized.id)) return state
-    const next = [normalized, ...state.notifications].slice(0, 200)
+    // Cap matches the backend REDIS_NOTIFICATIONS_MAX (20) so the UI's
+    // "max 20" label stays truthful and the list never grows unbounded.
+    const next = [normalized, ...state.notifications].slice(0, 20)
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('codex.notifications', JSON.stringify(next))
     }
@@ -778,7 +780,7 @@ export const useCodexStore = create<CodexState>((set) => ({
           notifications = parsed
             .map(normalizeStoredNotification)
             .filter((item): item is Notification => item !== null)
-            .slice(0, 200)
+            .slice(0, 20) // matches backend REDIS_NOTIFICATIONS_MAX
         }
       }
     } catch {
