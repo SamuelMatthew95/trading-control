@@ -312,7 +312,7 @@ class ChallengerAgent(MultiStreamAgent):
             FieldName.CONFIDENCE: win_rate,
             FieldName.CONTENT: {
                 FieldName.STRATEGY: strategy_name,
-                "shadow_edge": edge,
+                FieldName.SHADOW_EDGE: edge,
                 FieldName.CONFIDENCE: win_rate,
                 FieldName.REASON: (
                     f"Shadow challenger '{strategy_name}' beats baseline by {edge:+.2f} PnL "
