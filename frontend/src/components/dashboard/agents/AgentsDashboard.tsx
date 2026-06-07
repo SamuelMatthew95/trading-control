@@ -147,7 +147,7 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
           <KpiCard
             label="Notifications · 1h"
             value={sanitizeValue(recentNotificationCount)}
-            lines={[`${notifications.length} stored (max 200)`, lastNotificationLabel(notifications)]}
+            lines={[`${notifications.length} stored (max 20)`, lastNotificationLabel(notifications)]}
           />
         </div>
       </section>
