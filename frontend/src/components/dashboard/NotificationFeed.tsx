@@ -162,10 +162,14 @@ export function NotificationFeed({
   notifications,
   wsConnected,
   onClearAll,
+  onSelectTrace,
 }: {
   notifications: Notification[]
   wsConnected: boolean
   onClearAll?: () => void
+  /** Drill-down: open the full trace for a notification. Optional — the trace
+   *  button only renders when wired AND the notification carries a trace_id. */
+  onSelectTrace?: (traceId: string) => void
 }) {
   // Only show notifications from the last hour so the feed reads live, not
   // stale (see NOTIFICATION_LIVE_WINDOW_MS). The store still holds the rest.
@@ -261,6 +265,16 @@ export function NotificationFeed({
                       <time className={cn(mutedClass, 'shrink-0 tabular-nums')} title={notification.timestamp ?? undefined}>
                         {formatRelativeTime(notification.timestamp)}
                       </time>
+                      {notification.trace_id && onSelectTrace && (
+                        <button
+                          type="button"
+                          onClick={() => onSelectTrace(String(notification.trace_id))}
+                          title="View the full trace (runs, logs, grades) for this event"
+                          className="shrink-0 rounded border border-slate-300 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:border-slate-400 hover:text-slate-700 dark:border-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                        >
+                          trace
+                        </button>
+                      )}
                     </div>
 
                     <p className="mt-0.5 text-xs leading-relaxed text-slate-600 dark:text-slate-400">{subtitle}</p>
