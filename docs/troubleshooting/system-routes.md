@@ -203,3 +203,41 @@ cutting 8 round trips per request to 1.
 **Regression test:**
 `tests/core/test_redis_client.py::test_build_pool_returns_blocking_pool`,
 `tests/agents/test_paper_broker.py::test_get_positions_batches_into_single_mget`
+
+## Memory mode paints never-started agents "Live"
+
+**Symptom:** In memory mode (`USE_MEMORY_MODE=true`, no Postgres) the Agent
+Status table and pipeline cards show agents as **Live** that never actually ran
+(e.g. IC Updater, Reflection, Strategy Proposer), so the dashboard looks busier
+than the system really is.
+
+**Root cause:** `InMemoryStore.dashboard_fallback_snapshot()` built each
+`agent_statuses` row with `last_seen = data.get(LAST_SEEN, now)`. Agents seeded
+from `DEFAULT_AGENTS` that never wrote a heartbeat have no `last_seen`, so they
+got stamped with the *current* time. The frontend then computed an age of ~0s
+and mapped them to "Live".
+
+**Fix:** `InMemoryStore._agent_status_row` (`api/in_memory_store.py`) emits a
+sentinel `last_seen=0` / `seconds_ago=-1` for agents with no recorded heartbeat
+instead of fabricating `now`, so the UI ages them out to Idle/offline. Real
+heartbeats keep their true timestamp.
+
+**Regression test:** `tests/core/test_in_memory_store.py::test_seeded_agents_never_appear_live_without_heartbeat`
+
+## Idle agents earned a fake grade for just being alive
+
+**Symptom:** Agent Scorecards showed agents with **0 events** holding a grade of
+"B" / "TRUSTED" (always exactly 72.7%), and seeded agents could even read as
+PROMOTED — grading agents that had done no measurable work.
+
+**Root cause:** `agent_performance._grade_agent` graded on any available
+dimension, and `_throughput_dimension` counted throughput as "available" even at
+0 events. A heartbeating-but-idle agent therefore scored
+`liveness / (liveness + throughput) = 0.40 / 0.55 = 72.7%`.
+
+**Fix:** `_throughput_dimension` is unavailable at 0 events, and `_grade_agent`
+requires at least one *work* dimension (success / throughput / latency) before
+assigning a grade — otherwise the agent is UNRATED. Liveness alone never earns a
+letter.
+
+**Regression test:** `tests/api/test_agent_performance.py::test_alive_but_idle_agent_is_unrated_not_graded`
