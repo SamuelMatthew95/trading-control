@@ -26,9 +26,13 @@ function EmptyDecisions() {
 export function RecentDecisionsPanel({
   stats,
   recent,
+  onSelectTrace,
 }: {
   stats: DecisionStats | null
   recent: Array<Record<string, unknown>>
+  /** Drill-down: open the full trace for a decision. Optional — the trace
+   *  button only renders when wired AND the decision carries a trace_id. */
+  onSelectTrace?: (traceId: string) => void
 }) {
   const actionable = recent.filter((d) => {
     const action = String(d.action ?? '').toLowerCase()
@@ -97,6 +101,7 @@ export function RecentDecisionsPanel({
                 ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
                 : 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
             const decisionId = `${String(d.id ?? d.trace_id ?? index)}-${index}`
+            const traceId = d.trace_id ? String(d.trace_id) : null
             const tools = extractToolInvocations(d)
             const isOpen = openId === decisionId
             return (
@@ -130,6 +135,16 @@ export function RecentDecisionsPanel({
                         className="rounded border border-slate-300 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:border-slate-400 hover:text-slate-700 dark:border-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
                       >
                         {tools.length} tool{tools.length === 1 ? '' : 's'} {isOpen ? '▾' : '▸'}
+                      </button>
+                    )}
+                    {traceId && onSelectTrace && (
+                      <button
+                        type="button"
+                        onClick={() => onSelectTrace(traceId)}
+                        title="View the full trace (runs, logs, grades) for this decision"
+                        className="rounded border border-slate-300 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:border-slate-400 hover:text-slate-700 dark:border-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                      >
+                        trace
                       </button>
                     )}
                     <span>{priceTxt}</span>
