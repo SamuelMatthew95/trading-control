@@ -199,9 +199,9 @@ routes in `api/routes/{notifications,decisions,llm_health}.py`.
 
 | Constant | Key Pattern | TTL | Owner |
 |----------|------------|-----|-------|
-| `REDIS_KEY_NOTIFICATIONS_RECENT` | `notifications:recent` (LPUSH, LTRIM cap 200) | None | NotificationAgent + ReasoningAgent |
+| `REDIS_KEY_NOTIFICATIONS_RECENT` | `notifications:recent` (LPUSH, LTRIM cap 20) | None | NotificationAgent + ReasoningAgent |
 | `REDIS_KEY_NOTIFICATIONS_READ` | `notifications:read` (SET of read ids) | None | REST POST `/notifications/{id}/read` |
-| `REDIS_KEY_DECISIONS_RECENT` | `decisions:recent` (LPUSH, LTRIM cap 500) | None | ReasoningAgent |
+| `REDIS_KEY_DECISIONS_RECENT` | `decisions:recent` (LPUSH, LTRIM cap 50) | None | ReasoningAgent |
 | `REDIS_KEY_LLM_METRICS` | `llm:metrics` hash: `total_calls`, `successes`, `rate_limits`, `timeouts`, `errors`, `last_success_at`, `last_latency_ms` | None | `LLMMetricsCollector` fire-and-forget |
 
 **Rules:**
@@ -214,7 +214,7 @@ routes in `api/routes/{notifications,decisions,llm_health}.py`.
   lists / zero counters, not raise.
 - `notifications:read` is pruned on every `push_notification` to drop
   ids no longer present in `notifications:recent`. This keeps the set
-  bounded by the live-list cap (~200) even over a long-running
+  bounded by the live-list cap (~20) even over a long-running
   deployment.
 
 ```python
