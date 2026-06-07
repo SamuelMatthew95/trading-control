@@ -28,6 +28,7 @@ import { RecentDecisionsPanel } from '@/components/dashboard/RecentDecisionsPane
 import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
 import { ActivityTimeline } from './ActivityTimeline'
 import { KpiCard } from './KpiCard'
+import { TraceModal } from '@/components/dashboard/TraceModal'
 import { AgentStatusTable } from './AgentStatusTable'
 import { AgentDetailModal } from './AgentDetailModal'
 import { AgentScorecards } from './AgentScorecards'
@@ -88,6 +89,8 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
 
   // Drill-down: which agent's detail modal is open (null = none).
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
+  // Drill-down: which trace's modal is open — shared by decisions + notifications.
+  const [activeTraceId, setActiveTraceId] = useState<string | null>(null)
 
   // Only surface "no agents" after a grace period — agent data can arrive a beat
   // after the WebSocket connects.
@@ -194,8 +197,16 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
       <section className="space-y-2">
         <GroupLabel>Activity</GroupLabel>
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 xl:items-start">
-          <RecentDecisionsPanel stats={decisionStats} recent={recentDecisions} />
-          <NotificationFeed notifications={notifications} wsConnected={wsConnected} />
+          <RecentDecisionsPanel
+            stats={decisionStats}
+            recent={recentDecisions}
+            onSelectTrace={setActiveTraceId}
+          />
+          <NotificationFeed
+            notifications={notifications}
+            wsConnected={wsConnected}
+            onSelectTrace={setActiveTraceId}
+          />
         </div>
       </section>
 
@@ -213,6 +224,9 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
 
       {selectedAgent && (
         <AgentDetailModal name={selectedAgent} onClose={() => setSelectedAgent(null)} />
+      )}
+      {activeTraceId && (
+        <TraceModal traceId={activeTraceId} onClose={() => setActiveTraceId(null)} />
       )}
     </div>
   )
