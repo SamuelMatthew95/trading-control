@@ -1,5 +1,24 @@
 # Frontend Troubleshooting
 
+## Notifications feed looks stale (3-day-old fill pinned at the top)
+
+**Symptom:** The Notifications panel shows old items (e.g. "BUY filled — 3d ago")
+above recent signals, so a live system looks frozen. Memory mode claims data is
+ephemeral, yet the old notification persists.
+
+**Root cause:** The notifications list is backed by the Redis `notifications:recent`
+list, which is durable and survives restarts. The feed rendered the full list
+with no age cap, so a stale fill from a previous session stayed at the top.
+
+**Fix:** `frontend/src/components/dashboard/NotificationFeed.tsx` — the feed now
+filters to a live window (`NOTIFICATION_LIVE_WINDOW_MS = 1h`); items older than
+that are dropped (`isLiveNotification`). The count badge and header time reflect
+the live set; an all-stale list shows "No notifications in the last hour". The
+full list is still queryable via the REST history.
+
+**Regression test:** `frontend/src/test/components/NotificationFeed.test.tsx` —
+"hides notifications older than 1h…" and "shows a live-window empty state…".
+
 ## Live Activity shows "Trade graded" / "Reflection" / "Proposal drafted" while the learning loop is idle
 
 **Symptom:** The Agents "Live Activity" feed lists learning-loop outputs (Trade
