@@ -102,7 +102,7 @@ const AGENT_STAGE: Record<string, { stage: ActivityStage; title: string }> = {
 // when the learning loop is idle. The dedicated backend endpoints all filter by
 // log_type (GRADE / REFLECTION / PROPOSAL), so the feed must do the same and
 // surface only genuine output logs.
-export function isLifecycleLog(log: { log_type?: unknown }): boolean {
+export function isLifecycleLog(log: AgentLog): boolean {
   return String(log.log_type ?? '').toLowerCase() === 'lifecycle'
 }
 
