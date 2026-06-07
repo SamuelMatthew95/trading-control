@@ -340,7 +340,14 @@ async def test_streak_promotion_uses_recorded_history(monkeypatch):
     # The recorder builds history; once the streak is long enough the read path
     # reports PROMOTED — end-to-end through the single-writer design.
     store = _FakeStore()
-    _patch(monkeypatch, _active_signal_hb(), _clean_runs(), store=store)
+    # SIGNAL is a trading agent → the PnL gate also requires a winning record.
+    _patch(
+        monkeypatch,
+        _active_signal_hb(),
+        _clean_runs(),
+        store=store,
+        pnl={AGENT_SIGNAL: _pnl_stats(trade_count=20, win_rate=0.65, total_pnl=500.0)},
+    )
 
     # Seed a long streak by recording past the throttle (clear timestamps).
     for _ in range(3):
@@ -358,9 +365,17 @@ async def test_streak_promotion_uses_recorded_history(monkeypatch):
 @pytest.mark.asyncio
 async def test_background_tick_reconciles_trust_only_when_enabled(monkeypatch):
     # Build a promoted streak so the agent's tier maps to a boosted trust weight.
+    # SIGNAL is a trading agent → the PnL gate also requires a winning record.
     history = [{"grade": "A", "tier": TIER_PROMOTED, "timestamp": perf._iso(0)} for _ in range(3)]
     redis = _FakeRedis()
-    _patch(monkeypatch, _active_signal_hb(), _clean_runs(), store=_FakeStore(history), redis=redis)
+    _patch(
+        monkeypatch,
+        _active_signal_hb(),
+        _clean_runs(),
+        store=_FakeStore(history),
+        redis=redis,
+        pnl={AGENT_SIGNAL: _pnl_stats(trade_count=20, win_rate=0.65, total_pnl=500.0)},
+    )
     trust_key = REDIS_KEY_AGENT_TRUST.format(name=AGENT_SIGNAL)
 
     # Flag OFF → background tick records snapshots but writes NO trust weights.
