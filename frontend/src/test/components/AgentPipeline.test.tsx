@@ -31,7 +31,7 @@ describe('AgentPipeline', () => {
     render(
       <AgentPipeline
         {...baseProps}
-        agents={[{ name: AGENT_SIGNAL, status: 'Live', realtimeCount: 12, persistedCount: 0, lastSeen: new Date() }]}
+        agents={[{ name: AGENT_SIGNAL, status: 'Live', eventCount: 12, lastSeen: new Date() }]}
         marketLive
         marketTickCount={60}
       />,
@@ -45,7 +45,7 @@ describe('AgentPipeline', () => {
     render(
       <AgentPipeline
         {...baseProps}
-        agents={[{ name: AGENT_REASONING, status: 'Live', realtimeCount: 3, persistedCount: 0, lastSeen: new Date() }]}
+        agents={[{ name: AGENT_REASONING, status: 'Live', eventCount: 3, lastSeen: new Date() }]}
         decisionStats={{ total: 8, last_hour: { buys: 4, sells: 3, holds: 1 } }}
       />,
     )
