@@ -9,8 +9,7 @@ const agents: AgentSummary[] = [
   {
     name: 'SIGNAL_AGENT',
     status: 'Live',
-    realtimeCount: 1000,
-    persistedCount: 234,
+    eventCount: 1234,
     lastSeen: new Date('2026-05-30T00:00:00Z'),
     tier: 'active',
     source: 'realtime',
