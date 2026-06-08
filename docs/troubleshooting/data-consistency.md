@@ -4,6 +4,37 @@ The same concepts (PnL, positions, win rate, decisions) used to be computed in
 several code paths that drifted out of sync. Each entry below is one such
 divergence and the single-source-of-truth that now prevents it.
 
+## Agent event counts and names differed across dashboard panels
+
+**Symptom:** The same agent showed different event counts in different panels
+(e.g. Signal Agent: 420 in the Scorecards card vs 138 in the Agent Status
+table; Challenger: 414 vs 840) and different names ("IC Updater" on the
+Scorecards vs "Information Coefficient Updater" in the Status table).
+
+**Root cause:** No single source of truth for either value. (1) Event count
+had three independent sources: the Scorecards read the heartbeat `event_count`
+(the canonical tally written by `write_heartbeat()`), while the Agent Status
+table and Agent Matrix showed `realtimeCount + persistedCount` — *summing* a
+log-derived count and the `agent_instances.event_count` on top of the
+heartbeat. (2) Display name had two functions: the backend
+`agent_performance._display_name()` (`name.replace("_"," ").title()` →
+"Ic Updater") feeding the Scorecards, and the frontend `agentDisplayName()`
+(IC special-case) feeding the Status table and pipeline.
+
+**Fix:** One canonical field and one name function across every panel.
+`AgentSummary`/`PipelineAgentLike` now carry a single `eventCount`
+(`frontend/src/lib/agent-pipeline.ts`), populated in `DashboardView`'s
+`realAgents` builder with strict precedence — heartbeat `event_count` wins
+outright, falling back to the log count, then `agent_instances.event_count`,
+never summed. The Status table, Agent Matrix, and pipeline all read
+`agent.eventCount`. Every panel (Scorecards, Status table, Agent Matrix,
+pipeline, detail modal) renders names via the frontend `agentDisplayName()`;
+the backend `display_name` field is no longer read by the UI.
+
+**Regression test:** `frontend/src/test/helpers/agent-pipeline.test.ts`
+(`uses the single canonical event count for a stage (no summing of sources)`)
++ `frontend/src/test/components/AgentStatusTable.test.tsx`.
+
 ## Win rate differed between dashboard endpoints
 
 **Symptom:** The Overview P&L card and the paired-P&L view showed different win
