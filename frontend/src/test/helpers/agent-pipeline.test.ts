@@ -20,10 +20,9 @@ import {
 function agent(
   name: string,
   status: PipelineAgentLike['status'],
-  realtimeCount = 0,
-  persistedCount = 0,
+  eventCount = 0,
 ): PipelineAgentLike {
-  return { name, status, realtimeCount, persistedCount, lastSeen: new Date() }
+  return { name, status, eventCount, lastSeen: new Date() }
 }
 
 function stage(stages: PipelineStageView[], key: PipelineStageKey): PipelineStageView {
@@ -84,8 +83,8 @@ describe('buildPipelineStages', () => {
     expect(stage(stages, 'signal').tone).toBe('live')
   })
 
-  it('sums realtime + persisted events for a stage count', () => {
-    const stages = buildPipelineStages({ ...EMPTY_INPUT, agents: [agent(AGENT_GRADE, 'Live', 7, 5)] })
+  it('uses the single canonical event count for a stage (no summing of sources)', () => {
+    const stages = buildPipelineStages({ ...EMPTY_INPUT, agents: [agent(AGENT_GRADE, 'Live', 12)] })
     expect(stage(stages, 'grade').count).toBe(12)
   })
 
