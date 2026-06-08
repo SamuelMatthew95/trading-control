@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { API_ENDPOINTS, api, apiFetch } from '@/lib/apiClient'
 import { LEARNING_REFRESH_MS, gradeBg, tierBadge, tierLabel } from '@/lib/grade-colors'
 import { cardClass, sectionTitleClass, mutedClass } from '@/lib/dashboard-styles'
+import { agentDisplayName } from '@/constants/agents'
 import { cn } from '@/lib/utils'
 import type {
   AgentPerformanceResponse,
@@ -23,7 +24,7 @@ function ScoreCard({ agent, onSelect }: { agent: AgentScore; onSelect: (name: st
     >
       <div className="flex items-start justify-between gap-2">
         <span className="min-w-0 truncate text-sm font-sans text-slate-900 dark:text-slate-100">
-          {agent.display_name}
+          {agentDisplayName(agent.name)}
         </span>
         <span className={cn('shrink-0 rounded-md border px-1.5 py-0.5 text-xs font-bold', gradeBg(agent.grade))}>
           {agent.grade ?? '—'}

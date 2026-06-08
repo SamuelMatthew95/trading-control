@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 
 import { api } from '@/lib/apiClient'
+import { agentDisplayName } from '@/constants/agents'
 import { agentDetailPath, type AgentDetail } from '@/lib/agent-performance'
 import { gradeBg, tierBadge, tierLabel } from '@/lib/grade-colors'
 import { sectionTitleClass, mutedClass } from '@/lib/dashboard-styles'
@@ -91,7 +92,7 @@ export function AgentDetailModal({ name, onClose }: { name: string; onClose: () 
       >
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className={sectionTitleClass}>{data?.display_name ?? name}</p>
+            <p className={sectionTitleClass}>{agentDisplayName(name)}</p>
             <p className={cn(mutedClass, 'font-mono')}>{name}</p>
           </div>
           <div className="flex items-center gap-2">

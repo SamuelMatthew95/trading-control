@@ -125,8 +125,8 @@ export function AgentStatusTable({
                       {formatAgentSource(agent.source)}
                     </td>
                     <td className="px-2 py-2 text-right text-sm font-mono tabular-nums text-slate-900 dark:text-slate-100">
-                      {agent.realtimeCount + agent.persistedCount > 0 ? (
-                        <>{(agent.realtimeCount + agent.persistedCount).toLocaleString()} events</>
+                      {agent.eventCount > 0 ? (
+                        <>{agent.eventCount.toLocaleString()} events</>
                       ) : (
                         <span className="text-slate-400 dark:text-slate-600">—</span>
                       )}

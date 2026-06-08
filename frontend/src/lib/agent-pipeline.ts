@@ -31,8 +31,13 @@ export type PipelineAgentStatus = AgentStatus
 export interface PipelineAgentLike {
   name: string
   status: PipelineAgentStatus
-  realtimeCount: number
-  persistedCount: number
+  /**
+   * The agent's processed-event tally — ONE canonical number, never a sum of
+   * sources. Sourced with strict precedence (heartbeat > logs > lifecycle) so
+   * the pipeline, the Agent Status table, and the Scorecards all show the same
+   * count for an agent. See `buildAgentSummaries` in `DashboardView`.
+   */
+  eventCount: number
   lastSeen: Date | null
 }
 
@@ -128,7 +133,7 @@ function indexAgents(agents: PipelineAgentLike[]): Map<string, PipelineAgentLike
 
 function eventsOf(agent: PipelineAgentLike | undefined): number {
   if (!agent) return 0
-  return (agent.realtimeCount ?? 0) + (agent.persistedCount ?? 0)
+  return agent.eventCount ?? 0
 }
 
 function toneOf(agent: PipelineAgentLike | undefined): StageTone {
