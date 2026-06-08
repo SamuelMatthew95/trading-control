@@ -517,8 +517,7 @@ export function DashboardView({ section }: { section: Section }) {
       const tier: AgentSummary['tier'] = status === 'Live' ? 'active' : data.count > 0 ? 'challenger' : 'inactive'
       return {
         name: data.displayName,
-        realtimeCount: data.count,
-        persistedCount: 0,
+        eventCount: data.count,
         lastSeen: data.lastSeen,
         status,
         tier,
@@ -539,8 +538,11 @@ export function DashboardView({ section }: { section: Section }) {
         .sort((a, b) => b.getTime() - a.getTime())[0] ?? null
       normalizedByName.set(agentKey, {
         name: existing?.name ?? status.name,
-        realtimeCount: Math.max(existing?.realtimeCount ?? 0, status.event_count ?? 0),
-        persistedCount: existing?.persistedCount ?? 0,
+        // Heartbeat is the canonical event tally (the same number the backend
+        // Scorecards read from Redis). When a heartbeat exists it wins outright
+        // — we never add the log-derived count on top, which is what made the
+        // table and the scorecard disagree.
+        eventCount: status.event_count ?? existing?.eventCount ?? 0,
         lastSeen,
         status: mergedStatus,
         tier: agentTierFromStatus(mergedStatus),
@@ -560,8 +562,10 @@ export function DashboardView({ section }: { section: Section }) {
         .sort((a, b) => b.getTime() - a.getTime())[0] ?? null
       normalizedByName.set(agentKey, {
         name: existing?.name ?? inst.pool_name,
-        realtimeCount: existing?.realtimeCount ?? 0,
-        persistedCount: Math.max(existing?.persistedCount ?? 0, inst.event_count ?? 0),
+        // Lifecycle event_count is the LAST-resort source: use it only when no
+        // heartbeat or log signal already set the count (so it never double-
+        // counts an agent that is also heartbeating).
+        eventCount: existing?.eventCount ?? inst.event_count ?? 0,
         lastSeen,
         status: mergedStatus,
         tier: agentTierFromStatus(mergedStatus),
@@ -578,8 +582,7 @@ export function DashboardView({ section }: { section: Section }) {
       if (!normalizedByName.has(agentKey)) {
         normalizedByName.set(agentKey, {
           name,
-          realtimeCount: 0,
-          persistedCount: 0,
+          eventCount: 0,
           lastSeen: null,
           status: 'Idle',
           tier: 'inactive',
@@ -762,9 +765,9 @@ export function DashboardView({ section }: { section: Section }) {
                         </div>
                       </div>
                       <div className="mt-2 flex items-center justify-between">
-                        {(agent.realtimeCount + agent.persistedCount) > 0 ? (
+                        {agent.eventCount > 0 ? (
                           <p className="text-xs font-mono tabular-nums text-slate-700 dark:text-slate-300">
-                            {agent.realtimeCount + agent.persistedCount} events
+                            {agent.eventCount} events
                           </p>
                         ) : agent.lastSeen ? (
                           <p className={mutedClass}>active</p>
