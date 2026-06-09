@@ -1,50 +1,10 @@
-import type { Book, Candle, TapePrint } from './marketData'
-
-/** A position in the terminal's manual paper book. Marked to the live price. */
-export interface PaperPosition {
-  symbol: string
-  side: 'long' | 'short'
-  qty: number
-  avg: number
-  last: number
-  pnl: number
-  pnlPct: number
-}
-
-export type OrderSide = 'buy' | 'sell'
-export type OrderType = 'market' | 'limit' | 'stop'
-export type TimeInForce = 'DAY' | 'GTC' | 'IOC'
-
-/** A resting (working) order awaiting a fill. */
-export interface WorkingOrder {
-  id: string
-  symbol: string
-  side: OrderSide
-  type: OrderType
-  qty: number
-  price: number
-  tif: TimeInForce
+/** A single real price sample (epoch ms + price). */
+export interface PricePoint {
   t: number
+  p: number
 }
 
-/** The shape the order ticket submits. */
-export interface OrderDraft {
-  symbol: string
-  side: OrderSide
-  type: OrderType
-  qty: number
-  price: number
-  tif: TimeInForce
-}
-
-export type ToastKind = 'buy' | 'sell' | 'work' | 'flat' | 'halt'
-
-export interface ToastMessage {
-  kind: ToastKind
-  text: string
-}
-
-/** A watchlist row (real price when streamed, synthetic sparkline). */
+/** A watchlist row built from real prices + accumulated history. */
 export interface WatchRow {
   sym: string
   name: string
@@ -53,17 +13,26 @@ export interface WatchRow {
   spark: number[]
 }
 
-/** Everything the center column needs for the selected symbol. */
+/** Live session stats for the selected symbol's chart header. */
 export interface SymbolView {
   sym: string
   name: string
   price: number
-  dayOpen: number
-  dayHigh: number
-  dayLow: number
+  open: number
+  high: number
+  low: number
   changeAbs: number
   changePct: number
-  candles: Candle[]
-  book: Book
-  tape: TapePrint[]
+  points: PricePoint[]
+}
+
+/** A normalised open position for the read-only blotter. */
+export interface TerminalPosition {
+  symbol: string
+  side: string
+  qty: number
+  avg: number
+  last: number
+  pnl: number
+  pnlPct: number
 }
