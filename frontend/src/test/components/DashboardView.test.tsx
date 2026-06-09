@@ -522,6 +522,8 @@ describe('DashboardView — theming (light/dark duality)', () => {
     const headerTokens = baseTokens(header.className)
     expect(headerTokens).toContain('bg-white')
     expect(hasDarkSurface(headerTokens)).toBe(false)
-    expect(header.className).toContain('dark:bg-slate-950/90')
+    // Dark surface is a lifted panel (slate-900 #0F172A) above the slate-950
+    // canvas — the terminal "panel on canvas" depth.
+    expect(header.className).toContain('dark:bg-slate-900')
   })
 })
