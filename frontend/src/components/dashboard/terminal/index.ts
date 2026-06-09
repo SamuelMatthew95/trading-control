@@ -1,3 +1,3 @@
 export { TradingTerminal } from './TradingTerminal'
-export { usePaperDesk, deskAccount, STARTING_CASH } from './usePaperDesk'
-export type { DeskAccount } from './usePaperDesk'
+export { useTerminalAccount, STARTING_CASH } from './useTerminalAccount'
+export type { TerminalAccount } from './useTerminalAccount'
