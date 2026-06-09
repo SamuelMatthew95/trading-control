@@ -47,6 +47,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [killSwitchPending, setKillSwitchPending] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [currentTime, setCurrentTime] = useState('')
   const { killSwitchActive, wsConnected, setKillSwitch, hydrateFromLocalStorage } = useCodexStore()
 
   // Realized + live mark-to-market unrealized, shared with the overview headline
@@ -62,6 +63,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     hydrateFromLocalStorage()
     setMounted(true)
   }, [hydrateFromLocalStorage])
+
+  // Live mono clock for the terminal status bar. Gated behind `mounted` at the
+  // render site so the server-rendered HTML (empty string) matches first paint.
+  useEffect(() => {
+    const update = () => setCurrentTime(new Date().toLocaleTimeString([], { hour12: false }))
+    update()
+    const id = setInterval(update, 1000)
+    return () => clearInterval(id)
+  }, [])
 
   // Hydrate the kill-switch state from the server so the UI starts in sync
   // with Redis even if no one has toggled it in this session yet.
@@ -111,7 +121,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
       >
         <div className="flex h-12 items-center gap-2.5 border-b border-slate-200 px-4 dark:border-slate-800">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500 text-white shadow-sm">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/15 text-primary ring-1 ring-primary/30">
             <BarChart3 className="h-4 w-4" />
           </div>
           <p className="text-sm font-bold uppercase tracking-widest font-sans text-slate-900 dark:text-slate-100">Trading Console</p>
@@ -125,10 +135,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 href={href}
                 onClick={() => setSidebarOpen(false)}
                 className={cn(
-                  'flex min-h-10 items-center gap-2 rounded-lg border px-3 text-sm font-sans font-semibold transition-colors',
+                  'relative flex min-h-10 items-center gap-2 rounded-lg border px-3 text-sm font-sans font-semibold transition-colors',
                   active
-                    ? 'border-slate-300 bg-slate-100 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100'
-                    : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-200'
+                    ? 'border-primary/30 bg-primary/10 text-primary before:absolute before:left-0 before:top-1/2 before:h-5 before:w-0.5 before:-translate-y-1/2 before:rounded-r before:bg-primary'
+                    : 'border-transparent text-muted-foreground hover:bg-accent hover:text-foreground'
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -236,6 +246,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
 
         <main className="flex-1 overflow-y-auto">{children}</main>
+
+        <footer className="flex h-6 shrink-0 items-center gap-4 border-t border-slate-200 bg-white px-4 font-mono text-[10px] uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+          <span className="inline-flex items-center gap-1.5">
+            <span className={cn('h-1.5 w-1.5 rounded-full', wsConnected ? 'animate-pulse-dot bg-success' : 'bg-warning')} />
+            {wsConnected ? 'Connected' : 'Reconnecting'}
+          </span>
+          <span className="hidden sm:inline">Paper Mode</span>
+          <span className="hidden tabular-nums sm:inline">{mounted ? currentTime : ''}</span>
+          <span className="ml-auto inline-flex items-center gap-1.5">
+            <span className="text-slate-400 dark:text-slate-500">P&amp;L</span>
+            <span
+              className={cn(
+                'tabular-nums',
+                totalPnl > 0 ? 'text-success' : totalPnl < 0 ? 'text-danger' : 'text-slate-500 dark:text-slate-400'
+              )}
+            >
+              {totalPnl > 0 ? `+${formatUSD(totalPnl)}` : totalPnl < 0 ? `-${formatUSD(totalPnl)}` : formatUSD(totalPnl)}
+            </span>
+          </span>
+        </footer>
       </div>
     </div>
   )
