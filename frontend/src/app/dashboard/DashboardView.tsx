@@ -83,7 +83,7 @@ const SECTION_META: Record<Section, { eyebrow: string; title: string; descriptio
 function SectionHeader({ section }: { section: Section }) {
   const meta = SECTION_META[section]
   return (
-    <section className="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm shadow-slate-900/5 dark:border-slate-800/80 dark:bg-slate-950/90 dark:shadow-black/20">
+    <section className="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm shadow-slate-900/5 dark:border-slate-800/80 dark:bg-slate-900 dark:shadow-black/20">
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{meta.eyebrow}</p>
       <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
         <div>
