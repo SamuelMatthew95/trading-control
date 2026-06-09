@@ -110,7 +110,7 @@ function ChallengerCard({ ch }: { ch: ChallengerView }) {
             challenger {ch.challenger_id}
           </span>
         </div>
-        <span className="rounded bg-indigo-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400">
+        <span className="rounded bg-primary/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
           differs by {ch.differs_by}
         </span>
       </div>
@@ -123,7 +123,7 @@ function ChallengerCard({ ch }: { ch: ChallengerView }) {
           </span>
         </div>
         <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
-          <div className="h-full rounded-full bg-indigo-500" style={{ width: `${pct}%` }} />
+          <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
         </div>
       </div>
 
@@ -174,7 +174,7 @@ function ProposalRow({ p }: { p: ProposalView }) {
         </span>
         <div className="flex items-center gap-1.5">
           {p.applied && (
-            <span className="rounded bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">
+            <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
               applied
             </span>
           )}
