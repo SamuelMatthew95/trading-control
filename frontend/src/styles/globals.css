@@ -36,11 +36,6 @@
     --up-soft: rgba(16, 185, 129, 0.14);
     --down-soft: rgba(244, 63, 94, 0.14);
     --term-hdr: 38px;
-    --book-shade: 1;
-  }
-
-  [data-density='compact'] {
-    --term-hdr: 32px;
   }
 
   .dark {
@@ -107,18 +102,8 @@
      re-themes every panel. Used by the trading terminal and reusable anywhere. */
   .txt-up { color: var(--up); }
   .txt-down { color: var(--down); }
-  .txt-accent { color: var(--accent); }
   .badge-up { background: var(--up-soft); color: var(--up); }
   .badge-down { background: var(--down-soft); color: var(--down); }
-  .book-depth { opacity: var(--book-shade, 1); }
-
-  .ticket-input {
-    @apply min-w-0 flex-1 border-0 bg-transparent px-2.5 py-2 text-right font-mono text-[13px] text-slate-100 outline-none;
-    font-variant-numeric: tabular-nums;
-  }
-  .ticket-input::-webkit-outer-spin-button,
-  .ticket-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-  .ticket-input[type='number'] { -moz-appearance: textfield; }
 
   /* Thin, unobtrusive scrollbars for dense terminal panels. */
   .thin-scroll::-webkit-scrollbar { width: 7px; height: 7px; }
