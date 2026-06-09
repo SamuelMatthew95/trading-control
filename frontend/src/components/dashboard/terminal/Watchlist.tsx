@@ -6,7 +6,8 @@ import { Spark } from './Spark'
 import { signClass } from './marketData'
 import type { WatchRow } from './types'
 
-/** Left-column watchlist. Click a row to drive the chart, ticket, book & tape. */
+/** Left-column watchlist of the real monitored symbols. Click a row to focus
+ *  the chart / blotter / agent panels on that symbol. */
 export function Watchlist({
   rows,
   active,
@@ -35,19 +36,21 @@ export function Watchlist({
                 className={cn(
                   'cursor-pointer border-l-2 transition-colors',
                   isActive
-                    ? 'border-l-[var(--accent)] bg-slate-800/50'
-                    : 'border-l-transparent hover:bg-slate-800/30',
+                    ? 'border-l-[var(--accent)] bg-slate-100 dark:bg-slate-800/50'
+                    : 'border-l-transparent hover:bg-slate-50 dark:hover:bg-slate-800/30',
                 )}
               >
                 <td className="py-1.5 pl-3 pr-1">
-                  <div className="font-mono text-[13px] font-bold text-slate-100">{r.sym}</div>
+                  <div className="font-mono text-[13px] font-bold text-slate-900 dark:text-slate-100">{r.sym}</div>
                   <div className="truncate text-[10px] text-slate-500">{r.name}</div>
                 </td>
                 <td className="px-0 py-1.5">
                   <Spark data={r.spark} up={up} />
                 </td>
                 <td className="py-1.5 pl-1 pr-3 text-right">
-                  <div className="font-mono text-[13px] tabular-nums text-slate-100">{r.price.toFixed(2)}</div>
+                  <div className="font-mono text-[13px] tabular-nums text-slate-900 dark:text-slate-100">
+                    {r.price > 0 ? r.price.toFixed(2) : '--'}
+                  </div>
                   <div className={cn('font-mono text-[10px] tabular-nums', signClass(r.changePct))}>
                     {up ? '+' : ''}
                     {r.changePct.toFixed(2)}%
