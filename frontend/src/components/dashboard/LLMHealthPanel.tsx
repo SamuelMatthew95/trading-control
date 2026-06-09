@@ -96,7 +96,7 @@ function LocalInferenceStrip({ data }: { data: LocalInferenceData }) {
     : 'text-slate-500 dark:text-slate-400'
 
   return (
-    <div className="mb-3 rounded-lg border border-indigo-300/30 bg-indigo-500/5 px-3 py-2 text-xs">
+    <div className="mb-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
       <div className="mb-1.5 flex items-center justify-between">
         <span className={LABEL}>Local GPU / LM Studio</span>
         <span className="flex items-center gap-1.5">
