@@ -8,17 +8,20 @@
     --foreground: 222.2 47.4% 11.2%;
     --card: 0 0% 100%;
     --card-foreground: 222.2 47.4% 11.2%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 47.4% 11.2%;
     --border: 214 28% 84%;
     --input: 214 28% 84%;
     --muted: 214 28% 96%;
     --muted-foreground: 215.4 16.3% 46.9%;
     --accent: 214 28% 96%;
     --accent-foreground: 222.2 47.4% 11.2%;
-    --primary: 243.4 75.4% 58.6%;
-    --primary-foreground: 210 40% 98%;
+    /* Cyan #00E5FF — the single brand/accent colour, identical in both themes. */
+    --primary: 187 100% 50%;
+    --primary-foreground: 222.2 47.4% 11.2%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
-    --ring: 243.4 75.4% 58.6%;
+    --ring: 187 100% 50%;
     --success: 160 84% 39%;
     --danger: 347 77% 50%;
     --warning: 32 95% 44%;
@@ -26,21 +29,26 @@
   }
 
   .dark {
+    /* Deep navy canvas (#020617) / panel (#0F172A) / raised (#1E293B) — the
+       slate-950/900/800 scale already matches the trading-terminal palette. */
     --background: 222.2 84% 4.9%;
     --foreground: 210 40% 98%;
     --card: 222.2 47% 11%;
     --card-foreground: 210 40% 98%;
+    --popover: 217.2 32.6% 17.5%;
+    --popover-foreground: 210 40% 98%;
     --border: 217.2 32.6% 17.5%;
     --input: 217.2 32.6% 17.5%;
     --muted: 217.2 32.6% 17.5%;
     --muted-foreground: 215 20.2% 65.1%;
     --accent: 217.2 32.6% 17.5%;
     --accent-foreground: 210 40% 98%;
-    --primary: 243.4 75.4% 58.6%;
-    --primary-foreground: 210 40% 98%;
+    /* Cyan stays the accent in dark mode; navy text reads on the bright fill. */
+    --primary: 187 100% 50%;
+    --primary-foreground: 222.2 47.4% 11.2%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
-    --ring: 243.4 75.4% 58.6%;
+    --ring: 187 100% 50%;
     --success: 158 64% 52%;
     --danger: 351 95% 71%;
     --warning: 43 96% 56%;
@@ -61,6 +69,11 @@
 
   body.light {
     @apply bg-slate-100 text-slate-900;
+  }
+
+  /* Cyan-tinted text selection — the terminal's one accent. */
+  ::selection {
+    background: hsl(var(--primary) / 0.25);
   }
 }
 
@@ -83,5 +96,32 @@
 
   .status-dot-idle {
     @apply w-2 h-2 rounded-full bg-slate-400;
+  }
+}
+
+@layer utilities {
+  /* Every price / size / % / count is mono + tabular — half the terminal feel. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Thin terminal scrollbars. */
+  .thin-scroll::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
+  }
+  .thin-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .thin-scroll::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 4px;
+  }
+  .thin-scroll::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+  .thin-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
   }
 }
