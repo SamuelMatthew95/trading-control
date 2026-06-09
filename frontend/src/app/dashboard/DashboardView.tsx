@@ -353,12 +353,12 @@ export function DashboardView({ section }: { section: Section }) {
   // shared light section frame used by every other section.
   if (section === 'overview') {
     return (
-      <div className="min-h-[calc(100vh-3rem)] bg-slate-950 text-slate-100">
+      <div className="min-h-[calc(100vh-3rem)] bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
         <div className="space-y-2 px-2 pt-2 empty:hidden">
           <LLMDegradedBanner />
           {memoryBanner}
         </div>
-        <TradingTerminal />
+        <TradingTerminal recentDecisions={recentDecisions} />
         {activeTraceId && <TraceModal traceId={activeTraceId} onClose={() => setActiveTraceId(null)} />}
       </div>
     )
