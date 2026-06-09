@@ -23,6 +23,24 @@
     --danger: 347 77% 50%;
     --warning: 32 95% 44%;
     --radius: 0.75rem;
+
+    /* Trading terminal tokens — shared across every dashboard surface so the
+       whole app reads with one visual language. `--up`/`--down` are the
+       functional trading colours (a trader reads green/red instantly);
+       `--accent` is the brand/interactive colour (active nav, selected row,
+       focus ring, chart last-price line). All themeable from one place. */
+    --accent: #00e5ff;
+    --accent-soft: rgba(0, 229, 255, 0.12);
+    --up: #10b981;
+    --down: #f43f5e;
+    --up-soft: rgba(16, 185, 129, 0.14);
+    --down-soft: rgba(244, 63, 94, 0.14);
+    --term-hdr: 38px;
+    --book-shade: 1;
+  }
+
+  [data-density='compact'] {
+    --term-hdr: 32px;
   }
 
   .dark {
@@ -84,4 +102,28 @@
   .status-dot-idle {
     @apply w-2 h-2 rounded-full bg-slate-400;
   }
+
+  /* Terminal semantic helpers — driven by CSS vars so a single token change
+     re-themes every panel. Used by the trading terminal and reusable anywhere. */
+  .txt-up { color: var(--up); }
+  .txt-down { color: var(--down); }
+  .txt-accent { color: var(--accent); }
+  .badge-up { background: var(--up-soft); color: var(--up); }
+  .badge-down { background: var(--down-soft); color: var(--down); }
+  .book-depth { opacity: var(--book-shade, 1); }
+
+  .ticket-input {
+    @apply min-w-0 flex-1 border-0 bg-transparent px-2.5 py-2 text-right font-mono text-[13px] text-slate-100 outline-none;
+    font-variant-numeric: tabular-nums;
+  }
+  .ticket-input::-webkit-outer-spin-button,
+  .ticket-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .ticket-input[type='number'] { -moz-appearance: textfield; }
+
+  /* Thin, unobtrusive scrollbars for dense terminal panels. */
+  .thin-scroll::-webkit-scrollbar { width: 7px; height: 7px; }
+  .thin-scroll::-webkit-scrollbar-track { background: transparent; }
+  .thin-scroll::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
+  .thin-scroll::-webkit-scrollbar-thumb:hover { background: #334155; }
+  .thin-scroll { scrollbar-width: thin; scrollbar-color: #1e293b transparent; }
 }
