@@ -16,12 +16,14 @@
     --muted-foreground: 215.4 16.3% 46.9%;
     --accent: 214 28% 96%;
     --accent-foreground: 222.2 47.4% 11.2%;
-    /* Cyan #00E5FF — the single brand/accent colour, identical in both themes. */
-    --primary: 187 100% 50%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    /* Cyan brand accent. Bright #00E5FF washes out on white, so light mode uses
+       a darker cyan (cyan-700-ish) that stays readable as text/borders; dark
+       mode uses the full neon below. */
+    --primary: 193 82% 31%;
+    --primary-foreground: 210 40% 98%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
-    --ring: 187 100% 50%;
+    --ring: 193 82% 31%;
     --success: 160 84% 39%;
     --danger: 347 77% 50%;
     --warning: 32 95% 44%;
