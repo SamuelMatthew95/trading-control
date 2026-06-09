@@ -11,9 +11,10 @@
    lighter (`#0F172A` = `slate-900`), raised surfaces (`#1E293B` = `slate-800`).
    A light theme still exists (`ThemeToggle` / `next-themes`, `defaultTheme="dark"`),
    but dark is the star and the slate-950/900/800 scale already *is* the terminal palette.
-2. **One accent — cyan (`#00E5FF`).** Cyan is the only brand / active / focus
-   colour. It is the `--primary` token and the focus `--ring`, identical in both
-   themes. It is **never** used to mean "good".
+2. **One accent — cyan.** Cyan is the only brand / active / focus colour (the
+   `--primary` token + focus `--ring`). Dark mode uses neon `#00E5FF`; light mode
+   uses a darker cyan (`cyan-700`-ish) because the neon washes out on white. It is
+   **never** used to mean "good".
 3. **Green/red are direction & health only** — P&L, up/down ticks, pass/fail,
    live/offline. Never decorative. These are the `success` / `danger` tokens.
 4. **Numbers are mono + tabular.** Prices, sizes, %, times, counts render in IBM
@@ -40,7 +41,7 @@ Colours are **HSL** CSS vars (shadcn `H S% L%` space-separated form) declared in
 | Text / foreground | `--foreground` | navy | `210 40% 98%` | `#E2E8F0` |
 | Muted text | `--muted-foreground` | — | `215 20% 65%` | `#94A3B8` |
 | Border / input | `--border` `--input` | — | `217 33% 18%` | `#1E293B` |
-| **Accent (primary + ring)** | `--primary` `--ring` | cyan | cyan | `#00E5FF` |
+| **Accent (primary + ring)** | `--primary` `--ring` | `193 82% 31%` | `187 100% 50%` | `#00E5FF` (dark) |
 | Up / success | `--success` | — | `158 64% 52%` | `#10B981` |
 | Down / danger | `--danger` | — | `351 95% 71%` | `#F43F5E` |
 | Warning | `--warning` | — | `43 96% 56%` | `#FBBF24` |
