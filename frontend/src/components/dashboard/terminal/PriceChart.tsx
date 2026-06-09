@@ -27,6 +27,19 @@ export function PriceChart({ points }: { points: PricePoint[] }) {
     return [min - pad, max + pad]
   }, [data])
 
+  // Span-aware time formatter so a short window shows seconds (never repeats the
+  // same HH:MM label), an intraday window shows HH:MM, and a multi-day one a date.
+  const formatTick = useMemo(() => {
+    const span = data.length > 1 ? data[data.length - 1].t - data[0].t : 0
+    if (span > 0 && span < 5 * 60_000) {
+      return (t: number) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    }
+    if (span < 24 * 60 * 60_000) {
+      return (t: number) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }
+    return (t: number) => new Date(t).toLocaleDateString([], { month: 'short', day: '2-digit' })
+  }, [data])
+
   if (data.length < 2) {
     return (
       <div className="flex h-full items-center justify-center text-[11px] font-mono text-slate-500 dark:text-slate-500">
@@ -49,11 +62,12 @@ export function PriceChart({ points }: { points: PricePoint[] }) {
             dataKey="t"
             type="number"
             domain={['dataMin', 'dataMax']}
-            tickFormatter={(t: number) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            tickFormatter={formatTick}
             tick={{ fill: '#94a3b8', fontSize: 10, fontFamily: 'var(--font-mono)' }}
             axisLine={false}
             tickLine={false}
-            minTickGap={56}
+            minTickGap={64}
+            interval="preserveStartEnd"
           />
           <YAxis
             orientation="right"
