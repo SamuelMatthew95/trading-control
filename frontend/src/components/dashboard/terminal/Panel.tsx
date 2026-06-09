@@ -4,9 +4,9 @@ import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
 /**
- * Terminal panel shell — the visual DNA shared by every terminal surface:
- * `rounded-xl border border-slate-800 bg-slate-900`, a fixed-height header
- * (`--term-hdr`) with an uppercase label, optional right slot, and a count pill.
+ * Terminal panel shell — theme-aware so light and dark both read cleanly:
+ * white / slate-900 surface, slate-200 / slate-800 border, a fixed-height
+ * header (`--term-hdr`) with an uppercase label, optional right slot + count pill.
  */
 export function Panel({
   title,
@@ -26,17 +26,17 @@ export function Panel({
   return (
     <section
       className={cn(
-        'flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900',
+        'flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900',
         className,
       )}
     >
       {title != null && (
-        <header className="flex h-[var(--term-hdr)] shrink-0 items-center justify-between border-b border-slate-800 px-3">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">{title}</p>
+        <header className="flex h-[var(--term-hdr)] shrink-0 items-center justify-between border-b border-slate-200 px-3 dark:border-slate-800">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">{title}</p>
           <div className="flex items-center gap-2">
             {right}
             {count != null && (
-              <span className="rounded-full bg-slate-800 px-2 py-0.5 font-mono text-[10px] text-slate-400">
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 font-mono text-[10px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                 {count}
               </span>
             )}
