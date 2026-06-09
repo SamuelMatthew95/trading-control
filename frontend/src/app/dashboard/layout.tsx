@@ -2,28 +2,28 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, CandlestickChart, Bot, TrendingUp, Lightbulb, Settings2, Menu, BarChart3, Activity, Brain } from 'lucide-react'
+import {
+  LayoutDashboard,
+  CandlestickChart,
+  Bot,
+  TrendingUp,
+  Lightbulb,
+  Settings2,
+  Menu,
+  Activity,
+  Brain,
+  Power,
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
+import { useLivePositions } from '@/hooks/useLivePositions'
 import { ThemeToggle } from '@/components/ThemeToggle'
-import { LiveNumber, LiveDot } from '@/components/dashboard/LiveNumber'
 import { useWebSocket } from '@/hooks/useWebSocket'
-import { useLivePnl } from '@/hooks/useLivePnl'
-import { useSystemStatus } from '@/hooks/useSystemStatus'
 import { api } from '@/lib/apiClient'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog'
-import { Button } from '@/components/ui/button'
+import { formatUSD } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
+import { deskAccount, usePaperDesk } from '@/components/dashboard/terminal'
+import { resolvePrice } from '@/components/dashboard/terminal/marketData'
 
 const NAV = [
   { href: '/dashboard', label: 'Overview', Icon: LayoutDashboard },
@@ -35,10 +35,42 @@ const NAV = [
   { href: '/dashboard/system', label: 'System', Icon: Settings2 },
 ]
 
-const formatUSD = (value?: number | null): string => {
-  if (value == null || isNaN(value) || !isFinite(value)) return '$0.00'
-  return `$${Math.abs(value).toFixed(2)}`
+const LogoGlyph = () => (
+  <div className="flex h-7 w-7 items-center justify-center rounded-lg" style={{ background: 'var(--accent)' }}>
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#04141a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 17l5-5 4 3 6-7" />
+      <path d="M3 21h18" />
+    </svg>
+  </div>
+)
+
+const Wordmark = () => (
+  <span className="text-[13px] font-bold uppercase tracking-[0.2em] text-slate-900 dark:text-slate-100">
+    Trading<span style={{ color: 'var(--accent)' }}>Control</span>
+  </span>
+)
+
+function Clock() {
+  const [now, setNow] = useState<string>('')
+  useEffect(() => {
+    const update = () => setNow(new Date().toLocaleTimeString('en', { hour12: false }))
+    update()
+    const id = setInterval(update, 1000)
+    return () => clearInterval(id)
+  }, [])
+  return <span className="font-mono text-[11px] tabular-nums text-slate-500">{now ? `${now} ET` : '--:--:-- ET'}</span>
 }
+
+function HeaderStat({ label, value, className }: { label: string; value: string; className?: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">{label}</span>
+      <span className={cn('font-mono text-xs font-bold tabular-nums text-slate-700 dark:text-slate-200', className)}>{value}</span>
+    </div>
+  )
+}
+
+const HeaderDivider = () => <div className="h-4 w-px bg-slate-300 dark:bg-slate-800" />
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   useWebSocket()
@@ -46,25 +78,28 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [killSwitchPending, setKillSwitchPending] = useState(false)
+  const [killConfirm, setKillConfirm] = useState(false)
   const [mounted, setMounted] = useState(false)
   const { killSwitchActive, wsConnected, setKillSwitch, hydrateFromLocalStorage } = useCodexStore()
 
-  // Realized + live mark-to-market unrealized, shared with the overview headline
-  // so the two never disagree. Updates as prices stream, not just on fills.
-  const { total: totalPnl } = useLivePnl()
-  const systemStatus = useSystemStatus()
+  // Account stats come from the shared paper desk so the header and the
+  // terminal blotter always agree on equity / P&L / buying power.
+  const prices = useCodexStore((s) => s.prices)
+  const realPositions = useLivePositions()
+  const { positions, cash, seed } = usePaperDesk()
+  useEffect(() => {
+    seed(realPositions, (sym) => resolvePrice(prices, sym))
+  }, [seed, realPositions, prices])
+  const { equity, dayPnl, buyingPower } = deskAccount(cash, positions)
+  const dayUp = dayPnl >= 0
 
-  // Hydrate persisted store data from localStorage AFTER the first client
-  // render so the initial SSR'd HTML matches. Without this gate the first
-  // render uses persisted data on the client but empty state on the server,
-  // triggering React hydration errors #418/#423/#425.
+  const live = !killSwitchActive
+
   useEffect(() => {
     hydrateFromLocalStorage()
     setMounted(true)
   }, [hydrateFromLocalStorage])
 
-  // Hydrate the kill-switch state from the server so the UI starts in sync
-  // with Redis even if no one has toggled it in this session yet.
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -82,9 +117,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [setKillSwitch])
 
-  // Show a reconnecting banner whenever the WebSocket has been disconnected
-  // for >2s after first mount. The 2s delay avoids flashing the banner on
-  // every page load before the first connection succeeds.
   const showReconnectBanner = mounted && !wsConnected
 
   const handleKillSwitch = async (activate: boolean) => {
@@ -99,6 +131,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       if (response.ok) setKillSwitch(activate)
     } finally {
       setKillSwitchPending(false)
+      setKillConfirm(false)
     }
   }
 
@@ -106,15 +139,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <div className="flex min-h-screen bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-40 w-64 border-r border-slate-200 bg-white transition-transform dark:border-slate-800 dark:bg-slate-950 md:static md:translate-x-0',
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          'fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-slate-200 bg-white transition-transform dark:border-slate-800 dark:bg-slate-950 md:static md:translate-x-0',
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full',
         )}
       >
         <div className="flex h-12 items-center gap-2.5 border-b border-slate-200 px-4 dark:border-slate-800">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500 text-white shadow-sm">
-            <BarChart3 className="h-4 w-4" />
-          </div>
-          <p className="text-sm font-bold uppercase tracking-widest font-sans text-slate-900 dark:text-slate-100">Trading Console</p>
+          <LogoGlyph />
+          <Wordmark />
         </div>
         <nav className="space-y-1 p-2">
           {NAV.map(({ href, label, Icon }) => {
@@ -127,9 +158,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 className={cn(
                   'flex min-h-10 items-center gap-2 rounded-lg border px-3 text-sm font-sans font-semibold transition-colors',
                   active
-                    ? 'border-slate-300 bg-slate-100 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100'
-                    : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-200'
+                    ? 'border-transparent text-[var(--accent)]'
+                    : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-200',
                 )}
+                style={active ? { background: 'var(--accent-soft)' } : undefined}
               >
                 <Icon className="h-4 w-4" />
                 {label}
@@ -149,81 +181,70 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-50 h-12 border-b border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
-          <div className="flex h-full items-center px-4">
-            <div className="flex flex-1 items-center gap-2">
-              <button
-                onClick={() => setSidebarOpen(true)}
-                className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100 md:hidden"
-              >
-                <Menu className="h-4 w-4" />
-              </button>
-              <span className="text-sm font-bold uppercase tracking-widest font-sans text-slate-900 dark:text-white">Trading Console</span>
+          <div className="flex h-full items-center gap-4 px-3 sm:px-4">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100 md:hidden"
+              aria-label="Open sidebar"
+            >
+              <Menu className="h-4 w-4" />
+            </button>
+
+            {/* Account stats — hidden on small screens like the terminal design */}
+            <div className="hidden items-center gap-2 lg:flex">
+              <HeaderStat label="Equity" value={formatUSD(equity)} className="text-slate-900 dark:text-slate-100" />
+              <HeaderDivider />
+              <HeaderStat
+                label="Day P&L"
+                value={`${dayUp ? '+' : '-'}${formatUSD(dayPnl)}`}
+                className={dayUp ? 'txt-up' : 'txt-down'}
+              />
+              <HeaderDivider />
+              <HeaderStat label="Buying Power" value={formatUSD(buyingPower)} />
             </div>
 
-            <div className="flex flex-1 justify-end">
-              <div className="flex items-center gap-3">
-                <div className="hidden items-center gap-2 rounded-lg border border-slate-200 bg-slate-100 px-2.5 py-1 dark:border-slate-800 dark:bg-slate-900 sm:flex">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
-                    Total P&L
-                  </span>
-                  <LiveNumber
-                    value={totalPnl}
-                    className={cn(
-                      'text-xs font-mono font-bold tabular-nums',
-                      totalPnl > 0
-                        ? 'text-emerald-600 dark:text-emerald-400'
-                        : totalPnl < 0
-                          ? 'text-rose-600 dark:text-rose-400'
-                          : 'text-slate-500 dark:text-slate-400'
-                    )}
-                  >
-                    {totalPnl > 0 ? `+${formatUSD(totalPnl)}` : totalPnl < 0 ? `-${formatUSD(totalPnl)}` : formatUSD(totalPnl)}
-                  </LiveNumber>
-                  <LiveDot live={wsConnected} label="" />
-                </div>
-                <ThemeToggle />
-                <span
+            <div className="ml-auto flex items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <span className={cn('h-1.5 w-1.5 rounded-full', live ? 'animate-pulse bg-[var(--up)]' : 'bg-slate-500')} />
+                <span className="font-mono text-[10px] uppercase tracking-wider text-slate-500">{live ? 'Live · Paper' : 'Halted'}</span>
+              </div>
+              {mounted && <Clock />}
+              <ThemeToggle />
+              <HeaderDivider />
+
+              {!killConfirm ? (
+                <button
+                  onClick={() => setKillConfirm(true)}
                   className={cn(
-                    'text-[11px] font-mono uppercase tracking-[0.04em]',
-                    systemStatus === 'trading'
-                      ? 'text-emerald-600 dark:text-emerald-500'
-                      : systemStatus === 'booting'
-                        ? 'text-amber-600 dark:text-amber-500'
-                        : 'text-slate-500 dark:text-slate-400'
+                    'flex h-7 items-center gap-1.5 whitespace-nowrap rounded-md border px-3 font-mono text-[11px] font-bold uppercase tracking-wider transition-colors',
+                    killSwitchActive
+                      ? 'border-[var(--down)] bg-[var(--down)] text-slate-950'
+                      : 'border-slate-300 text-slate-600 hover:border-[var(--down)] hover:text-[var(--down)] dark:border-slate-700 dark:text-slate-300',
                   )}
                 >
-                  {systemStatus}
-                </span>
-                <div className="h-5 w-px bg-slate-300 dark:bg-slate-800" aria-hidden="true" />
-
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant={killSwitchActive ? 'destructive' : 'outline'} shortcut={killSwitchActive ? 'ESC' : '⏎'}>
-                      {killSwitchActive ? 'Kill Switch On' : 'Kill Switch Off'}
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
-                    <AlertDialogHeader>
-                      <AlertDialogTitle className="font-sans text-sm font-bold uppercase tracking-widest text-slate-900 dark:text-slate-100">
-                        {killSwitchActive ? 'Deactivate Kill Switch' : 'Activate Kill Switch'}
-                      </AlertDialogTitle>
-                      <AlertDialogDescription className="text-sm font-sans text-slate-600 dark:text-slate-400">
-                        {killSwitchActive ? 'This will resume signal processing and order placement.' : 'This will halt all signal processing and order placement.'}
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel className="font-mono text-[11px] uppercase tracking-[0.04em]">Cancel</AlertDialogCancel>
-                      <AlertDialogAction
-                        className="h-7 rounded-[4px] border border-slate-300 bg-slate-100 px-3 font-mono text-[11px] uppercase tracking-[0.04em] text-slate-900 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 disabled:opacity-50"
-                        disabled={killSwitchPending}
-                        onClick={() => handleKillSwitch(!killSwitchActive)}
-                      >
-                        {killSwitchPending ? 'Working…' : killSwitchActive ? 'Deactivate ⏎' : 'Activate ⏎'}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </div>
+                  <Power className="h-[11px] w-[11px]" />
+                  {killSwitchActive ? 'Halted' : 'Kill Switch'}
+                </button>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <span className="font-mono text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    {killSwitchActive ? 'Resume?' : 'Halt all?'}
+                  </span>
+                  <button
+                    onClick={() => handleKillSwitch(!killSwitchActive)}
+                    disabled={killSwitchPending}
+                    className="h-7 rounded-md bg-[var(--down)] px-2.5 font-mono text-[11px] font-bold uppercase tracking-wider text-slate-950 disabled:opacity-50"
+                  >
+                    {killSwitchPending ? '…' : 'Confirm'}
+                  </button>
+                  <button
+                    onClick={() => setKillConfirm(false)}
+                    className="h-7 rounded-md border border-slate-300 px-2.5 font-mono text-[11px] uppercase tracking-wider text-slate-500 hover:text-slate-800 dark:border-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                  >
+                    Esc
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </header>
