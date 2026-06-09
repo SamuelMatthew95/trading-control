@@ -34,7 +34,7 @@ export function TradingTerminal({
   const prices = useCodexStore((s) => s.prices)
   const tradeFeed = useCodexStore((s) => s.tradeFeed)
   const positions = useLivePositions()
-  const history = usePriceHistory(UNIVERSE_SYMBOLS)
+  const history = usePriceHistory()
 
   const [symbol, setSymbol] = useState(UNIVERSE_SYMBOLS[0])
 
@@ -56,12 +56,17 @@ export function TradingTerminal({
   )
 
   const view = useMemo<SymbolView>(() => {
-    const pts = history[symbol] ?? []
+    const base = history[symbol] ?? []
     const price = resolvePrice(prices, symbol)
+    // Append the latest live price as the line's tip so it stays current between
+    // the (calm) history refreshes, without rewriting the real history behind it.
+    const last = base[base.length - 1]
+    const pts =
+      price > 0 && (!last || Math.abs(price - last.p) > 1e-9) ? [...base, { t: Date.now(), p: price }] : base
     const open = pts[0]?.p ?? price
     const seriesPrices = pts.map((pt) => pt.p)
-    const high = seriesPrices.length > 0 ? Math.max(...seriesPrices, price) : price
-    const low = seriesPrices.length > 0 ? Math.min(...seriesPrices, price) : price
+    const high = seriesPrices.length > 0 ? Math.max(...seriesPrices) : price
+    const low = seriesPrices.length > 0 ? Math.min(...seriesPrices) : price
     return {
       sym: symbol,
       name: universeName(symbol),
