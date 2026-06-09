@@ -309,7 +309,7 @@ function CognitionLoopPanel() {
               )}
             </Fragment>
           ))}
-          <span className="ml-1 inline-flex items-center gap-1 rounded-md bg-indigo-500/15 px-2 py-1 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400">
+          <span className="ml-1 inline-flex items-center gap-1 rounded-md bg-primary/15 px-2 py-1 text-[11px] font-semibold text-primary">
             <Repeat className="h-3 w-3" /> directive evolves
           </span>
         </div>
