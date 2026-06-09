@@ -60,7 +60,6 @@ vi.mock('@/components/MobileNavigation', () => ({
 }), { virtual: true })
 
 import { DashboardView } from '@/app/dashboard/DashboardView'
-import { usePaperDesk } from '@/components/dashboard/terminal'
 
 beforeAll(() => {
   global.fetch = vi.fn().mockResolvedValue({
@@ -76,41 +75,43 @@ describe('DashboardView — overview (trading terminal)', () => {
     mockStore.positions = []
     mockStore.agentLogs = []
     mockStore.prices = {}
+    mockStore.tradeFeed = []
     mockStore.learningEvents = []
     mockStore.systemMetrics = []
     mockStore.dashboardData = null
     mockStore.proposals = []
-    // The paper desk is a module-level store shared across renders — reset it so
-    // demo-seeding is deterministic per test (see usePaperDesk.seed).
-    usePaperDesk.setState({ positions: [], orders: [], seeded: false })
   })
 
   it('renders without crashing when store is empty', () => {
     expect(() => render(<DashboardView section="overview" />)).not.toThrow()
   })
 
-  it('renders the core terminal panels', () => {
+  it('renders the real, read-only terminal panels', () => {
     render(<DashboardView section="overview" />)
     expect(screen.getByText('Watchlist')).toBeInTheDocument()
-    expect(screen.getByText('Order Ticket')).toBeInTheDocument()
-    expect(screen.getByText('Order Book')).toBeInTheDocument()
-    expect(screen.getByText('Time & Sales')).toBeInTheDocument()
+    expect(screen.getByText('Positions')).toBeInTheDocument()
+    expect(screen.getByText('Agent Decisions')).toBeInTheDocument()
+    expect(screen.getByText('Executions')).toBeInTheDocument()
   })
 
-  it('lists watchlist symbols', () => {
+  it('has no manual order-entry surface — agents place orders', () => {
     render(<DashboardView section="overview" />)
-    // Each universe symbol appears at least once (watchlist row, and possibly the
-    // chart header / blotter), so assert presence rather than uniqueness.
-    expect(screen.getAllByText('NVDA').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Order Ticket')).not.toBeInTheDocument()
+    expect(screen.queryByText('Order Book')).not.toBeInTheDocument()
+  })
+
+  it('lists the real monitored symbols (crypto + equities)', () => {
+    render(<DashboardView section="overview" />)
+    expect(screen.getAllByText('BTC/USD').length).toBeGreaterThan(0)
     expect(screen.getAllByText('AAPL').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('SPY').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('SOL/USD').length).toBeGreaterThan(0)
   })
 
-  it('seeds a populated paper blotter when the real account is empty', () => {
+  it('shows honest empty states when the account is flat', () => {
     render(<DashboardView section="overview" />)
-    // Demo desk seeds 4 paper positions and no working orders out of the box.
-    expect(screen.getByText('Positions 4')).toBeInTheDocument()
-    expect(screen.getByText('Working 0')).toBeInTheDocument()
+    expect(screen.getByText('No open positions')).toBeInTheDocument()
+    expect(screen.getByText('No agent decisions yet')).toBeInTheDocument()
+    expect(screen.getByText('No fills yet')).toBeInTheDocument()
   })
 
   it('never shows NaN anywhere on screen', () => {
