@@ -30,7 +30,7 @@ interface PromptEvolutionResponse {
 
 function VersionTag({ version }: { version: number }) {
   return (
-    <span className="shrink-0 rounded bg-indigo-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">
+    <span className="shrink-0 rounded bg-primary/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-primary">
       v{version}
     </span>
   )
@@ -152,9 +152,9 @@ export function PromptEvolutionPanel() {
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 px-3 py-2 dark:border-indigo-900/50 dark:bg-indigo-950/20">
+          <div className="rounded-lg border border-primary/30 bg-primary/10 px-3 py-2">
             <div className="mb-1 flex items-center justify-between gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-primary">
                 Active
               </span>
               <VersionTag version={active.version} />
