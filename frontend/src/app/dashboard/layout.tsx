@@ -16,14 +16,12 @@ import {
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
-import { useLivePositions } from '@/hooks/useLivePositions'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { api } from '@/lib/apiClient'
 import { formatUSD } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
-import { deskAccount, usePaperDesk } from '@/components/dashboard/terminal'
-import { resolvePrice } from '@/components/dashboard/terminal/marketData'
+import { useTerminalAccount } from '@/components/dashboard/terminal'
 
 const NAV = [
   { href: '/dashboard', label: 'Overview', Icon: LayoutDashboard },
@@ -82,15 +80,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [mounted, setMounted] = useState(false)
   const { killSwitchActive, wsConnected, setKillSwitch, hydrateFromLocalStorage } = useCodexStore()
 
-  // Account stats come from the shared paper desk so the header and the
-  // terminal blotter always agree on equity / P&L / buying power.
-  const prices = useCodexStore((s) => s.prices)
-  const realPositions = useLivePositions()
-  const { positions, cash, seed } = usePaperDesk()
-  useEffect(() => {
-    seed(realPositions, (sym) => resolvePrice(prices, sym))
-  }, [seed, realPositions, prices])
-  const { equity, dayPnl, buyingPower } = deskAccount(cash, positions)
+  // Real account stats — live P&L (realized + mark-to-market) over the real
+  // open positions, the same sources the rest of the dashboard reads.
+  const { equity, dayPnl, buyingPower } = useTerminalAccount()
   const dayUp = dayPnl >= 0
 
   const live = !killSwitchActive
