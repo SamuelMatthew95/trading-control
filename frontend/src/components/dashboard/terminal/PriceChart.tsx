@@ -43,7 +43,7 @@ export function PriceChart({ points }: { points: PricePoint[] }) {
   if (data.length < 2) {
     return (
       <div className="flex h-full items-center justify-center text-[11px] font-mono text-slate-500 dark:text-slate-500">
-        Accumulating live price history…
+        Waiting for live price data… (feed warming up or market closed)
       </div>
     )
   }
