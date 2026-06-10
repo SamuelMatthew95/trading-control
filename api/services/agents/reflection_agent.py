@@ -30,7 +30,7 @@ from api.events.dlq import DLQManager
 from api.observability import log_structured
 from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agent_state import AgentStateRegistry
-from api.services.agents.base import MultiStreamAgent
+from api.services.agents.base import MultiStreamAgent, PairedCloseDeduper
 from api.services.agents.db_helpers import (
     persist_reflection_record,
     write_agent_log,
@@ -80,11 +80,17 @@ class ReflectionAgent(MultiStreamAgent):
         self._recent_fills: deque[dict[str, Any]] = deque(maxlen=50)
         self._recent_grades: deque[dict[str, Any]] = deque(maxlen=20)
         self._recent_ic: deque[dict[str, Any]] = deque(maxlen=20)
+        # The same round-trip close arrives on BOTH trade_performance and
+        # trade_completed; analyze it once or total_pnl doubles and the
+        # reflection cadence fires early.
+        self._close_dedup = PairedCloseDeduper()
         # Holds the GradeAgent eval_buffer reference injected at startup (optional)
         self._grade_agent: GradeAgent | None = None
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         if stream in {STREAM_TRADE_PERFORMANCE, STREAM_TRADE_COMPLETED}:
+            if self._close_dedup.is_duplicate(data):
+                return
             self._fills += 1
             self._recent_fills.append(
                 {

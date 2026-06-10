@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import OrderedDict
 from contextlib import suppress
 from typing import Any
 
@@ -14,6 +15,39 @@ from api.observability import log_structured
 from api.services.agent_state import AgentStateRegistry
 
 _IDLE_HEARTBEAT_INTERVAL = 60  # seconds between "alive but waiting" heartbeats
+
+
+class PairedCloseDeduper:
+    """Exactly-once gate for the paired round-trip-close fill events.
+
+    ``publish_fill_events`` emits the SAME close to both STREAM_TRADE_PERFORMANCE
+    and STREAM_TRADE_COMPLETED (same trace_id, same realized PnL). Any consumer
+    subscribed to both streams must process the close once — otherwise every
+    closed trade double-counts into PnL buffers, fill cadences, trade
+    evaluations, IC inputs, and the durable agent PnL store.
+
+    Only events carrying BOTH a trace_id and a realized PnL are deduped; opening
+    fills (pnl None / "" through the bus serializer) and trace-less events
+    always pass. Bounded LRU so a long run can't grow it without limit.
+    """
+
+    def __init__(self, max_traces: int = 500) -> None:
+        self._seen: OrderedDict[str, None] = OrderedDict()
+        self._max_traces = max_traces
+
+    def is_duplicate(self, data: dict[str, Any]) -> bool:
+        trace_id = data.get(FieldName.TRACE_ID)
+        pnl = data.get(FieldName.PNL)
+        if not trace_id or pnl is None or pnl == "":
+            return False
+        key = str(trace_id)
+        if key in self._seen:
+            self._seen.move_to_end(key)
+            return True
+        self._seen[key] = None
+        while len(self._seen) > self._max_traces:
+            self._seen.popitem(last=False)
+        return False
 
 
 class MultiStreamAgent:

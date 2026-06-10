@@ -119,6 +119,52 @@ async def test_accumulates_fills_from_trade_performance(grade_agent):
 
 @pytest.mark.asyncio
 @patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
+async def test_paired_close_events_graded_once(grade_agent):
+    """A round-trip close arrives on BOTH trade_performance and trade_completed
+    (same trace_id, same realized PnL). It must grade once — otherwise the
+    durable agent PnL store and every fill counter double-counts each trade."""
+    from api.constants import PNL_GRADED_AGENTS
+    from api.services.agent_pnl_store import set_agent_pnl_store
+
+    recorded: list[tuple[str, float]] = []
+
+    class _CaptureStore:
+        async def record_trade(self, agent_name: str, pnl: float) -> None:
+            recorded.append((agent_name, pnl))
+
+    close = {"pnl": 42.0, "trace_id": "trace-close-1"}
+    set_agent_pnl_store(_CaptureStore())
+    try:
+        await grade_agent.process("trade_performance", "id-1", close)
+        await grade_agent.process("trade_completed", "id-2", dict(close))
+    finally:
+        set_agent_pnl_store(None)
+
+    assert grade_agent._fills == 1
+    assert list(grade_agent._pnl_buffer) == [42.0]
+    # One attribution per graded agent — not two.
+    assert len(recorded) == len(PNL_GRADED_AGENTS)
+
+
+@pytest.mark.asyncio
+@patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
+async def test_opening_fill_does_not_consume_decision_tool_cache(grade_agent):
+    """An opening fill (pnl None) must NOT pop the cached decision tools —
+    popping before validating PnL destroyed entry-tool attribution and logged
+    a spurious error per open."""
+    from api.constants import FieldName
+
+    grade_agent._trace_tools["trace-open-1"] = ["tool_a"]
+    grade_agent._attribute_pnl_to_tools({FieldName.TRACE_ID: "trace-open-1", FieldName.PNL: None})
+    assert "trace-open-1" in grade_agent._trace_tools
+
+    # The bus serializes None to "" — same outcome required.
+    grade_agent._attribute_pnl_to_tools({FieldName.TRACE_ID: "trace-open-1", FieldName.PNL: ""})
+    assert "trace-open-1" in grade_agent._trace_tools
+
+
+@pytest.mark.asyncio
+@patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
 async def test_accumulates_confidence_from_executions(grade_agent):
     """Each executions event populates _confidence_buffer from the confidence field."""
     await grade_agent.process("executions", "id-1", {"confidence": 0.9})

@@ -42,7 +42,7 @@ from api.runtime_state import is_db_available
 from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agent_pnl_store import get_agent_pnl_store
 from api.services.agent_state import AgentStateRegistry
-from api.services.agents.base import MultiStreamAgent
+from api.services.agents.base import MultiStreamAgent, PairedCloseDeduper
 from api.services.agents.db_helpers import (
     persist_trade_evaluation,
     write_agent_log,
@@ -124,13 +124,15 @@ class GradeAgent(MultiStreamAgent):
         # (not just decision-time latency/reliability). Bounded so a long run
         # cannot grow it without limit.
         self._trace_tools: OrderedDict[str, list[str]] = OrderedDict()
+        # The same round-trip close arrives on BOTH trade_performance and
+        # trade_completed; grade it exactly once or the durable agent PnL
+        # store and every fill-cadence counter double-counts.
+        self._close_dedup = PairedCloseDeduper()
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
-        if stream == STREAM_TRADE_COMPLETED:
-            self._pnl_buffer.append(float(data.get(FieldName.PNL) or 0.0))
-            self._fills += 1
-            await self._score_and_persist_trade(data)
-        elif stream == STREAM_TRADE_PERFORMANCE:
+        if stream in (STREAM_TRADE_COMPLETED, STREAM_TRADE_PERFORMANCE):
+            if self._close_dedup.is_duplicate(data):
+                return
             self._pnl_buffer.append(float(data.get(FieldName.PNL) or 0.0))
             self._fills += 1
             await self._score_and_persist_trade(data)
@@ -224,21 +226,26 @@ class GradeAgent(MultiStreamAgent):
 
     def _attribute_pnl_to_tools(self, data: dict[str, Any]) -> None:
         """Fold a completed trade's realized PnL into the alpha of each tool that
-        informed its decision. Pops the trace so the paired trade_completed /
-        trade_performance events for one trade attribute exactly once."""
+        informed its decision. Pops the trace so one trade attributes exactly once.
+
+        Validate the PnL BEFORE popping: an opening fill carries pnl None
+        (serialized to "" by the bus), and popping on it would consume the
+        cached tool list so the eventual close finds nothing to attribute.
+        """
         trace_id = data.get(FieldName.TRACE_ID)
         if not trace_id:
             return
+        try:
+            realized_pnl = float(data.get(FieldName.PNL))
+        except (TypeError, ValueError):
+            return  # no realized PnL on this event — keep the cache for the close
         names = self._trace_tools.pop(trace_id, None)
         if not names:
-            return
-        pnl = data.get(FieldName.PNL)
-        if pnl is None:
             return
         try:
             registry = get_tool_registry()
             for name in names:
-                registry.record_call(name, latency_ms=0.0, success=True, realized_pnl=float(pnl))
+                registry.record_call(name, latency_ms=0.0, success=True, realized_pnl=realized_pnl)
         except Exception:
             log_structured("warning", "tool_pnl_attribution_failed", exc_info=True)
 
