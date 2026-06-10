@@ -504,6 +504,7 @@ class ProposalApplier(MultiStreamAgent):
         # Drop every prior promotion advisory for this strategy (stable prefix),
         # keep everything else (LLM-evolved guidance, other strategies' lines).
         stale_prefix = f"Promoted strategy '{strategy}':"
+        had_prior = any(ln.strip().startswith(stale_prefix) for ln in current.splitlines())
         kept = [ln for ln in current.splitlines() if not ln.strip().startswith(stale_prefix)]
         new_text = "\n".join([*kept, advisory]).strip()
         if new_text == current.strip():
@@ -513,6 +514,11 @@ class ProposalApplier(MultiStreamAgent):
             new_text,
             rationale=f"operator-approved challenger promotion: {strategy}",
             source=AGENT_PROPOSAL_APPLIER,
+            # A re-promotion that only refreshes this strategy's edge/win-rate
+            # numbers updates the directive IN PLACE — same version, no history
+            # entry. Without this every promotion cycle minted a new
+            # near-identical version (the "v1..v10 all identical" history wall).
+            bump_version=not had_prior,
         )
 
     async def _apply_signal_weight_reduction(

@@ -267,6 +267,7 @@ async def test_shadow_winner_emits_promotion_proposal_once(mock_bus, mock_dlq):
         "shadow_trades": CHALLENGER_MIN_SHADOW_TRADES + 5,
         "shadow_win_rate": 0.66,
         "shadow_pnl": 120.0,
+        "shadow_sharpe": 1.2,
         "baseline_shadow_pnl": 20.0,
         "beats_baseline_shadow": True,
     }
@@ -322,6 +323,54 @@ async def test_no_promotion_proposal_when_not_beating_baseline(mock_bus, mock_dl
 
     await agent._maybe_propose_shadow_promotion()
     assert not [c for c in mock_bus.publish.await_args_list if c.args[0] == STREAM_PROPOSALS]
+
+
+@pytest.mark.asyncio
+async def test_no_promotion_when_own_record_is_weak(mock_bus, mock_dlq):
+    """Beating baseline is NOT enough: a challenger whose own record is weak
+    (low win rate / negative PnL / negative Sharpe) never proposes promotion —
+    "lost less than a losing baseline" must not promote."""
+    from api.constants import CHALLENGER_MIN_SHADOW_TRADES
+
+    agent = ChallengerAgent(
+        mock_bus, mock_dlq, challenger_config={"strategy": "mean_reversion"}, max_fills=10_000
+    )
+    agent._shadow = MagicMock()
+    agent._shadow.metrics.trades = CHALLENGER_MIN_SHADOW_TRADES + 5
+    agent._baseline_shadow = MagicMock()
+    # Beats a losing baseline while itself losing — every "own record" gate fails.
+    agent._shadow_summary = lambda: {
+        "shadow_trades": CHALLENGER_MIN_SHADOW_TRADES + 5,
+        "shadow_win_rate": 0.40,
+        "shadow_pnl": -50.0,
+        "shadow_sharpe": -0.3,
+        "baseline_shadow_pnl": -200.0,
+        "beats_baseline_shadow": True,
+    }
+
+    await agent._maybe_propose_shadow_promotion()
+    assert not [c for c in mock_bus.publish.await_args_list if c.args[0] == STREAM_PROPOSALS]
+
+    blockers = agent._promotion_blockers(agent._shadow_summary())
+    assert any("win rate" in b for b in blockers)
+    assert any("PnL" in b for b in blockers)
+    assert any("Sharpe" in b for b in blockers)
+
+
+@pytest.mark.asyncio
+async def test_snapshot_exposes_promotion_blockers(mock_bus, mock_dlq):
+    """The dashboard snapshot names the unmet promotion criteria so the UI can
+    show WHY a challenger is not yet eligible."""
+    from api.constants import CHALLENGER_MIN_SHADOW_WIN_RATE
+
+    agent = ChallengerAgent(
+        mock_bus, mock_dlq, challenger_config={"strategy": "baseline_momentum"}, max_fills=10_000
+    )
+    await agent.process(STREAM_MARKET_EVENTS, "s", _tick(100.0))
+    snap = agent.activity_snapshot()
+    assert snap["min_shadow_win_rate"] == CHALLENGER_MIN_SHADOW_WIN_RATE
+    assert isinstance(snap.get("promotion_blockers"), list)
+    assert any("shadow trades" in b for b in snap["promotion_blockers"])
 
 
 # ---------------------------------------------------------------------------

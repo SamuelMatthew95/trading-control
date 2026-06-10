@@ -360,10 +360,16 @@ def _grade_agent(
     # earning a letter for heartbeating. This is the fix for "0 events but graded".
     work_available = [d for d in available if d.key != FieldName.LIVENESS]
 
+    # Data coverage: the share of applicable dimension weight that actually has
+    # evidence. Used to CAP the score — an agent graded on 3/5 dimensions must
+    # not renormalize its way to 100%; the missing evidence never supported it.
+    applicable_weight = sum(_DIM_WEIGHTS[d.key] for d in dims.values())
+    available_weight = sum(_DIM_WEIGHTS[d.key] for d in available)
+    coverage = available_weight / applicable_weight if applicable_weight else 0.0
+
     if work_available:
-        total_weight = sum(_DIM_WEIGHTS[d.key] for d in available)
-        raw = sum(d.value * _DIM_WEIGHTS[d.key] for d in available) / total_weight
-        score: float | None = round(min(max(raw, 0.0), 1.0), 4)
+        raw = sum(d.value * _DIM_WEIGHTS[d.key] for d in available) / available_weight
+        score: float | None = round(min(max(raw * coverage, 0.0), 1.0), 4)
         letter: str | None = score_to_grade(score)
         tier = GRADE_TO_TIER.get(letter, TIER_UNRATED)
         status = str(heartbeat.get(FieldName.STATUS) or "UNKNOWN")
@@ -374,6 +380,18 @@ def _grade_agent(
         status = "INSUFFICIENT_DATA"
 
     graded = score is not None
+    learnings = _build_learnings(heartbeat, dims, completed, failed, terminal, p95_latency, graded)
+    if graded and coverage < 1.0:
+        unscored = sum(1 for d in dims.values() if not d.available)
+        learnings.append(
+            {
+                FieldName.TEXT: (
+                    f"Grade capped at {coverage * 100:.0f}% of full evidence — "
+                    f"{unscored} of {len(dims)} dimensions have no data yet."
+                ),
+                FieldName.TONE: _TONE_WARNING,
+            }
+        )
     return {
         FieldName.NAME: agent_name,
         FieldName.DISPLAY_NAME: _display_name(agent_name),
@@ -400,9 +418,7 @@ def _grade_agent(
             }
             for d in dims.values()
         ],
-        FieldName.LEARNINGS: _build_learnings(
-            heartbeat, dims, completed, failed, terminal, p95_latency, graded
-        ),
+        FieldName.LEARNINGS: learnings,
     }
 
 
@@ -481,14 +497,18 @@ async def _read_trust(agent_name: str) -> float:
 def _pnl_clears_promotion_gate(pnl_stats: dict[str, Any] | None) -> bool:
     """A trading agent's realized record must clear the bar before it is promoted.
 
-    Requires a meaningful sample (≥ AGENT_PNL_MIN_TRADES) AND a win rate at or
-    above AGENT_PNL_PROMOTION_MIN_WIN_RATE. No data ⇒ not gated through (an agent
-    is never promoted on liveness alone while its trades are unproven)."""
+    Requires a meaningful sample (≥ AGENT_PNL_MIN_TRADES), a win rate at or
+    above AGENT_PNL_PROMOTION_MIN_WIN_RATE, AND positive total realized PnL — a
+    winning rate that still loses money must not promote. No data ⇒ not gated
+    through (an agent is never promoted on liveness alone while its trades are
+    unproven)."""
     if not pnl_stats:
         return False
     if int(pnl_stats.get(FieldName.TRADE_COUNT) or 0) < AGENT_PNL_MIN_TRADES:
         return False
-    return float(pnl_stats.get(FieldName.WIN_RATE) or 0.0) >= AGENT_PNL_PROMOTION_MIN_WIN_RATE
+    if float(pnl_stats.get(FieldName.WIN_RATE) or 0.0) < AGENT_PNL_PROMOTION_MIN_WIN_RATE:
+        return False
+    return float(pnl_stats.get(FieldName.TOTAL_PNL) or 0.0) > 0.0
 
 
 async def _finalize_promotion(

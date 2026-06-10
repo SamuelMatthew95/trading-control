@@ -314,3 +314,33 @@ the manual approval gate.
 **Regression tests:**
 `tests/agents/test_proposal_applier.py::test_challenger_promotion_auto_applies_by_default`,
 `::test_challenger_promotion_pending_without_approval` (gated mode, flag off)
+
+## Prompt Evolution history was a wall of near-identical versions
+
+**Symptom:** Operator: "v1 to v10 is all the same — nothing is there." The
+Prompt Evolution panel's history showed ~10 versions whose text differed only
+in embedded edge/win-rate numbers, and the ACTIVE directive still contained
+the same `Promoted strategy 'mean_reversion': …` line stacked five times
+(state written before the replace-not-append fix).
+
+**Root cause:** Every re-promotion of an already-promoted strategy called
+`set_directive`, minting a full new version + history entry for a
+numbers-only refresh; and nothing healed directives whose Redis state already
+held stacked advisory lines — they stayed stacked until the *next* promotion.
+
+**Fix:** (`api/services/prompt_store.py`) `set_directive` now (1) no-ops on
+text identical to the active directive, and (2) accepts
+`bump_version=False` to refresh the active text in place — same version, no
+history entry. `_bias_directive_toward`
+(`api/services/agents/proposal_applier.py`) passes `bump_version=False`
+whenever the strategy already had an advisory line. `get_directive`
+self-heals on read via `dedupe_promotion_advisories()` — stacked
+`Promoted strategy 'X':` lines collapse to the newest one per strategy, so
+the live LLM prompt and the panel never show the pre-fix wall still stored
+in Redis.
+
+**Regression tests:**
+`tests/api/test_prompt_store.py::test_identical_text_does_not_burn_a_version`,
+`::test_in_place_update_keeps_version_and_history`,
+`::test_read_self_heals_stacked_promotion_advisories`,
+`tests/agents/test_proposal_applier.py::test_repromotion_refreshes_advisory_without_version_bump`

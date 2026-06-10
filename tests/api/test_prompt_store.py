@@ -9,6 +9,7 @@ import pytest
 from api.constants import FieldName
 from api.services.prompt_store import (
     PromptStore,
+    dedupe_promotion_advisories,
     get_prompt_store,
     set_prompt_store,
 )
@@ -93,3 +94,57 @@ async def test_directive_record_is_json_serialisable():
     rec = await store.set_directive("reasoning_node", "guidance", rationale="why", source="src")
     # Must round-trip cleanly (it is persisted as JSON in Redis).
     assert json.loads(json.dumps(rec))[FieldName.NODE] == "reasoning_node"
+
+
+async def test_identical_text_does_not_burn_a_version():
+    """Re-writing the active text verbatim is a no-op: same version, no history
+    entry — the version history must record substantive changes only."""
+    store = PromptStore(_FakeRedis())
+    rec1 = await store.set_directive("reasoning_node", "guidance")
+    rec2 = await store.set_directive("reasoning_node", "guidance")
+    assert rec2[FieldName.VERSION] == rec1[FieldName.VERSION] == 1
+    assert await store.list_history("reasoning_node") == []
+
+
+async def test_in_place_update_keeps_version_and_history():
+    """bump_version=False refreshes the active text without minting a new
+    version — used when only embedded numbers change (promotion advisories)."""
+    store = PromptStore(_FakeRedis())
+    await store.set_directive("reasoning_node", "Promoted strategy 'x': edge 1.0.")
+    rec = await store.set_directive(
+        "reasoning_node", "Promoted strategy 'x': edge 2.0.", bump_version=False
+    )
+    assert rec[FieldName.VERSION] == 1
+    assert await store.get_active_text("reasoning_node") == "Promoted strategy 'x': edge 2.0."
+    assert await store.list_history("reasoning_node") == []
+
+
+async def test_read_self_heals_stacked_promotion_advisories():
+    """A pre-fix directive with N near-duplicate 'Promoted strategy …' lines is
+    collapsed to ONE per strategy (the newest) on every read — the LLM prompt
+    and the dashboard never see the stacked wall still stored in Redis."""
+    redis = _FakeRedis()
+    stacked = "\n".join(
+        [
+            "Keep risk tight.",
+            "Promoted strategy 'mean_reversion': favor setups (edge 7.4, win 0.77).",
+            "Promoted strategy 'mean_reversion': favor setups (edge 811.7, win 0.68).",
+            "Promoted strategy 'confirmed_trend': favor setups (edge 3.2, win 0.61).",
+            "Promoted strategy 'mean_reversion': favor setups (edge 886.4, win 0.64).",
+        ]
+    )
+    redis.kv["prompt:directive:reasoning_node"] = json.dumps(
+        {FieldName.NODE: "reasoning_node", FieldName.TEXT: stacked, FieldName.VERSION: 11}
+    )
+    store = PromptStore(redis)
+    text = await store.get_active_text("reasoning_node")
+    assert text is not None
+    assert text.count("Promoted strategy 'mean_reversion'") == 1
+    assert "edge 886.4" in text  # the newest advisory wins
+    assert text.count("Promoted strategy 'confirmed_trend'") == 1
+    assert "Keep risk tight." in text  # non-advisory guidance untouched
+
+
+def test_dedupe_noop_on_clean_text():
+    clean = "Some guidance.\nPromoted strategy 'x': edge 1.0."
+    assert dedupe_promotion_advisories(clean) == clean
