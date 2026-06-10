@@ -51,10 +51,6 @@ vi.mock('@/stores/useCodexStore', () => ({
   useCodexStore: mockUseCodexStore
 }))
 
-vi.mock('@/components/EquityCurve', () => ({
-  EquityCurve: () => null
-}), { virtual: true })
-
 vi.mock('@/components/MobileNavigation', () => ({
   MobileNavigation: () => null
 }), { virtual: true })

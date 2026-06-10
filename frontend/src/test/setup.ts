@@ -4,7 +4,7 @@ import React from 'react'
 import { vi } from 'vitest'
 
 // jsdom has no ResizeObserver, which recharts' ResponsiveContainer requires.
-// Without it, any component that renders a chart (e.g. the live EquityCurve)
+// Without it, any component that renders a chart (e.g. the terminal PriceChart)
 // throws "ResizeObserver is not defined" on mount. Provide a no-op stub.
 class ResizeObserverStub {
   observe() {}
