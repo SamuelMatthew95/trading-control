@@ -35,7 +35,11 @@ def _in_memory_proposals(limit: int = 20) -> list[dict[str, Any]]:
             or payload.get(FieldName.REFLECTION_TRACE_ID)
             or payload.get(FieldName.MSG_ID)
         )
-        proposal_id = str(trace_id or len(proposals) + 1)
+        # Identity must be unique PER PROPOSAL. All proposals born from one
+        # reflection share the reflection trace_id, so keying rows on the trace
+        # made every sibling collapse to the same id — approving one approved
+        # them all. msg_id is unique per publish; trace is only the fallback.
+        proposal_id = str(payload.get(FieldName.MSG_ID) or trace_id or len(proposals) + 1)
         timestamp = _timestamp_to_iso(
             event.get(FieldName.CREATED_AT)
             or event.get(FieldName.TIMESTAMP)
@@ -54,7 +58,14 @@ def _in_memory_proposals(limit: int = 20) -> list[dict[str, Any]]:
                 "trace_id": trace_id,
                 "created_at": timestamp,
                 "source": "in_memory",
-                "status": payload.get(FieldName.STATUS, OrderStatus.PENDING),
+                # Older applier audit rows carried applied=True but no status;
+                # never resurface an acted-on change as a pending decision.
+                "status": payload.get(FieldName.STATUS)
+                or (
+                    ProposalStatus.APPLIED
+                    if payload.get(FieldName.APPLIED)
+                    else OrderStatus.PENDING
+                ),
                 "proposal_type": payload.get(FieldName.PROPOSAL_TYPE, "parameter_change"),
                 "content": payload.get(FieldName.CONTENT, {}),
                 "requires_approval": payload.get(FieldName.REQUIRES_APPROVAL, True),

@@ -209,6 +209,10 @@ class ProposalStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
+    # Terminal state for proposals the ProposalApplier has acted on. Audit
+    # rows MUST carry this so the review queue never renders an
+    # already-applied change as a fresh pending decision.
+    APPLIED = "applied"
 
 
 class LLMCallResult(StrEnum):

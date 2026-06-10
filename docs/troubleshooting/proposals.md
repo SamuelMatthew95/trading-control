@@ -188,3 +188,36 @@ durable, auditable, operator-visible source of truth.
 `::test_challenger_promotion_approved_biases_and_spawns`,
 `::test_challenger_promotion_reapproval_is_idempotent`,
 `tests/api/test_proposal_approval_republish.py`
+
+## Review queue spammed by evidence-less "parameter change" rows
+
+**Symptom:** The proposal queue filled with near-identical pending
+"parameter change" rows — no description, no confidence, no backtest delta
+(everything `--`), several sharing one trace_id — each with live
+Approve/Reject buttons that changed nothing.
+
+**Root cause (three stacked defects):**
+1. The ProposalApplier's audit rows (`write_agent_log(trace, PROPOSAL, ...)`)
+   carried no `status` and no `content`. Every proposals read path defaults a
+   missing status to `pending` and missing content to `{}` — so each change
+   the applier ACTED ON re-appeared in the queue as a fresh evidence-less
+   pending proposal.
+2. The applier had no idempotency: stream retries / DLQ replays redelivered
+   the same proposal and re-ran the handler — duplicating PR artifacts and
+   audit rows.
+3. `_in_memory_proposals` keyed row identity on the trace_id, which all
+   proposals from one reflection share — siblings collapsed to one identity
+   and approving one row matched all of them.
+
+**Fix:** Audit rows now stamp `status=ProposalStatus.APPLIED` (new enum
+member), `requires_approval=False`, a fresh `msg_id`, and carry the applied
+summary as `content` (`api/services/agents/proposal_applier.py`). The applier
+dedups on msg_id (bounded LRU; approval republishes with `APPROVED=True` still
+pass). `_in_memory_proposals` keys rows on `payload.msg_id` and maps legacy
+`applied=True` rows to status `applied`
+(`api/services/dashboard/proposals.py`).
+
+**Regression tests:**
+`tests/agents/test_proposal_applier.py::test_audit_log_row_is_terminal_not_pending`,
+`::test_redelivered_proposal_applies_exactly_once`,
+`tests/core/test_memory_dashboard_reads.py::test_memory_proposals_have_unique_ids_and_applied_rows_are_not_pending`

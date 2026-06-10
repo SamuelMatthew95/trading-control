@@ -85,3 +85,45 @@ def test_performance_trends_averages_use_paired_window():
     summary = _performance_trends_from_runtime_store()["summary"]
     assert summary[FieldName.TOTAL_TRADES] == 100
     assert summary[FieldName.AVG_WIN] == 10.0
+
+
+def test_memory_proposals_have_unique_ids_and_applied_rows_are_not_pending():
+    """Regression (queue-spam): proposals from one reflection share the
+    reflection trace — rows keyed on it collapsed to one identity (approving
+    one approved all). And applier audit rows (applied=True, no status) must
+    never read back as pending."""
+    from api.constants import LogType, ProposalStatus
+    from api.services.dashboard.proposals import _in_memory_proposals
+
+    store = InMemoryStore()
+    for n in (1, 2):
+        store.add_event(
+            {
+                FieldName.LOG_TYPE: LogType.PROPOSAL,
+                FieldName.TRACE_ID: "shared-reflection-trace",
+                FieldName.PAYLOAD: {
+                    FieldName.MSG_ID: f"msg-{n}",
+                    FieldName.PROPOSAL_TYPE: "parameter_change",
+                    FieldName.CONTENT: {FieldName.DESCRIPTION: f"candidate {n}"},
+                },
+            }
+        )
+    # Old-style applier audit row: applied flag, no explicit status.
+    store.add_event(
+        {
+            FieldName.LOG_TYPE: LogType.PROPOSAL,
+            FieldName.TRACE_ID: "shared-reflection-trace",
+            FieldName.PAYLOAD: {
+                FieldName.MSG_ID: "msg-audit",
+                FieldName.PROPOSAL_TYPE: "parameter_change",
+                FieldName.APPLIED: True,
+            },
+        }
+    )
+    set_runtime_store(store)
+
+    rows = _in_memory_proposals(limit=10)
+    ids = [r[FieldName.ID] for r in rows]
+    assert len(ids) == len(set(ids)), "each proposal must have its own identity"
+    audit = next(r for r in rows if r[FieldName.ID] == "msg-audit")
+    assert audit["status"] == ProposalStatus.APPLIED

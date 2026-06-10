@@ -576,3 +576,66 @@ async def test_challenger_promotion_reapproval_is_idempotent(monkeypatch):
         assert second[FieldName.TEXT].count("Promoted strategy 'mean_reversion'") == 1
     finally:
         set_prompt_store(None)
+
+
+async def test_audit_log_row_is_terminal_not_pending(monkeypatch):
+    """Regression (queue-spam bug): the applier's audit row must carry a
+    terminal status and the applied summary as content. Without them, every
+    proposals read path defaulted status to 'pending' and content to {},
+    so each applied change reappeared in the review queue as a fresh
+    evidence-less proposal with live Approve/Reject buttons."""
+    from api.constants import ProposalStatus
+
+    write_log_mock = AsyncMock()
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", write_log_mock)
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    applier = _make_applier(_FakeRedis())
+
+    proposal = {
+        FieldName.PROPOSAL_TYPE: ProposalType.PARAMETER_CHANGE,
+        FieldName.TRACE_ID: "trace-audit-1",
+        FieldName.CONTENT: {
+            FieldName.PARAMETER: "SIGNAL_CONFIDENCE_MIN_GATE",
+            FieldName.PREVIOUS_VALUE: 0.65,
+            FieldName.NEW_VALUE: 0.50,
+            FieldName.REASON: "test",
+        },
+    }
+    await applier.process("proposals", "1-0", proposal)
+
+    assert write_log_mock.await_count == 1
+    (_, _, payload), _ = write_log_mock.call_args
+    assert payload[FieldName.STATUS] == ProposalStatus.APPLIED
+    assert payload[FieldName.REQUIRES_APPROVAL] is False
+    assert payload[FieldName.CONTENT]  # carries the applied summary, not {}
+    assert payload[FieldName.MSG_ID]  # unique identity, not the shared trace
+
+
+async def test_redelivered_proposal_applies_exactly_once(monkeypatch):
+    """Regression: stream retries / DLQ replays redeliver the same proposal
+    (same msg_id). Re-running the handler duplicated its side effects — a
+    second PR artifact and a second audit row per redelivery."""
+    write_log_mock = AsyncMock()
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", write_log_mock)
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    applier = _make_applier(_FakeRedis())
+
+    proposal = {
+        FieldName.MSG_ID: "msg-dup-1",
+        FieldName.PROPOSAL_TYPE: ProposalType.PARAMETER_CHANGE,
+        FieldName.TRACE_ID: "trace-dup-1",
+        FieldName.CONTENT: {
+            FieldName.PARAMETER: "SIGNAL_CONFIDENCE_MIN_GATE",
+            FieldName.PREVIOUS_VALUE: 0.65,
+            FieldName.NEW_VALUE: 0.50,
+            FieldName.REASON: "test",
+        },
+    }
+    await applier.process("proposals", "1-0", proposal)
+    await applier.process("proposals", "1-1", dict(proposal))  # redelivery
+
+    assert write_log_mock.await_count == 1
+    from api.constants import STREAM_GITHUB_PRS
+
+    pr_calls = [c for c in applier.bus.publish.await_args_list if c.args[0] == STREAM_GITHUB_PRS]
+    assert len(pr_calls) == 1
