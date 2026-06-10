@@ -190,7 +190,7 @@ export function LearningLoopPanel() {
           Learning Loop
         </p>
         {error ? (
-          <span className="text-xs font-mono text-rose-500">err: {error}</span>
+          <span className="text-xs font-mono text-danger">err: {error}</span>
         ) : (
           <span className="text-xs text-slate-400">
             {state?.timestamp ? new Date(state.timestamp).toLocaleTimeString() : '--'}
@@ -212,7 +212,7 @@ export function LearningLoopPanel() {
         <div className="rounded-lg border border-slate-300 p-3 dark:border-slate-800">
           <p className="text-xs text-slate-500 dark:text-slate-400">Trading Paused</p>
           <p
-            className={`text-lg font-mono font-bold ${cp?.trading_paused ? 'text-rose-500' : 'text-emerald-500'}`}
+            className={`text-lg font-mono font-bold ${cp?.trading_paused ? 'text-danger' : 'text-success'}`}
           >
             {cp?.trading_paused ? 'PAUSED' : 'LIVE'}
           </p>
@@ -234,9 +234,9 @@ export function LearningLoopPanel() {
         <div className="rounded-lg border border-slate-300 p-3 dark:border-slate-800">
           <p className="text-xs text-slate-500 dark:text-slate-400">Proposals</p>
           <p className="text-lg font-mono font-bold tabular-nums">
-            <span className="text-emerald-500">{appliedCount}</span>
+            <span className="text-success">{appliedCount}</span>
             <span className="text-slate-400"> / </span>
-            <span className="text-amber-500">{pendingCount}</span>
+            <span className="text-warning">{pendingCount}</span>
           </p>
           <p className="text-xs text-slate-500">applied / pending</p>
         </div>
@@ -252,7 +252,7 @@ export function LearningLoopPanel() {
             {cp.suspended_agents.map((s) => (
               <span
                 key={s.agent_name}
-                className="rounded-full border border-rose-300 bg-rose-50 px-2 py-0.5 text-xs font-mono text-rose-600 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-400"
+                className="rounded-full border border-danger/30 bg-danger/10 px-2 py-0.5 text-xs font-mono text-danger"
               >
                 {agentDisplayName(s.agent_name)}
               </span>
@@ -286,9 +286,9 @@ export function LearningLoopPanel() {
                     <td className="p-2 text-slate-500">{p.action ?? p.message ?? '--'}</td>
                     <td className="p-2">
                       {p.applied ? (
-                        <span className="text-emerald-500">applied</span>
+                        <span className="text-success">applied</span>
                       ) : (
-                        <span className="text-amber-500">pending</span>
+                        <span className="text-warning">pending</span>
                       )}
                     </td>
                     <td className="p-2 text-slate-500">
@@ -337,12 +337,12 @@ export function LearningLoopPanel() {
                       <td className="p-2 text-right">{row.trades}</td>
                       <td className="p-2 text-right">{row.losses}</td>
                       <td
-                        className={`p-2 text-right ${negative ? 'text-rose-500' : 'text-emerald-500'}`}
+                        className={`p-2 text-right ${negative ? 'text-danger' : 'text-success'}`}
                       >
                         {fmtUSD(row.total_pnl)}
                       </td>
                       <td
-                        className={`p-2 text-right ${row.avg_pnl < 0 ? 'text-rose-500' : 'text-emerald-500'}`}
+                        className={`p-2 text-right ${row.avg_pnl < 0 ? 'text-danger' : 'text-success'}`}
                       >
                         {fmtUSD(row.avg_pnl)}
                       </td>
@@ -407,7 +407,7 @@ export function LearningLoopPanel() {
                   <div className="flex items-center justify-between gap-3">
                     <span className="flex items-center gap-2 truncate">
                       <span
-                        className={`h-2 w-2 shrink-0 rounded-full ${live ? 'bg-emerald-500' : 'bg-slate-400'}`}
+                        className={`h-2 w-2 shrink-0 rounded-full ${live ? 'bg-success' : 'bg-slate-400'}`}
                         title={live ? 'live — ticking' : 'stale — no recent tick'}
                       />
                       <span className="truncate font-mono text-xs text-slate-700 dark:text-slate-300">
@@ -418,7 +418,7 @@ export function LearningLoopPanel() {
                           promotion proposed
                         </span>
                       ) : c.beats_baseline_shadow ? (
-                        <span className="shrink-0 rounded-full bg-emerald-500/10 px-1.5 text-[10px] font-bold text-emerald-500">
+                        <span className="shrink-0 rounded-full bg-success/10 px-1.5 text-[10px] font-bold text-success">
                           beats baseline
                         </span>
                       ) : null}
@@ -439,7 +439,7 @@ export function LearningLoopPanel() {
                         <span>
                           win: {c.shadow_win_rate != null ? `${(c.shadow_win_rate * 100).toFixed(0)}%` : '--'}
                         </span>
-                        <span className={(c.shadow_pnl ?? 0) < 0 ? 'text-rose-500' : 'text-emerald-500'}>
+                        <span className={(c.shadow_pnl ?? 0) < 0 ? 'text-danger' : 'text-success'}>
                           pnl: {c.shadow_pnl != null ? fmtUSD(c.shadow_pnl) : '--'}
                         </span>
                         {c.shadow_sharpe != null ? <span>sharpe: {c.shadow_sharpe.toFixed(2)}</span> : null}
@@ -471,7 +471,7 @@ export function LearningLoopPanel() {
                         </div>
                         <div className="h-1 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
                           <div
-                            className={`h-full rounded-full ${progressPct >= 100 ? 'bg-violet-500' : 'bg-emerald-500'}`}
+                            className={`h-full rounded-full ${progressPct >= 100 ? 'bg-violet-500' : 'bg-success'}`}
                             style={{ width: `${progressPct}%` }}
                           />
                         </div>
@@ -493,7 +493,7 @@ export function LearningLoopPanel() {
                                   {t.direction === 'long' ? '▲' : '▼'} {t.direction} {t.symbol}
                                 </span>
                                 <span className="shrink-0 tabular-nums">
-                                  <span className={t.pnl < 0 ? 'text-rose-500' : 'text-emerald-500'}>
+                                  <span className={t.pnl < 0 ? 'text-danger' : 'text-success'}>
                                     {fmtUSD(t.pnl)}
                                   </span>
                                   <span className="text-slate-400"> · {relTime(t.timestamp)}</span>
@@ -559,7 +559,7 @@ export function LearningLoopPanel() {
                   >
                     <td className="p-2">{p.parameter}</td>
                     <td className="p-2 text-right text-slate-500">{p.previous_value ?? '--'}</td>
-                    <td className="p-2 text-right text-amber-500">{p.proposed_value ?? '--'}</td>
+                    <td className="p-2 text-right text-warning">{p.proposed_value ?? '--'}</td>
                     <td className="p-2 text-slate-500 truncate" title={p.reason}>
                       {p.reason || '--'}
                     </td>

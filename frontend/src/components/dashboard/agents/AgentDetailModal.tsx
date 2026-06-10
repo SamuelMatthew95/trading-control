@@ -40,7 +40,7 @@ function DimensionBar({ label, value, weight, available }: {
           <div
             className={cn(
               'h-full rounded-full',
-              value >= 0.8 ? 'bg-emerald-500' : value >= 0.5 ? 'bg-amber-500' : 'bg-rose-500',
+              value >= 0.8 ? 'bg-success' : value >= 0.5 ? 'bg-warning' : 'bg-danger',
             )}
             style={{ width: `${pct}%` }}
           />
@@ -128,7 +128,7 @@ export function AgentDetailModal({ name, onClose }: { name: string; onClose: () 
         </div>
 
         {loading && <p className={mutedClass}>Loading…</p>}
-        {error && <p className="text-sm text-rose-500">{error}</p>}
+        {error && <p className="text-sm text-danger">{error}</p>}
 
         {data && (
           <div className="space-y-5">

@@ -5,26 +5,29 @@ import { cn } from '@/lib/utils'
 import type { ActivityItem, ActivityStage, ActivityTone } from '@/lib/activity-timeline'
 import { EmptyState } from '@/components/ui/empty-state'
 
+// Eleven pipeline stages need eleven visually distinct dot hues — a
+// categorical legend the four semantic Tone tokens cannot express.
 const STAGE_META: Record<ActivityStage, { label: string; dot: string }> = {
-  market: { label: 'Market', dot: 'bg-sky-500' },
-  signal: { label: 'Signal', dot: 'bg-cyan-500' },
-  decision: { label: 'Decision', dot: 'bg-indigo-500' },
-  execution: { label: 'Execution', dot: 'bg-violet-500' },
-  grade: { label: 'Grade', dot: 'bg-amber-500' },
-  proposal: { label: 'Proposal', dot: 'bg-fuchsia-500' },
-  risk: { label: 'Risk', dot: 'bg-rose-500' },
-  learning: { label: 'Learning', dot: 'bg-teal-500' },
+  market: { label: 'Market', dot: 'bg-sky-500' }, // categorical-hue: stage legend
+  signal: { label: 'Signal', dot: 'bg-cyan-500' }, // categorical-hue: stage legend
+  decision: { label: 'Decision', dot: 'bg-indigo-500' }, // categorical-hue: stage legend
+  execution: { label: 'Execution', dot: 'bg-violet-500' }, // categorical-hue: stage legend
+  grade: { label: 'Grade', dot: 'bg-amber-500' }, // categorical-hue: stage legend
+  proposal: { label: 'Proposal', dot: 'bg-fuchsia-500' }, // categorical-hue: stage legend
+  risk: { label: 'Risk', dot: 'bg-rose-500' }, // categorical-hue: stage legend
+  learning: { label: 'Learning', dot: 'bg-teal-500' }, // categorical-hue: stage legend
   notification: { label: 'Alert', dot: 'bg-slate-400' },
-  agent: { label: 'Agent', dot: 'bg-emerald-500' },
+  agent: { label: 'Agent', dot: 'bg-emerald-500' }, // categorical-hue: stage legend
   system: { label: 'System', dot: 'bg-slate-500' },
 }
 
-const TONE_TEXT: Record<ActivityTone, string> = {
-  buy: 'text-emerald-600 dark:text-emerald-400',
-  sell: 'text-rose-600 dark:text-rose-400',
-  good: 'text-emerald-600 dark:text-emerald-400',
-  bad: 'text-rose-600 dark:text-rose-400',
-  warn: 'text-amber-600 dark:text-amber-400',
+// Row-title text colour per activity tone, resolved to the semantic tokens.
+const ACTIVITY_TONE_TEXT: Record<ActivityTone, string> = {
+  buy: 'text-success',
+  sell: 'text-danger',
+  good: 'text-success',
+  bad: 'text-danger',
+  warn: 'text-warning',
   neutral: 'text-slate-800 dark:text-slate-200',
 }
 
@@ -44,7 +47,7 @@ function ActivityRow({ item }: { item: ActivityItem }) {
       <span className="w-20 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
         {stage.label}
       </span>
-      <span className={cn('truncate text-xs font-semibold', TONE_TEXT[item.tone])}>{item.title}</span>
+      <span className={cn('truncate text-xs font-semibold', ACTIVITY_TONE_TEXT[item.tone])}>{item.title}</span>
       {item.detail ? (
         <span className="truncate font-mono text-[11px] tabular-nums text-slate-500 dark:text-slate-400">
           {item.detail}
@@ -53,7 +56,7 @@ function ActivityRow({ item }: { item: ActivityItem }) {
       {item.fallback ? (
         <span
           title="LLM unavailable — rule-based fallback, not model reasoning."
-          className="ml-auto shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400"
+          className="ml-auto shrink-0 rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning"
         >
           rule-based
         </span>

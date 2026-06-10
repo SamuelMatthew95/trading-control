@@ -338,7 +338,7 @@ export function DashboardView({ section }: { section: Section }) {
   }, [agentStatuses, agentInstances, agentLogs])
 
   const memoryBanner = dashboardData?.degraded_mode ? (
-    <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700/40 dark:bg-amber-950/30 dark:text-amber-300">
+    <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
       <span className="mt-0.5 shrink-0">⚠</span>
       <span>
         <strong>Memory mode</strong> — database unavailable

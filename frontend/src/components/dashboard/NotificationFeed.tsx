@@ -44,73 +44,75 @@ const iconByName: Record<string, ComponentType<{ className?: string }>> = {
   warning: AlertTriangle,
 }
 
-const toneStyles: Record<
-  string,
-  {
-    card: string
-    icon: string
-    badge: string
-    text: string
-    dot: string
-    border: string
-  }
-> = {
-  buy: {
-    card: 'border-emerald-500/40 bg-emerald-500/5 dark:border-emerald-500/30 dark:bg-emerald-500/5',
-    icon: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
-    badge: 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-    text: 'text-emerald-700 dark:text-emerald-300',
-    dot: 'bg-emerald-500',
-    border: 'border-l-emerald-500',
-  },
-  sell: {
-    card: 'border-rose-500/40 bg-rose-500/5 dark:border-rose-500/30 dark:bg-rose-500/5',
-    icon: 'bg-rose-500/15 text-rose-600 dark:text-rose-400',
-    badge: 'border border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300',
-    text: 'text-rose-700 dark:text-rose-300',
-    dot: 'bg-rose-500',
-    border: 'border-l-rose-500',
-  },
-  gain: {
-    card: 'border-emerald-500/40 bg-emerald-500/5 dark:border-emerald-500/30',
-    icon: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
-    badge: 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-    text: 'text-emerald-700 dark:text-emerald-300',
-    dot: 'bg-emerald-500',
-    border: 'border-l-emerald-500',
-  },
-  loss: {
-    card: 'border-rose-500/40 bg-rose-500/5 dark:border-rose-500/30',
-    icon: 'bg-rose-500/15 text-rose-600 dark:text-rose-400',
-    badge: 'border border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300',
-    text: 'text-rose-700 dark:text-rose-300',
-    dot: 'bg-rose-500',
-    border: 'border-l-rose-500',
-  },
-  critical: {
-    card: 'border-rose-600/50 bg-rose-500/8 dark:border-rose-600/40',
-    icon: 'bg-rose-500/15 text-rose-600 dark:text-rose-400',
-    badge: 'border border-rose-500/40 bg-rose-500/15 text-rose-700 dark:text-rose-300',
-    text: 'text-rose-700 dark:text-rose-300',
-    dot: 'bg-rose-600',
-    border: 'border-l-rose-600',
-  },
-  urgent: {
-    card: 'border-orange-500/40 bg-orange-500/5 dark:border-orange-500/30',
-    icon: 'bg-orange-500/15 text-orange-600 dark:text-orange-400',
-    badge: 'border border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300',
-    text: 'text-orange-700 dark:text-orange-300',
-    dot: 'bg-orange-500',
-    border: 'border-l-orange-500',
-  },
-  warning: {
-    card: 'border-amber-500/40 bg-amber-500/5 dark:border-amber-500/30',
-    icon: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
-    badge: 'border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300',
-    text: 'text-amber-700 dark:text-amber-300',
-    dot: 'bg-amber-500',
-    border: 'border-l-amber-500',
-  },
+interface NotificationToneStyle {
+  card: string
+  icon: string
+  badge: string
+  text: string
+  dot: string
+  border: string
+}
+
+/**
+ * Notification style recipes built on the semantic design tokens (class
+ * strings stay static literals so Tailwind's JIT can see them). The "strong"
+ * variants raise fill/border alpha one step so the severity ladder stays
+ * visually ranked (warning < urgent < critical) without leaving the token
+ * palette — light/dark parity comes from the tokens themselves.
+ */
+const SUCCESS_STYLE: NotificationToneStyle = {
+  card: 'border-success/40 bg-success/5',
+  icon: 'bg-success/15 text-success',
+  badge: 'border border-success/30 bg-success/10 text-success',
+  text: 'text-success',
+  dot: 'bg-success',
+  border: 'border-l-success',
+}
+
+const DANGER_STYLE: NotificationToneStyle = {
+  card: 'border-danger/40 bg-danger/5',
+  icon: 'bg-danger/15 text-danger',
+  badge: 'border border-danger/30 bg-danger/10 text-danger',
+  text: 'text-danger',
+  dot: 'bg-danger',
+  border: 'border-l-danger',
+}
+
+const DANGER_STRONG_STYLE: NotificationToneStyle = {
+  card: 'border-danger/50 bg-danger/15',
+  icon: 'bg-danger/15 text-danger',
+  badge: 'border border-danger/40 bg-danger/10 text-danger',
+  text: 'text-danger',
+  dot: 'bg-danger',
+  border: 'border-l-danger',
+}
+
+const WARNING_STYLE: NotificationToneStyle = {
+  card: 'border-warning/40 bg-warning/5',
+  icon: 'bg-warning/15 text-warning',
+  badge: 'border border-warning/30 bg-warning/10 text-warning',
+  text: 'text-warning',
+  dot: 'bg-warning',
+  border: 'border-l-warning',
+}
+
+const WARNING_STRONG_STYLE: NotificationToneStyle = {
+  card: 'border-warning/50 bg-warning/15',
+  icon: 'bg-warning/15 text-warning',
+  badge: 'border border-warning/40 bg-warning/10 text-warning',
+  text: 'text-warning',
+  dot: 'bg-warning',
+  border: 'border-l-warning',
+}
+
+const toneStyles: Record<string, NotificationToneStyle> = {
+  buy: SUCCESS_STYLE,
+  gain: SUCCESS_STYLE,
+  sell: DANGER_STYLE,
+  loss: DANGER_STYLE,
+  critical: DANGER_STRONG_STYLE,
+  urgent: WARNING_STRONG_STYLE,
+  warning: WARNING_STYLE,
   info: {
     card: 'border-slate-200 dark:border-slate-800',
     icon: 'bg-slate-500/10 text-slate-500',

@@ -25,12 +25,12 @@ describe('AlertBanner', () => {
 
   it('uses warn palette for warn variant', () => {
     render(<AlertBanner variant="warn" icon={AlertTriangle} message="x" />)
-    expect(screen.getByRole('alert').className).toContain('amber')
+    expect(screen.getByRole('alert').className).toContain('warning')
   })
 
   it('uses err palette for err variant', () => {
     render(<AlertBanner variant="err" icon={AlertTriangle} message="x" />)
-    expect(screen.getByRole('alert').className).toContain('rose')
+    expect(screen.getByRole('alert').className).toContain('danger')
   })
 
   it('uses info palette for info variant', () => {
@@ -40,7 +40,7 @@ describe('AlertBanner', () => {
 
   it('uses ok palette for ok variant', () => {
     render(<AlertBanner variant="ok" icon={AlertTriangle} message="x" />)
-    expect(screen.getByRole('alert').className).toContain('emerald')
+    expect(screen.getByRole('alert').className).toContain('success')
   })
 
   it('omits detail when not provided', () => {

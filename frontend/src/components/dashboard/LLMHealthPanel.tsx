@@ -39,7 +39,7 @@ function CallDot({ call }: { call: CallRecord }) {
     return (
       <span
         title={`Success — ${call.latency_ms?.toFixed(0) ?? '?'}ms`}
-        className="flex items-center gap-0.5 rounded bg-emerald-500/10 px-1 py-0.5 text-[10px] font-mono text-emerald-500"
+        className="flex items-center gap-0.5 rounded bg-success/10 px-1 py-0.5 text-[10px] font-mono text-success"
       >
         ✓ {call.latency_ms?.toFixed(0) ?? '?'}ms
       </span>
@@ -49,7 +49,7 @@ function CallDot({ call }: { call: CallRecord }) {
     return (
       <span
         title="Rate limited"
-        className="rounded bg-amber-50 px-1 py-0.5 text-[10px] font-mono text-amber-700 dark:bg-amber-400/10 dark:text-amber-400"
+        className="rounded bg-warning/10 px-1 py-0.5 text-[10px] font-mono text-warning"
       >
         RL
       </span>
@@ -59,7 +59,7 @@ function CallDot({ call }: { call: CallRecord }) {
     return (
       <span
         title="Timeout"
-        className="rounded bg-rose-500/10 px-1 py-0.5 text-[10px] font-mono text-rose-500"
+        className="rounded bg-danger/10 px-1 py-0.5 text-[10px] font-mono text-danger"
       >
         TO
       </span>
@@ -81,18 +81,18 @@ const LABEL = 'text-xs font-semibold uppercase tracking-widest font-sans text-sl
 const VALUE = 'font-mono text-slate-700 dark:text-slate-300'
 
 function successRateColor(pct: number): string {
-  if (pct >= 80) return 'font-semibold text-emerald-600 dark:text-emerald-500'
-  if (pct >= 50) return 'font-semibold text-amber-600 dark:text-amber-400'
-  return 'font-semibold text-rose-600 dark:text-rose-500'
+  if (pct >= 80) return 'font-semibold text-success'
+  if (pct >= 50) return 'font-semibold text-warning'
+  return 'font-semibold text-danger'
 }
 
 function LocalInferenceStrip({ data }: { data: LocalInferenceData }) {
   if (!data.lm_studio_enabled) return null
 
   const healthy = data.lm_studio_healthy
-  const dotColor = healthy ? 'bg-emerald-500' : 'bg-slate-400'
+  const dotColor = healthy ? 'bg-success' : 'bg-slate-400'
   const labelColor = healthy
-    ? 'text-emerald-600 dark:text-emerald-500'
+    ? 'text-success'
     : 'text-slate-500 dark:text-slate-400'
 
   return (
@@ -109,7 +109,7 @@ function LocalInferenceStrip({ data }: { data: LocalInferenceData }) {
 
       {/* Remote-to-localhost mismatch warning */}
       {data.remote_localhost_mismatch && (
-        <div className="mb-2 rounded border border-amber-400/40 bg-amber-400/10 px-2 py-1.5 text-amber-700 dark:text-amber-400">
+        <div className="mb-2 rounded border border-warning/40 bg-warning/10 px-2 py-1.5 text-warning">
           <span className="font-semibold">Remote backend cannot reach localhost.</span>
           <span className="ml-1">
             Use Tailscale, a public tunnel, or run the backend locally.
@@ -143,7 +143,7 @@ function LocalInferenceStrip({ data }: { data: LocalInferenceData }) {
           <span
             className={
               data.local_fallback_count > 0
-                ? 'font-semibold text-amber-600 dark:text-amber-400'
+                ? 'font-semibold text-warning'
                 : VALUE
             }
           >
@@ -158,7 +158,7 @@ function LocalInferenceStrip({ data }: { data: LocalInferenceData }) {
         {data.last_local_error && !data.remote_localhost_mismatch && (
           <span className={`${MUTED} col-span-2`}>
             Error:{' '}
-            <span className="font-mono text-rose-500 dark:text-rose-400">
+            <span className="font-mono text-danger">
               {data.last_local_error}
             </span>
           </span>
@@ -186,8 +186,8 @@ function timeAgo(iso: string): string {
 function DelayValue({ delayMs, gradeAdjusted }: { delayMs: number; gradeAdjusted: boolean }) {
   const color = gradeAdjusted
     ? delayMs >= 1000
-      ? 'font-semibold text-rose-600 dark:text-rose-500'
-      : 'font-semibold text-amber-600 dark:text-amber-400'
+      ? 'font-semibold text-danger'
+      : 'font-semibold text-warning'
     : VALUE
   return (
     <span className={color}>
@@ -259,7 +259,7 @@ export function LLMHealthPanel() {
 
         <span className={MUTED}>
           Rate Limited:{' '}
-          <span className={data.rate_limited_count > 0 ? 'font-semibold text-amber-600 dark:text-amber-400' : VALUE}>
+          <span className={data.rate_limited_count > 0 ? 'font-semibold text-warning' : VALUE}>
             {data.rate_limited_count}
           </span>{' '}
           <span className={MUTED}>(last {windowMin}m)</span>
@@ -267,7 +267,7 @@ export function LLMHealthPanel() {
 
         <span className={MUTED}>
           Timeouts:{' '}
-          <span className={data.timeout_count > 0 ? 'font-semibold text-rose-500' : VALUE}>
+          <span className={data.timeout_count > 0 ? 'font-semibold text-danger' : VALUE}>
             {data.timeout_count}
           </span>{' '}
           <span className={MUTED}>(last {windowMin}m)</span>
@@ -292,7 +292,7 @@ export function LLMHealthPanel() {
       <LocalInferenceStrip data={data} />
 
       {data.last_error?.message && (
-        <div className="mb-3 rounded-lg border border-rose-300/40 bg-rose-500/5 px-3 py-2 text-xs text-rose-600 dark:text-rose-400">
+        <div className="mb-3 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
           Last error: <span className="font-mono">{data.last_error.message}</span>
         </div>
       )}
@@ -301,7 +301,7 @@ export function LLMHealthPanel() {
       <div
         className={`mb-3 flex items-center justify-between rounded-lg border px-3 py-2 text-xs ${
           data.grade_adjusted_delay
-            ? 'border-amber-400/30 bg-amber-400/5'
+            ? 'border-warning/30 bg-warning/5'
             : 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/40'
         }`}
       >

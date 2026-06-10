@@ -56,9 +56,9 @@ function StatTile({
 }) {
   const valueColor =
     sign === 'positive'
-      ? 'text-emerald-500'
+      ? 'text-success'
       : sign === 'negative'
-        ? 'text-rose-500'
+        ? 'text-danger'
         : 'text-slate-900 dark:text-slate-100'
 
   return (
@@ -137,7 +137,7 @@ function TradeFeedPanel({
                   'group flex items-center gap-3 px-5 py-3 transition-colors',
                   'hover:bg-slate-50 dark:hover:bg-slate-800/40',
                   'border-l-[3px]',
-                  isBuy ? 'border-l-emerald-500' : 'border-l-rose-500',
+                  isBuy ? 'border-l-success' : 'border-l-danger',
                 )}
               >
                 {/* Direction badge */}
@@ -145,8 +145,8 @@ function TradeFeedPanel({
                   className={cn(
                     'shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold tracking-wide',
                     isBuy
-                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-                      : 'bg-rose-500/15 text-rose-500',
+                      ? 'bg-success/15 text-success'
+                      : 'bg-danger/15 text-danger',
                   )}
                 >
                   {isBuy ? 'BUY' : 'SELL'}
@@ -176,11 +176,11 @@ function TradeFeedPanel({
                 {/* P&L */}
                 {pnl != null && (
                   <div className="shrink-0 text-right">
-                    <p className={cn('font-semibold font-mono tabular-nums text-sm', pnlPos ? 'text-emerald-500' : 'text-rose-500')}>
+                    <p className={cn('font-semibold font-mono tabular-nums text-sm', pnlPos ? 'text-success' : 'text-danger')}>
                       {pnlPos ? '+' : '-'}{formatUSD(pnl)}
                     </p>
                     {pnlPct != null && (
-                      <p className={cn('text-[11px] font-mono tabular-nums', pnlPos ? 'text-emerald-400' : 'text-rose-400')}>
+                      <p className={cn('text-[11px] font-mono tabular-nums', pnlPos ? 'text-success' : 'text-danger')}>
                         {pnlPos ? '+' : ''}{pnlPct.toFixed(1)}%
                       </p>
                     )}

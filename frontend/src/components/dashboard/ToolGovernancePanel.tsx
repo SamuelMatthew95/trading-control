@@ -60,8 +60,8 @@ function unusedReason(tool: Tool): string {
 }
 
 function actionBadgeClass(action: string): string {
-  if (action === 'disable') return 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
-  if (action === 'prioritize') return 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+  if (action === 'disable') return 'bg-danger/15 text-danger'
+  if (action === 'prioritize') return 'bg-success/15 text-success'
   return 'bg-slate-500/15 text-slate-500 dark:text-slate-400'
 }
 
@@ -71,7 +71,7 @@ function SuggestionRow({ suggestion }: { suggestion: Suggestion }) {
       className={cn(
         'flex items-start gap-2 rounded-lg border px-3 py-2',
         suggestion.severity === 'warning'
-          ? 'border-amber-300 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/20'
+          ? 'border-warning/30 bg-warning/10'
           : 'border-slate-200 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/20',
       )}
     >
@@ -113,7 +113,7 @@ function ToolTableRow({ tool }: { tool: Tool }) {
           {tool.name}
         </span>
         {tool.required_state_flags.length > 0 && (
-          <p className="mt-0.5 font-mono text-xs text-amber-600 dark:text-amber-400">
+          <p className="mt-0.5 font-mono text-xs text-warning">
             requires: {tool.required_state_flags.join(', ')}
           </p>
         )}
@@ -133,7 +133,7 @@ function ToolTableRow({ tool }: { tool: Tool }) {
           <span
             className={cn(
               'h-2 w-2 shrink-0 rounded-full',
-              tool.enabled ? 'bg-emerald-500' : 'bg-slate-400',
+              tool.enabled ? 'bg-success' : 'bg-slate-400',
             )}
           />
           <span className="text-slate-600 dark:text-slate-400">
@@ -169,7 +169,7 @@ function ToolTableRow({ tool }: { tool: Tool }) {
 
       {/* Failure rate */}
       <td
-        className={cn(TD_NUM, tool.failure_rate > 0.5 ? 'text-rose-500' : 'text-slate-400')}
+        className={cn(TD_NUM, tool.failure_rate > 0.5 ? 'text-danger' : 'text-slate-400')}
       >
         {(tool.failure_rate * 100).toFixed(0)}%
       </td>
@@ -250,7 +250,7 @@ export function ToolGovernancePanel() {
       <div className="mb-1 flex items-center justify-between">
         <p className={sectionTitleClass}>Tool Governance · Runtime Registry</p>
         {error ? (
-          <span className="font-mono text-xs text-rose-500">err: {error}</span>
+          <span className="font-mono text-xs text-danger">err: {error}</span>
         ) : (
           <span className="font-mono text-xs text-slate-400">
             {enabledCount}/{tools.length} enabled
@@ -282,9 +282,9 @@ export function ToolGovernancePanel() {
             What the system suggests
           </p>
           <p className="text-xs leading-snug text-slate-400">
-            <span className="font-semibold text-rose-600 dark:text-rose-400">Disable</span> = losing
+            <span className="font-semibold text-danger">Disable</span> = losing
             money, switch it off ·{' '}
-            <span className="font-semibold text-emerald-600 dark:text-emerald-400">Prioritize</span> =
+            <span className="font-semibold text-success">Prioritize</span> =
             the best earner, keep it ·{' '}
             <span className="font-semibold">Review</span> = not used yet, just watching. Disable
             suggestions become a proposal on the{' '}

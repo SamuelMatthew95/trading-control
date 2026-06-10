@@ -52,7 +52,7 @@ export function TraceModal({ traceId, onClose }: { traceId: string; onClose: () 
         </div>
 
         {loading && <p className={mutedClass}>Loading…</p>}
-        {error && <p className="text-sm text-rose-500">{error}</p>}
+        {error && <p className="text-sm text-danger">{error}</p>}
 
         {data &&
           data.agent_runs.length === 0 &&
@@ -119,10 +119,10 @@ export function TraceModal({ traceId, onClose }: { traceId: string; onClose: () 
                       score == null
                         ? 'text-slate-500 dark:text-slate-400'
                         : score >= 70
-                          ? 'text-emerald-500'
+                          ? 'text-success'
                           : score >= 40
-                            ? 'text-amber-500'
-                            : 'text-rose-500'
+                            ? 'text-warning'
+                            : 'text-danger'
                     return (
                       <div
                         key={`${traceId}-grade-${i}`}

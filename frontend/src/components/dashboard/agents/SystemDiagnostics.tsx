@@ -44,11 +44,11 @@ export function SystemDiagnostics({
         <span
           className={cn(
             'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold',
-            isInMemoryMode ? 'bg-amber-400/10 text-amber-500' : 'bg-emerald-500/10 text-emerald-500',
+            isInMemoryMode ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success',
           )}
         >
           <span
-            className={cn('inline-block h-2 w-2 rounded-full', isInMemoryMode ? 'bg-amber-400' : 'bg-emerald-500')}
+            className={cn('inline-block h-2 w-2 rounded-full', isInMemoryMode ? 'bg-warning' : 'bg-success')}
           />
           {isInMemoryMode ? 'DB: In-Memory Fallback' : 'DB: Connected'}
         </span>

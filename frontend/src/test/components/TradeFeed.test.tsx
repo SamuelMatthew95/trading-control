@@ -111,20 +111,20 @@ describe('TradeFeed panel', () => {
     expect(screen.getByText('BUY')).toBeInTheDocument()
   })
 
-  it('shows positive P&L with green styling', () => {
+  it('shows positive P&L with the success token', () => {
     mockStore.tradeFeed = [makeTrade({ pnl: 50, pnl_percent: 1.16, side: 'buy' })]
     render(<DashboardView section="trading" />)
     const pnlEl = screen.getByText(/\+\$50\.00/)
     expect(pnlEl).toBeInTheDocument()
-    expect(pnlEl.className).toMatch(/emerald/)
+    expect(pnlEl.className).toMatch(/text-success/)
   })
 
-  it('shows negative P&L with red styling', () => {
+  it('shows negative P&L with the danger token', () => {
     mockStore.tradeFeed = [makeTrade({ pnl: -20, pnl_percent: -0.47, side: 'sell' })]
     render(<DashboardView section="trading" />)
     const pnlEl = screen.getByText(/-\$20\.00/)
     expect(pnlEl).toBeInTheDocument()
-    expect(pnlEl.className).toMatch(/rose/)
+    expect(pnlEl.className).toMatch(/text-danger/)
   })
 
   it('renders grade badge when grade is set', () => {

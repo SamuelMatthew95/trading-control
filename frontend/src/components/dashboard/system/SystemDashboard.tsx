@@ -151,11 +151,11 @@ function compactReason(value: unknown, fallback: string): string[] {
 function statusToneClass(tone: StatusTone): string {
   switch (tone) {
     case "ok":
-      return "bg-emerald-500 ring-emerald-500/30 dark:bg-emerald-400 dark:ring-emerald-400/30";
+      return "bg-success ring-success/30";
     case "warn":
-      return "bg-amber-500 ring-amber-500/30 dark:bg-amber-400 dark:ring-amber-400/30";
+      return "bg-warning ring-warning/30";
     case "err":
-      return "bg-rose-500 ring-rose-500/30 dark:bg-rose-400 dark:ring-rose-400/30";
+      return "bg-danger ring-danger/30";
     default:
       return "bg-slate-400 ring-slate-400/30 dark:bg-slate-500 dark:ring-slate-500/30";
   }
@@ -164,11 +164,11 @@ function statusToneClass(tone: StatusTone): string {
 function actionClass(action: DecisionAction): string {
   switch (action) {
     case "BUY":
-      return "text-emerald-700 bg-emerald-500/10 ring-emerald-500/30 dark:text-emerald-300 dark:bg-emerald-400/10 dark:ring-emerald-400/30";
+      return "text-success bg-success/10 ring-success/30";
     case "SELL":
-      return "text-rose-700 bg-rose-500/10 ring-rose-500/30 dark:text-rose-300 dark:bg-rose-400/10 dark:ring-rose-400/30";
+      return "text-danger bg-danger/10 ring-danger/30";
     case "SKIP":
-      return "text-amber-700 bg-amber-500/10 ring-amber-500/30 dark:text-amber-300 dark:bg-amber-400/10 dark:ring-amber-400/30";
+      return "text-warning bg-warning/10 ring-warning/30";
     default:
       return "text-slate-600 bg-slate-400/10 ring-slate-400/30 dark:text-slate-300 dark:bg-slate-400/10";
   }
@@ -345,9 +345,9 @@ function KpiStrip({
       <p
         className={cn(
           VALUE_CLASS,
-          tone === "ok" && "text-emerald-600 dark:text-emerald-300",
-          tone === "warn" && "text-amber-600 dark:text-amber-300",
-          tone === "err" && "text-rose-600 dark:text-rose-300",
+          tone === "ok" && "text-success",
+          tone === "warn" && "text-warning",
+          tone === "err" && "text-danger",
         )}
       >
         {value}
@@ -568,10 +568,10 @@ export function SystemDashboard(props: SystemDashboardProps) {
     <div className="space-y-3 text-slate-900 dark:text-slate-100">
       {dashboardApiDown && (
         <div
-          className="flex items-center gap-2 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300"
+          className="flex items-center gap-2 rounded-xl border border-danger/40 bg-danger/10 px-3 py-2 text-xs font-semibold text-danger"
           role="alert"
         >
-          <span className="h-2 w-2 rounded-full bg-rose-500" aria-hidden="true" />
+          <span className="h-2 w-2 rounded-full bg-danger" aria-hidden="true" />
           <span>
             Dashboard API unreachable
             {props.systemFeedError ? ` — ${props.systemFeedError}` : ""}. Live

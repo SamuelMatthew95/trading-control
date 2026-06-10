@@ -109,7 +109,7 @@ export function AgentScorecards() {
         <p className={sectionTitleClass}>Agent Scorecards</p>
         <div className="flex items-center gap-2">
           {error ? (
-            <span className="font-mono text-xs text-rose-500">err: {error}</span>
+            <span className="font-mono text-xs text-danger">err: {error}</span>
           ) : (
             <span
               className="font-mono text-xs text-slate-400"
