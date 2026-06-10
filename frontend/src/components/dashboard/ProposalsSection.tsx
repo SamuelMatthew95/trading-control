@@ -231,8 +231,13 @@ export function ProposalsSection() {
                           "rounded border px-2 py-1 font-mono text-[10px] uppercase",
                           proposalStatusClass(proposal.status),
                         )}
+                        title={
+                          proposal.applied
+                            ? `Applied by the ProposalApplier${proposal.applied_at ? ` at ${proposal.applied_at}` : ""}`
+                            : undefined
+                        }
                       >
-                        {proposal.status}
+                        {proposal.applied ? "applied" : proposal.status}
                       </span>
                     </td>
                     <td className="px-3 py-2">
