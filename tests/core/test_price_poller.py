@@ -113,6 +113,7 @@ async def test_create_alpaca_client_returns_async_client(monkeypatch):
 
 
 async def test_fetch_crypto_returns_bid_price():
+    """Fetchers return full L1 quotes; the headline price is the best bid."""
     mock_client = AsyncMock(spec=httpx.AsyncClient)
     mock_client.get = AsyncMock(
         return_value=_make_httpx_response(
@@ -125,7 +126,10 @@ async def test_fetch_crypto_returns_bid_price():
         )
     )
     result = await _fetch_crypto(mock_client, ["BTC/USD", "ETH/USD"])
-    assert result == {"BTC/USD": 50000.0, "ETH/USD": 3000.0}
+    assert result == {
+        "BTC/USD": {"price": 50000.0, "bid": 50000.0, "ask": 50001.0},
+        "ETH/USD": {"price": 3000.0, "bid": 3000.0, "ask": 3001.0},
+    }
 
 
 async def test_fetch_crypto_uses_ask_when_bid_is_zero():
@@ -134,7 +138,8 @@ async def test_fetch_crypto_uses_ask_when_bid_is_zero():
         return_value=_make_httpx_response({"quotes": {"BTC/USD": {"bp": 0.0, "ap": 49999.0}}})
     )
     result = await _fetch_crypto(mock_client, ["BTC/USD"])
-    assert result["BTC/USD"] == 49999.0
+    assert result["BTC/USD"]["price"] == 49999.0
+    assert result["BTC/USD"]["bid"] == 0.0  # one-sided quote is preserved honestly
 
 
 async def test_fetch_crypto_skips_zero_price():
@@ -171,7 +176,10 @@ async def test_fetch_stocks_returns_bid_price():
         )
     )
     result = await _fetch_stocks(mock_client, ["AAPL", "TSLA"])
-    assert result == {"AAPL": 182.0, "TSLA": 250.0}
+    assert result == {
+        "AAPL": {"price": 182.0, "bid": 182.0, "ask": 182.1},
+        "TSLA": {"price": 250.0, "bid": 250.0, "ask": 250.5},
+    }
 
 
 async def test_fetch_stocks_uses_ask_when_bid_is_zero():
@@ -180,7 +188,7 @@ async def test_fetch_stocks_uses_ask_when_bid_is_zero():
         return_value=_make_httpx_response({"quotes": {"AAPL": {"bp": 0.0, "ap": 183.5}}})
     )
     result = await _fetch_stocks(mock_client, ["AAPL"])
-    assert result["AAPL"] == 183.5
+    assert result["AAPL"]["price"] == 183.5
 
 
 async def test_fetch_crypto_propagates_ssl_eof_error():
@@ -496,6 +504,34 @@ def test_build_symbol_payloads_empty_returns_empty():
     assert build_symbol_payloads({}, {}) == []
 
 
+def test_build_symbol_payloads_attaches_two_sided_bid_ask():
+    """Real L1 bid/ask ride along when the quote is two-sided (both > 0)."""
+    payloads = build_symbol_payloads(
+        {"BTC/USD": 50000.0},
+        {},
+        quotes={"BTC/USD": {"price": 50000.0, "bid": 49999.5, "ask": 50000.5}},
+    )
+    assert payloads[0]["bid"] == 49999.5
+    assert payloads[0]["ask"] == 50000.5
+
+
+def test_build_symbol_payloads_skips_one_sided_quote():
+    """A one-sided quote (bid=0) must not render a fake $0.00 side downstream."""
+    payloads = build_symbol_payloads(
+        {"BTC/USD": 49999.0},
+        {},
+        quotes={"BTC/USD": {"price": 49999.0, "bid": 0.0, "ask": 49999.0}},
+    )
+    assert "bid" not in payloads[0]
+    assert "ask" not in payloads[0]
+
+
+def test_build_symbol_payloads_without_quotes_has_no_bid_ask():
+    payloads = build_symbol_payloads({"BTC/USD": 50000.0}, {})
+    assert "bid" not in payloads[0]
+    assert "ask" not in payloads[0]
+
+
 def test_price_cache_ttl_exceeds_poll_interval():
     """Guardrail: the price cache TTL MUST exceed the longest poll interval, or the
     consumer cache (dashboard, RiskGuardian) empties between polls. A 30s TTL with a
@@ -515,9 +551,14 @@ def _market(is_open: bool) -> MagicMock:
     return m
 
 
+def _quote(price: float) -> dict[str, float]:
+    """L1 quote stub in the shape _fetch_crypto/_fetch_stocks return."""
+    return {"price": price, "bid": price - 0.5, "ask": price + 0.5}
+
+
 async def test_run_poll_cycle_skips_stocks_when_market_closed(redis, monkeypatch):
-    crypto_mock = AsyncMock(return_value={"BTC/USD": 50000.0})
-    stock_mock = AsyncMock(return_value={"AAPL": 180.0})
+    crypto_mock = AsyncMock(return_value={"BTC/USD": _quote(50000.0)})
+    stock_mock = AsyncMock(return_value={"AAPL": _quote(180.0)})
     monkeypatch.setattr("api.workers.price_poller._fetch_crypto", crypto_mock)
     monkeypatch.setattr("api.workers.price_poller._fetch_stocks", stock_mock)
 
@@ -531,8 +572,8 @@ async def test_run_poll_cycle_skips_stocks_when_market_closed(redis, monkeypatch
 
 
 async def test_run_poll_cycle_fetches_both_when_open(redis, monkeypatch):
-    crypto_mock = AsyncMock(return_value={"BTC/USD": 50000.0})
-    stock_mock = AsyncMock(return_value={"AAPL": 180.0})
+    crypto_mock = AsyncMock(return_value={"BTC/USD": _quote(50000.0)})
+    stock_mock = AsyncMock(return_value={"AAPL": _quote(180.0)})
     monkeypatch.setattr("api.workers.price_poller._fetch_crypto", crypto_mock)
     monkeypatch.setattr("api.workers.price_poller._fetch_stocks", stock_mock)
 
@@ -545,8 +586,31 @@ async def test_run_poll_cycle_fetches_both_when_open(redis, monkeypatch):
     assert await redis.get("prices:AAPL") is not None
 
 
+async def test_run_poll_cycle_caches_real_bid_ask(redis, monkeypatch):
+    """The REST price cache carries the real L1 best bid/ask; the agent stream
+    payload stays exactly as before (no bid/ask keys) — its contract is frozen."""
+    crypto_mock = AsyncMock(
+        return_value={"BTC/USD": {"price": 50000.0, "bid": 49999.5, "ask": 50000.5}}
+    )
+    monkeypatch.setattr("api.workers.price_poller._fetch_crypto", crypto_mock)
+
+    state = _PollerState(client=MagicMock())
+    await _run_poll_cycle(state, redis, _market(False), crypto_interval=30, stock_interval=60)
+
+    cached = json.loads(await redis.get("prices:BTC/USD"))
+    assert cached["bid"] == 49999.5
+    assert cached["ask"] == 50000.5
+    assert state.last_prices["BTC/USD"] == 50000.0  # momentum anchor stays scalar
+
+    messages = await redis.xread({"market_events": "0-0"}, count=10)
+    _stream, entries = messages[0]
+    stream_payload = json.loads(entries[-1][1]["payload"])
+    assert "bid" not in stream_payload
+    assert "ask" not in stream_payload
+
+
 async def test_run_poll_cycle_circuit_open_does_no_work(redis, monkeypatch):
-    crypto_mock = AsyncMock(return_value={"BTC/USD": 50000.0})
+    crypto_mock = AsyncMock(return_value={"BTC/USD": _quote(50000.0)})
     monkeypatch.setattr("api.workers.price_poller._fetch_crypto", crypto_mock)
     # Circuit open far into the future → cycle returns immediately.
     state = _PollerState(client=MagicMock(), circuit_open_until=time.monotonic() + 999)
@@ -564,7 +628,7 @@ async def test_run_poll_cycle_pct_survives_expired_cache(redis, monkeypatch):
     pct pinned to 0.0 → every signal classified NEUTRAL/LOW → 'hold' forever →
     no buys and a permanently starved learning loop (Grade/IC/Reflection/etc).
     """
-    fetch = AsyncMock(side_effect=[{"BTC/USD": 50000.0}, {"BTC/USD": 51000.0}])
+    fetch = AsyncMock(side_effect=[{"BTC/USD": _quote(50000.0)}, {"BTC/USD": _quote(51000.0)}])
     monkeypatch.setattr("api.workers.price_poller._fetch_crypto", fetch)
     state = _PollerState(client=MagicMock())
 
@@ -597,7 +661,11 @@ async def test_run_poll_cycle_anchor_not_advanced_when_publish_fails(redis, monk
     pct must be measured from 50000 (the last PUBLISHED price), i.e. +4%, not +1.96%.
     """
     fetch = AsyncMock(
-        side_effect=[{"BTC/USD": 50000.0}, {"BTC/USD": 51000.0}, {"BTC/USD": 52000.0}]
+        side_effect=[
+            {"BTC/USD": _quote(50000.0)},
+            {"BTC/USD": _quote(51000.0)},
+            {"BTC/USD": _quote(52000.0)},
+        ]
     )
     monkeypatch.setattr("api.workers.price_poller._fetch_crypto", fetch)
     state = _PollerState(client=MagicMock())

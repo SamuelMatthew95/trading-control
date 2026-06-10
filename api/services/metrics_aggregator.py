@@ -680,6 +680,12 @@ class MetricsAggregator:
                             "confidence": _safe_float(p.get(FieldName.CONFIDENCE)) or None,
                             "reflection_trace_id": _safe_str(p.get(FieldName.REFLECTION_TRACE_ID)),
                             "status": _safe_str(p.get(FieldName.STATUS)) or OrderStatus.PENDING,
+                            # ProposalApplier's applied record shares the trace_id with
+                            # the original proposal row, so these flow to the UI and flip
+                            # the queue row from "pending" to "applied" — an auto-applied
+                            # promotion can never look like it is still waiting for a vote.
+                            "applied": bool(p.get(FieldName.APPLIED, False)),
+                            "applied_at": _safe_str(p.get(FieldName.APPLIED_AT)) or None,
                             "timestamp": row[2].isoformat() if row[2] else None,
                         }
                     )

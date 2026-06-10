@@ -50,6 +50,7 @@ from api.services.dashboard.proposals import (
 )
 from api.services.dashboard.state import get_snapshot_payload, get_state_payload
 from api.services.dashboard.system import (
+    get_price_history_payload,
     get_prices_payload,
     get_stream_lag_payload,
     get_system_health_payload,
@@ -117,6 +118,11 @@ async def get_flow_status() -> dict[str, Any]:
 @router.get("/prices")
 async def get_prices() -> dict[str, Any]:
     return await get_prices_payload()
+
+
+@router.get("/price-history")
+async def get_price_history(limit: int = 1000) -> dict[str, Any]:
+    return await get_price_history_payload(limit)
 
 
 @router.get("/agents/status")

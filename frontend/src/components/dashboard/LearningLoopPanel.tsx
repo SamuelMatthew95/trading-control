@@ -363,9 +363,12 @@ export function LearningLoopPanel() {
         <p className="mb-2 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
           Rival strategies shadow-trading the live price stream — they never place real orders.
           Each must close enough shadow round-trips to be graded; when one beats the live baseline
-          it fires a promotion proposal you approve on the{' '}
-          <span className="font-medium text-slate-600 dark:text-slate-300">Proposals</span> page.
-          Nothing auto-promotes.
+          its promotion{' '}
+          <span className="font-medium text-slate-600 dark:text-slate-300">applies automatically</span>
+          : the reasoning directive is biased toward the winner and a follow-up shadow spawns. The
+          applied record lands on the{' '}
+          <span className="font-medium text-slate-600 dark:text-slate-300">Proposals</span> page
+          (set CHALLENGER_PROMOTION_AUTO_APPLY=false to require manual approval instead).
         </p>
         {challengers.length === 0 ? (
           <p className="text-xs text-slate-500">No shadow challengers running.</p>
@@ -384,7 +387,7 @@ export function LearningLoopPanel() {
               // Connected status narrative — WHY it is where it is, in words.
               let status: string
               if (c.shadow_proposal_emitted) {
-                status = 'Promotion proposed — beat baseline over the shadow window; awaiting your approval.'
+                status = 'Promotion fired — beat baseline over the shadow window; applied automatically (directive biased + candidate spawned).'
               } else if (shadowTrades >= minTrades) {
                 status = c.beats_baseline_shadow
                   ? 'Eligible — beating baseline; promotion proposal fires on the next confirming tick.'

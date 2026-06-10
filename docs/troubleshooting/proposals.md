@@ -259,3 +259,58 @@ the committed file IS `config/param_overrides.json` with the applied entry),
 `::test_rejects_off_allowlist_or_out_of_bounds_before_any_network`,
 `tests/agents/test_proposal_applier.py::test_unsafe_parameter_change_emits_nothing`,
 `::test_llm_call_delay_param_change_is_allowlisted`
+
+## Approved challenger promotion could vanish without a trace
+
+**Symptom:** Operator approves a `challenger_promotion` proposal and then…
+nothing: no applied log, no notification, no visible change. Reads as
+"promotion is broken" — the exact "promoted but nothing happened" report.
+
+**Root cause:** `_apply_challenger_promotion()` returned `None` whenever
+nothing actually changed — no prompt store installed, spawner unavailable,
+strategy not registered in `backtest.strategies.STRATEGIES`, or an idempotent
+re-approval. `process()` treats `None` as "nothing applied" and writes no
+record, so the approval left zero trace.
+
+**Fix:** `api/services/agents/proposal_applier.py` — a well-formed approved
+promotion now ALWAYS returns an applied summary whose message states exactly
+what happened per half: `directive biased (vN)` / `already biased (idempotent
+re-approval)` / `skipped — no prompt store installed`, and `candidate spawned`
+/ `spawn skipped — spawner unavailable` / `spawn skipped — strategy 'x' not in
+backtest.strategies`. Only a malformed payload (missing strategy) is dropped,
+with a warning log. Also: the proposal-creation daily-cap drop is now logged at
+**warning** (`proposal_skipped_daily_cap`) — from the cap until midnight UTC
+every genuine proposal is swallowed, which previously looked like a quiet loop.
+
+**UI legibility (same change):** Proposals page empty state now lists the three
+real proposal sources and their thresholds (challenger ≥25 shadow trades +
+beats baseline → approval-gated; reflection hypotheses ≥0.7 confidence, capped
+daily; C/D/F grades auto-apply and never queue). Agent Scorecards now states
+that "★ Promoted" is **trust-tier promotion of pipeline agents** — a different
+thing from **challenger strategy promotion**, killing the word collision that
+made operators expect a proposal from a scorecard star.
+
+**Regression tests:**
+`tests/agents/test_proposal_applier.py::test_challenger_promotion_approved_always_leaves_a_trace`,
+`::test_challenger_promotion_trace_names_unknown_strategy`
+
+## Challenger promotions no longer wait for a manual vote
+
+**Symptom:** Operator: "I shouldn't need to press approve — the loop should
+just improve itself." Eligible promotions sat pending forever unless someone
+visited the Proposals page and clicked Approve.
+
+**Root cause:** `CHALLENGER_PROMOTION` was in `APPROVAL_GATED_PROPOSAL_TYPES`
+with no auto-apply path, so the self-evolving loop had a mandatory human stop.
+
+**Fix:** `CHALLENGER_PROMOTION_AUTO_APPLY` (api/config.py, default **True**) —
+an eligible promotion (≥ CHALLENGER_MIN_SHADOW_TRADES closed shadow trades AND
+beating the live baseline) now applies on first publish: reasoning directive
+biased toward the winner + follow-up shadow spawned, with the applied record
+written as always. Safe to automate — neither half places live orders or moves
+capital, and both are versioned/reversible. Set the flag to `false` to restore
+the manual approval gate.
+
+**Regression tests:**
+`tests/agents/test_proposal_applier.py::test_challenger_promotion_auto_applies_by_default`,
+`::test_challenger_promotion_pending_without_approval` (gated mode, flag off)

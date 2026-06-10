@@ -58,7 +58,7 @@ const ROUTING: Record<string, ProposalRouting> = {
   challenger_promotion: {
     label: 'Promote challenger',
     kind: 'review',
-    hint: 'A shadow challenger beat its baseline on live data. Approve to promote it to a live candidate — operator action, nothing auto-applies.',
+    hint: 'A shadow challenger beat its baseline on live data. Applies automatically by default (reasoning-directive bias + follow-up shadow spawn — no live orders); set CHALLENGER_PROMOTION_AUTO_APPLY=false to gate on operator approval.',
   },
   code_change: {
     label: 'GitHub issue',

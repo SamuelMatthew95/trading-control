@@ -78,7 +78,7 @@ def test_performance_trends_averages_use_paired_window():
     store = InMemoryStore()
     # 110 winning orders: the paired summary windows the last 100. Old code
     # summed wins over ALL orders but divided by the windowed count.
-    for i in range(110):
+    for _ in range(110):
         store.add_order({FieldName.SYMBOL: "BTC/USD", FieldName.PNL: 10.0})
     set_runtime_store(store)
 

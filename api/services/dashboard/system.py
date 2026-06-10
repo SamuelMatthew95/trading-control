@@ -175,6 +175,52 @@ async def get_prices_payload() -> dict[str, Any]:
         }
 
 
+async def get_price_history_payload(limit: int = 1000) -> dict[str, Any]:
+    """Recent REAL price series per symbol, reconstructed from the market_events
+    stream — the same polled prices the agents act on.
+
+    The poller appends one event per symbol per cycle, so scanning the stream
+    yields a real intraday series for each symbol with no extra market-data call.
+    Used by the trading-terminal chart + sparklines so they show real movement
+    immediately instead of waiting for live samples to trickle in.
+    """
+    try:
+        redis_client = await get_redis()
+        entries = await redis_client.xrevrange(STREAM_MARKET_EVENTS, count=limit)
+        histories: dict[str, list[dict[str, float]]] = {}
+        for _entry_id, fields in entries:
+            raw = fields.get(FieldName.PAYLOAD)
+            if not raw:
+                continue
+            try:
+                payload = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            symbol = payload.get(FieldName.SYMBOL)
+            price = payload.get(FieldName.PRICE)
+            ts = payload.get(FieldName.TS)
+            if symbol is None or price is None:
+                continue
+            histories.setdefault(symbol, []).append(
+                {FieldName.TS: ts, FieldName.PRICE: float(price)}
+            )
+        # xrevrange is newest-first; reverse each series to chronological order.
+        for series in histories.values():
+            series.reverse()
+        return {
+            FieldName.HISTORY: histories,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "market_events",
+        }
+    except Exception:
+        log_structured("warning", "price_history_unavailable", exc_info=True)
+        return {
+            FieldName.HISTORY: {},
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "in_memory",
+        }
+
+
 async def get_worker_health_payload(process_start_time: datetime) -> dict[str, Any]:
     """
     Check background worker health by examining price timestamps and heartbeat in Redis.
