@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { UI_COPY } from '@/constants/copy'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard,
@@ -244,7 +245,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {showReconnectBanner && (
           <div className="border-b border-warning/30 bg-warning/10 px-4 py-2 text-xs font-sans font-semibold text-warning">
             <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-warning align-middle" />
-            <span className="ml-2">Reconnecting to live feed…</span>
+            <span className="ml-2">{UI_COPY.banners.reconnecting}</span>
           </div>
         )}
 

@@ -1,4 +1,5 @@
 import type { AgentInstance } from '@/stores/useDashboardStore'
+import { UI_COPY } from '@/constants/copy'
 import type { AgentSummary } from '@/lib/agent-pipeline'
 import { cn } from '@/lib/utils'
 import { formatTimeAgo } from '@/lib/formatters'
@@ -82,7 +83,7 @@ export function AgentStatusTable({
             {showNoAgentDataMessage ? (
               <tr>
                 <td colSpan={COLUMNS.length} className="px-2 py-8">
-                  <EmptyState message="No active agents" />
+                  <EmptyState message={UI_COPY.empty.agents} />
                 </td>
               </tr>
             ) : (

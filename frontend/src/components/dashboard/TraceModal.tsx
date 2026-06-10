@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { UI_COPY } from '@/constants/copy'
 import { api } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
 import { sectionTitleClass, mutedClass } from '@/lib/dashboard-styles'
@@ -34,7 +35,7 @@ export function TraceModal({ traceId, onClose }: { traceId: string; onClose: () 
         const d = (await r.json()) as TraceData
         if (!cancelled) setData(d)
       } catch {
-        if (!cancelled) setError('Could not load this trace — the dashboard API did not respond.')
+        if (!cancelled) setError(UI_COPY.trace.loadError)
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -75,15 +76,12 @@ export function TraceModal({ traceId, onClose }: { traceId: string; onClose: () 
           </button>
         </div>
 
-        {loading && <p className={mutedClass}>Loading…</p>}
+        {loading && <p className={mutedClass}>{UI_COPY.trace.loading}</p>}
         {error && <p className="text-sm text-danger">{error}</p>}
 
         {isEmptyTrace && (
           <p className={mutedClass}>
-            No pipeline trace was recorded for this event. System notifications and
-            rule-based fallback decisions don&apos;t flow through the agent pipeline, and
-            in memory mode (no database) trace history clears on restart — only live,
-            in-session traces are available here.
+            {UI_COPY.trace.emptyTrace}
           </p>
         )}
 

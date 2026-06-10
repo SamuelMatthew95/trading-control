@@ -4,6 +4,7 @@ import { cardClass, mutedClass, sectionTitleClass } from '@/lib/dashboard-styles
 import { cn } from '@/lib/utils'
 import type { ActivityItem, ActivityStage, ActivityTone } from '@/lib/activity-timeline'
 import { EmptyState } from '@/components/ui/empty-state'
+import { UI_COPY } from '@/constants/copy'
 
 // Eleven pipeline stages need eleven visually distinct dot hues — a
 // categorical legend the four semantic Tone tokens cannot express.
@@ -83,7 +84,7 @@ export function ActivityTimeline({ items }: { items: ActivityItem[] }) {
       </p>
 
       {items.length === 0 ? (
-        <EmptyState message="No activity yet — events stream in here as the pipeline runs." />
+        <EmptyState message={UI_COPY.empty.activity} />
       ) : (
         <div className="max-h-96 divide-y divide-slate-100 overflow-y-auto dark:divide-slate-800/60">
           {items.map((item) => (

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { UI_COPY } from '@/constants/copy'
 
 import { cn } from '@/lib/utils'
 import { cardClass, sectionTitleClass } from '@/lib/dashboard-styles'
@@ -20,7 +21,7 @@ function isFallbackDecision(d: Record<string, unknown>): boolean {
 }
 
 function EmptyDecisions() {
-  return <EmptyState message="No buy/sell decisions yet" />
+  return <EmptyState message={UI_COPY.empty.decisions} />
 }
 
 export function RecentDecisionsPanel({

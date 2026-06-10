@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { UI_COPY } from '@/constants/copy'
 import { useDashboardStore, type AgentHeartbeat } from '@/stores/useDashboardStore'
 import { useSystemStatus } from '@/hooks/useSystemStatus'
 import { useRestPoll } from '@/hooks/useRestPoll'
@@ -341,9 +342,9 @@ export function DashboardView({ section }: { section: Section }) {
     <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
       <span className="mt-0.5 shrink-0">⚠</span>
       <span>
-        <strong>Memory mode</strong> — database unavailable
-        {dashboardData.degraded_reason === 'db_unavailable' ? ': PostgreSQL unreachable' : ''}.
-        Data is ephemeral and will be lost on restart. Trade history and grades are stored in-process only.
+        <strong>{UI_COPY.banners.memoryModeTitle}</strong> — database unavailable
+        {dashboardData.degraded_reason === 'db_unavailable' ? UI_COPY.banners.memoryModeDbReason : ''}.
+        {' '}{UI_COPY.banners.memoryModeBody}
       </span>
     </div>
   ) : null

@@ -1,6 +1,7 @@
 'use client'
 
 import type { ReactNode } from 'react'
+import { UI_COPY } from '@/constants/copy'
 import { Activity, ArrowUpRight, Brain, Gauge, Lightbulb, TrendingDown, TrendingUp, type LucideIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
@@ -233,7 +234,7 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
               }
             />
             {tradeFeed.length === 0 ? (
-              <EmptyState icon={Activity} message="No fills yet — learning outcomes appear after execution and grading." />
+              <EmptyState icon={Activity} message={UI_COPY.empty.learningOutcomes} />
             ) : (
               <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
                 <table className="w-full min-w-[760px] text-left text-xs">
@@ -311,7 +312,7 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
               right={<span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">{proposals.length} total</span>}
             />
             {proposals.length === 0 ? (
-              <EmptyState icon={Lightbulb} message="No strategy proposals yet — evidence appears here after reflection." />
+              <EmptyState icon={Lightbulb} message={UI_COPY.empty.proposals} />
             ) : (
               <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
                 <table className="w-full min-w-[680px] text-left text-xs">
@@ -390,7 +391,7 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
               right={<span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">{learningLogs.length} events</span>}
             />
             {learningLogs.length === 0 ? (
-              <EmptyState icon={Activity} message="No learning-agent events have streamed yet." />
+              <EmptyState icon={Activity} message={UI_COPY.empty.learningEvents} />
             ) : (
               <div className="divide-y divide-slate-200 dark:divide-slate-800/80">
                 {learningLogs.map((log, index) => (
