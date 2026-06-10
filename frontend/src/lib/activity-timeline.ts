@@ -269,12 +269,17 @@ export function buildActivityTimeline(
     if (!mapped) continue
     const ts = parseTimestampMs(e.timestamp)
     if (ts == null) continue
+    const detail = marketEventDetail(e)
+    // A market row with no symbol/price/change is pure noise — a repeated
+    // "Market event" line tells the operator nothing and drowns the feed's
+    // real signal (decisions, fills, alerts). Only informative frames render.
+    if (mapped.stage === 'market' && detail == null) continue
     items.push({
       id: `event-${e.stream}-${e.msgId}`,
       ts,
       stage: mapped.stage,
       title: mapped.title,
-      detail: marketEventDetail(e),
+      detail,
       tone: 'neutral',
       fallback: false,
     })

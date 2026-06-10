@@ -257,24 +257,20 @@ export function ToolGovernancePanel() {
           </span>
         )}
       </div>
-      <p className={cn(mutedClass, 'mb-3')}>
-        Tools are the data look-ups and actions the trading AI is allowed to use.{' '}
-        <span className="font-semibold">On</span> = the AI may use it ·{' '}
-        <span className="font-semibold">Off</span> = switched off, the AI won&apos;t.{' '}
-        Tools earn their place by making money: <span className="font-mono">Alpha</span> is how much
-        profit each one is credited with (a <span className="font-mono">prior</span> tag = an early
-        estimate before any trade has scored it). <span className="font-mono">Calls</span> = how many
-        times it&apos;s been used. {exercisedCount}/{tools.length} have run on a live trade so far.
+      {/* One-line plain-language framing, then the column legend. */}
+      <p className={cn(mutedClass, 'mb-1')}>
+        The data look-ups the reasoning LLM may consult before a buy/sell call — each is graded by
+        the realized PnL of the trades it influenced, and money-losing (negative-alpha) tools are
+        proposed for automatic disable.
       </p>
-
-      {tools.length > 0 && exercisedCount === 0 && (
-        <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2 text-xs leading-snug text-slate-500 dark:border-slate-800 dark:bg-slate-900/30 dark:text-slate-400">
-          No closed trades have scored these tools yet, so every alpha below is a{' '}
-          <span className="font-semibold">seeded prior</span> and{' '}
-          <span className="font-mono">unused</span> means the live loop has not exercised the tool.
-          Scores go live once trades close and the GradeAgent attributes realized PnL.
-        </div>
-      )}
+      <p className={cn(mutedClass, 'mb-3')}>
+        <span className="font-semibold">On</span> = the AI may use it ·{' '}
+        <span className="font-semibold">Off</span> = switched off.{' '}
+        <span className="font-mono">Alpha</span> = profit credited to the tool (a{' '}
+        <span className="font-mono">prior</span> tag = an early estimate before any trade has
+        scored it). <span className="font-mono">Calls</span> = how many times it&apos;s been used.{' '}
+        {exercisedCount}/{tools.length} have run on a live trade so far.
+      </p>
 
       {suggestions.length > 0 && (
         <div className="mb-4 space-y-2">
@@ -299,6 +295,35 @@ export function ToolGovernancePanel() {
 
       {tools.length === 0 ? (
         <p className="text-sm text-slate-500">No tools registered.</p>
+      ) : exercisedCount === 0 ? (
+        // No telemetry yet: a full table of zeroed counters/prior alphas reads
+        // as broken. Collapse to one explanatory state + the registered names.
+        <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-4 py-5 text-center dark:border-slate-800 dark:bg-slate-900/30">
+          <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
+            No tool calls yet
+          </p>
+          <p className="mx-auto mt-1 max-w-md text-xs leading-snug text-slate-500 dark:text-slate-400">
+            {tools.length} tools are registered and waiting; every alpha is still a seeded prior.
+            The full ledger appears once the reasoning LLM starts consulting tools and closed
+            trades let the GradeAgent attribute realized PnL to them.
+          </p>
+          <div className="mt-3 flex flex-wrap justify-center gap-1.5">
+            {tools.map((tool) => (
+              <span
+                key={tool.name}
+                title={`${tool.phase} · ${tool.enabled ? 'enabled' : 'disabled'}`}
+                className={cn(
+                  'rounded-md border border-slate-200 bg-white px-2 py-0.5 font-mono text-[11px] dark:border-slate-700 dark:bg-slate-800/50',
+                  tool.enabled
+                    ? 'text-slate-600 dark:text-slate-300'
+                    : 'text-slate-400 line-through dark:text-slate-600',
+                )}
+              >
+                {tool.name}
+              </span>
+            ))}
+          </div>
+        </div>
       ) : (
         <div className="space-y-4">
           {byPhase.map((group) => (

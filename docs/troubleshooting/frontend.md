@@ -927,3 +927,38 @@ browser, so this is how the look was checked rather than guessed.
 **Regression test:** `frontend/src/test/components/EquityCurve.test.tsx`
 (`getLineDomain` fits-data + min-height floor; `shows only the period label for
 the all-time range`; `shows the signed change over a selected sub-window`).
+
+## Dashboard UX sweep — light-mode cast, invisible logo, blank-on-offline, noise panels
+
+**Symptoms (operator-reported, one sweep):**
+- Light mode had a washed blue cast (high-chroma 214-hue surfaces) and garish
+  accents; the brand icon was invisible in dark mode (hardcoded emerald chip).
+- Backend unreachable → every panel blanked to "no data".
+- Header P&L had no past-trades ledger to verify it against.
+- Live Activity spammed bare repeated "Market event" rows.
+- Learning pipeline stages showed a bare "0" (reads as broken) while no trades
+  had closed; challenger section rendered placeholder rows of zeros; Tool
+  Governance rendered a full table of seeded-prior zeros.
+- Agent Status table had ragged alignment and ad-hoc status dots.
+
+**Fixes:**
+- Light-theme tokens retuned in `globals.css` (desaturated surfaces, darker
+  semantic tones); dark values untouched. Brand mark uses `bg-success/15
+  text-success` so it renders in both themes (`app/dashboard/layout.tsx`).
+- `useRestPoll` exposes `backendOffline` + `lastSyncAt`; fetch failure never
+  wipes the store. `DashboardView` shows a dismissible "showing last known
+  data" banner, or an explanatory empty state when nothing ever loaded.
+- New `ClosedTradesPanel` (TradingView) renders `/dashboard/state.closed_trades`
+  via `normalizeClosedTrade` → `useCodexStore.closedTrades`.
+- `buildActivityTimeline` drops market rows with no symbol/price/change —
+  informative frames still render (`lib/activity-timeline.ts`).
+- Pipeline learning stages carry `learning: true`; zero output with zero
+  closed trades renders a "waiting for closed trades" hint
+  (`lib/agent-pipeline.ts`). Challenger cards filter through
+  `isMeaningfulChallenger`; Tool Governance collapses to an explanatory state
+  until telemetry exists. Agent Status uses the canonical `StatusBadge` with
+  aligned numeric columns.
+
+**Regression tests:** `src/test/store/closed-trades.test.ts`,
+`src/test/helpers/activity-timeline.test.ts` (bare-market-row drop),
+full `pnpm lint` / `pnpm build` / `pnpm test` (58 files, 583 tests) green.

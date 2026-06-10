@@ -228,6 +228,52 @@ export function normalizeTradeFeedItem(raw: Record<string, unknown>): TradeFeedI
   }
 }
 
+/**
+ * One completed round-trip (realized PnL) from `/dashboard/state`'s
+ * `closed_trades` block. Distinct from TradeFeedItem (per-fill lifecycle rows):
+ * this is the verifiable "past trades" ledger behind the headline P&L.
+ */
+export interface ClosedTrade {
+  symbol: string
+  side: 'buy' | 'sell'
+  qty: number | null
+  entry_price: number | null
+  exit_price: number | null
+  pnl: number | null
+  pnl_percent: number | null
+  /** ISO string when the round-trip closed (backend sends filled_at or timestamp). */
+  closed_at: string | null
+}
+
+/** Normalize a raw closed-trade dict (REST snapshot) into a well-typed ClosedTrade. */
+export function normalizeClosedTrade(raw: Record<string, unknown>): ClosedTrade {
+  const toNum = (v: unknown): number | null => {
+    const n = typeof v === 'number' ? v : Number(v)
+    return v != null && v !== '' && Number.isFinite(n) ? n : null
+  }
+  // Memory-mode rows carry an epoch-seconds `timestamp`; DB rows carry ISO `filled_at`.
+  const closedAtRaw = raw.filled_at ?? raw.timestamp ?? null
+  const closedAtMs =
+    typeof closedAtRaw === 'number' && Number.isFinite(closedAtRaw)
+      ? (closedAtRaw > 10_000_000_000 ? closedAtRaw : closedAtRaw * 1000)
+      : null
+  return {
+    symbol: String(raw.symbol ?? ''),
+    side: raw.side === 'sell' ? 'sell' : 'buy',
+    qty: toNum(raw.qty),
+    entry_price: toNum(raw.entry_price),
+    exit_price: toNum(raw.exit_price),
+    pnl: toNum(raw.pnl),
+    pnl_percent: toNum(raw.pnl_percent),
+    closed_at:
+      closedAtMs != null
+        ? new Date(closedAtMs).toISOString()
+        : closedAtRaw != null
+          ? String(closedAtRaw)
+          : null,
+  }
+}
+
 export interface AgentInstance {
   id: string
   instance_key: string
@@ -294,6 +340,8 @@ type DashboardData = {
   prices?: Record<string, PriceData>
   proposals?: Array<Record<string, unknown>>
   trade_feed?: TradeFeedItem[]
+  /** Completed round-trips (newest first) — backs the Closed Trades panel. */
+  closed_trades?: Array<Record<string, unknown>>
   notifications?: Array<Record<string, unknown>>
   ic_weights?: Record<string, number>
   agent_statuses?: Array<Record<string, unknown>>
@@ -404,6 +452,7 @@ type CodexState = {
   notifications: Notification[]
   proposals: Proposal[]
   tradeFeed: TradeFeedItem[]
+  closedTrades: ClosedTrade[]
   agentInstances: AgentInstance[]
   performanceSummary: PerformanceSummary | null
   pnlSummary: PnlSummary | null
@@ -502,6 +551,7 @@ export const useCodexStore = create<CodexState>((set) => ({
   notifications: [],
   proposals: [],
   tradeFeed: [],
+  closedTrades: [],
   agentInstances: [],
   performanceSummary: null,
   pnlSummary: null,
@@ -922,6 +972,14 @@ export const useCodexStore = create<CodexState>((set) => ({
         if (newProposals.length > 0) {
           updates.proposals = [...newProposals, ...currentState.proposals].slice(0, 50)
         }
+      }
+
+      // Closed trades: the REST snapshot is authoritative (already newest-first,
+      // capped server-side), so replace wholesale rather than merging.
+      if (Array.isArray(data.closed_trades)) {
+        updates.closedTrades = (data.closed_trades as unknown[])
+          .filter((t): t is Record<string, unknown> => !!t && typeof t === 'object')
+          .map(normalizeClosedTrade)
       }
 
       if (data.trade_feed && Array.isArray(data.trade_feed)) {

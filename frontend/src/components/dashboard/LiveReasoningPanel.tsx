@@ -96,6 +96,22 @@ function diffEntries(obj: Record<string, unknown>): Array<[string, string]> {
   ])
 }
 
+/**
+ * A challenger row that is not running, has zero fills, and carries no
+ * configured difference is registry scaffolding — rendering its grid of
+ * zeros/dashes reads as broken data. Only meaningful challengers get a card;
+ * otherwise the section collapses to one explanatory empty state.
+ */
+function isMeaningfulChallenger(ch: ChallengerView): boolean {
+  return (
+    ch.running ||
+    (ch.fills ?? 0) > 0 ||
+    Boolean(ch.variant) ||
+    (ch.tool_overrides?.length ?? 0) > 0 ||
+    Object.keys(ch.config_diff ?? {}).length > 0
+  )
+}
+
 function ChallengerCard({ ch }: { ch: ChallengerView }) {
   const pct = ch.max_fills > 0 ? Math.min(100, Math.round((ch.fills / ch.max_fills) * 100)) : 0
   const diffs = diffEntries(ch.config_diff)
@@ -110,14 +126,19 @@ function ChallengerCard({ ch }: { ch: ChallengerView }) {
             challenger {ch.challenger_id}
           </span>
         </div>
-        <span className="rounded bg-indigo-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400">
+        <span
+          title="What this challenger changes versus the live strategy"
+          className="rounded bg-indigo-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400"
+        >
           differs by {ch.differs_by}
         </span>
       </div>
 
       <div className="mt-2">
         <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-          <span>shadow progress</span>
+          <span title="Simulated fills observed so far out of the test window — the challenger trades in shadow, never with real orders">
+            shadow fills observed
+          </span>
           <span className="font-mono tabular-nums">
             {ch.fills}/{ch.max_fills}
           </span>
@@ -134,7 +155,7 @@ function ChallengerCard({ ch }: { ch: ChallengerView }) {
       )}
       {ch.tool_overrides && ch.tool_overrides.length > 0 && (
         <p className="mt-2 font-mono text-[11px] text-slate-500 dark:text-slate-400">
-          tools: {ch.tool_overrides.join(', ')}
+          tool set: {ch.tool_overrides.join(', ')}
         </p>
       )}
       {diffs.length > 0 ? (
@@ -231,7 +252,9 @@ export function LiveReasoningPanel() {
   }, [])
 
   const live = data?.champion
-  const challengers = data?.challengers ?? []
+  // Drop placeholder rows (no liveness, no fills, no diff) so the section never
+  // renders a grid of meaningless zeros — see isMeaningfulChallenger.
+  const challengers = (data?.challengers ?? []).filter(isMeaningfulChallenger)
   const proposals = data?.proposals ?? []
   const versionLabel = live?.strategy_version != null ? `v${live.strategy_version}` : 'default'
   const indicator = LLM_INDICATOR[llmStatus]
@@ -315,7 +338,8 @@ export function LiveReasoningPanel() {
           </p>
           {challengers.length === 0 ? (
             <p className="rounded-lg border border-dashed border-slate-200 px-3 py-6 text-center text-xs text-slate-400 dark:border-slate-800">
-              No challenger running — the live strategy is uncontested.
+              No challenger strategy under test — the live strategy runs uncontested until the
+              learning loop spawns a rival to shadow it.
             </p>
           ) : (
             <div className="space-y-2">
