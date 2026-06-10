@@ -34,7 +34,7 @@ const NAV = [
 ]
 
 const LogoGlyph = () => (
-  <div className="flex h-7 w-7 items-center justify-center rounded-lg" style={{ background: 'var(--accent)' }}>
+  <div className="flex h-7 w-7 items-center justify-center rounded-lg" style={{ background: 'var(--brand)' }}>
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#04141a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 17l5-5 4 3 6-7" />
       <path d="M3 21h18" />
@@ -44,7 +44,7 @@ const LogoGlyph = () => (
 
 const Wordmark = () => (
   <span className="text-[13px] font-bold uppercase tracking-[0.2em] text-slate-900 dark:text-slate-100">
-    Trading<span style={{ color: 'var(--accent)' }}>Control</span>
+    Trading<span style={{ color: 'var(--brand)' }}>Control</span>
   </span>
 )
 
@@ -150,10 +150,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 className={cn(
                   'flex min-h-10 items-center gap-2 rounded-lg border px-3 text-sm font-sans font-semibold transition-colors',
                   active
-                    ? 'border-transparent text-[var(--accent)]'
+                    ? 'border-transparent text-[var(--brand)]'
                     : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-200',
                 )}
-                style={active ? { background: 'var(--accent-soft)' } : undefined}
+                style={active ? { background: 'var(--brand-soft)' } : undefined}
               >
                 <Icon className="h-4 w-4" />
                 {label}

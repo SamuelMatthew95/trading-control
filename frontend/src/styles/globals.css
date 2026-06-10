@@ -27,10 +27,13 @@
     /* Trading terminal tokens — shared across every dashboard surface so the
        whole app reads with one visual language. `--up`/`--down` are the
        functional trading colours (a trader reads green/red instantly);
-       `--accent` is the brand/interactive colour (active nav, selected row,
-       focus ring, chart last-price line). All themeable from one place. */
-    --accent: #00e5ff;
-    --accent-soft: rgba(0, 229, 255, 0.12);
+       `--brand` is the brand/interactive colour (logo, active nav, selected
+       row) derived from --primary so it stays consistent in both themes.
+       NOTE: never re-declare `--accent` here — Tailwind's `accent` colour is
+       `hsl(var(--accent))`, so overwriting it with a hex (or reading it as a
+       raw colour) silently produces invalid CSS. */
+    --brand: hsl(var(--primary));
+    --brand-soft: hsl(var(--primary) / 0.12);
     --up: #10b981;
     --down: #f43f5e;
     --up-soft: rgba(16, 185, 129, 0.14);

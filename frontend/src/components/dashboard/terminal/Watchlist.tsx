@@ -36,7 +36,7 @@ export function Watchlist({
                 className={cn(
                   'cursor-pointer border-l-2 transition-colors',
                   isActive
-                    ? 'border-l-[var(--accent)] bg-slate-100 dark:bg-slate-800/50'
+                    ? 'border-l-[var(--brand)] bg-slate-100 dark:bg-slate-800/50'
                     : 'border-l-transparent hover:bg-slate-50 dark:hover:bg-slate-800/30',
                 )}
               >
