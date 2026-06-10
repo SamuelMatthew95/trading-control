@@ -28,7 +28,7 @@ export function Watchlist({
         <tbody>
           {rows.map((r) => {
             const isActive = r.sym === active
-            const up = r.changePct >= 0
+            const up = (r.changePct ?? 0) >= 0
             return (
               <tr
                 key={r.sym}
@@ -49,11 +49,16 @@ export function Watchlist({
                 </td>
                 <td className="py-1.5 pl-1 pr-3 text-right">
                   <div className="font-mono text-[13px] tabular-nums text-slate-900 dark:text-slate-100">
-                    {r.price > 0 ? r.price.toFixed(2) : '--'}
+                    {r.price != null ? r.price.toFixed(2) : '--'}
                   </div>
-                  <div className={cn('font-mono text-[10px] tabular-nums', signClass(r.changePct))}>
-                    {up ? '+' : ''}
-                    {r.changePct.toFixed(2)}%
+                  {/* '--' until real movement exists — never a fake +0.00% */}
+                  <div
+                    className={cn(
+                      'font-mono text-[10px] tabular-nums',
+                      r.changePct != null ? signClass(r.changePct) : 'text-slate-400 dark:text-slate-600',
+                    )}
+                  >
+                    {r.changePct != null ? `${up ? '+' : ''}${r.changePct.toFixed(2)}%` : '--'}
                   </div>
                 </td>
               </tr>
