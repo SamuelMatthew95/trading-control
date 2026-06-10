@@ -74,12 +74,20 @@ function StageCard({ stage }: { stage: PipelineStageView }) {
         <span className={cn('h-2 w-2 shrink-0 rounded-full', tone.dot)} />
       </div>
 
-      <div className="flex items-baseline gap-1">
-        <span className="font-mono text-2xl font-bold tabular-nums text-slate-900 dark:text-slate-100">
-          {stage.count.toLocaleString()}
-        </span>
-        <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500">{stage.unit}</span>
-      </div>
+      {stage.waitingHint ? (
+        // A learning stage with 0 output and no closed trades is waiting on
+        // input, not broken — a bare "0" here reads as a failure.
+        <p className="flex min-h-8 items-center text-[11px] italic leading-snug text-slate-400 dark:text-slate-500">
+          {stage.waitingHint}
+        </p>
+      ) : (
+        <div className="flex items-baseline gap-1">
+          <span className="font-mono text-2xl font-bold tabular-nums text-slate-900 dark:text-slate-100">
+            {stage.count.toLocaleString()}
+          </span>
+          <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500">{stage.unit}</span>
+        </div>
+      )}
 
       <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">{stage.agent}</p>
       <p className="text-[10px] leading-snug text-slate-500 dark:text-slate-400">{stage.does}</p>

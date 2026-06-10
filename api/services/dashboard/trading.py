@@ -181,26 +181,19 @@ def _performance_trends_from_runtime_store(source: str = "in_memory") -> dict[st
     store = get_runtime_store()
     paired = store.paired_pnl_payload()
     summary_data = paired[FieldName.SUMMARY]
-    orders = list(store.orders)
+    # Use the SAME order slice the paired summary was computed from — mixing
+    # counts from one window with sums from another produced arithmetically
+    # wrong averages once the store held more orders than the paired window.
+    orders = paired[FieldName.CLOSED_TRADES]
     total_trades = summary_data[FieldName.CLOSED_TRADES]
-    wins = summary_data[FieldName.WINNING_TRADES]
-    losses = total_trades - wins
-    avg_win = 0.0
-    avg_loss = 0.0
-    if wins > 0:
-        win_pnls = [
-            float(o.get(FieldName.PNL) or 0.0)
-            for o in orders
-            if float(o.get(FieldName.PNL) or 0.0) > 0
-        ]
-        avg_win = round(sum(win_pnls) / wins, 2) if win_pnls else 0.0
-    if losses > 0:
-        loss_pnls = [
-            float(o.get(FieldName.PNL) or 0.0)
-            for o in orders
-            if float(o.get(FieldName.PNL) or 0.0) < 0
-        ]
-        avg_loss = round(sum(loss_pnls) / losses, 2) if loss_pnls else 0.0
+    win_pnls = [
+        float(o.get(FieldName.PNL) or 0.0) for o in orders if float(o.get(FieldName.PNL) or 0.0) > 0
+    ]
+    loss_pnls = [
+        float(o.get(FieldName.PNL) or 0.0) for o in orders if float(o.get(FieldName.PNL) or 0.0) < 0
+    ]
+    avg_win = round(sum(win_pnls) / len(win_pnls), 2) if win_pnls else 0.0
+    avg_loss = round(sum(loss_pnls) / len(loss_pnls), 2) if loss_pnls else 0.0
     return {
         "summary": {
             # Realized PnL only — matches the DB path (SUM(pnl) over closed

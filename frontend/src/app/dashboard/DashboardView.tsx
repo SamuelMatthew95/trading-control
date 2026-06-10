@@ -19,6 +19,10 @@ import { ALL_AGENT_NAMES, canonicalAgentKey } from '@/constants/agents'
 import type { AgentSummary } from '@/lib/agent-pipeline'
 import { isLifecycleLog } from '@/lib/activity-timeline'
 import { systemStatusBadgeClass, agentTierFromStatus } from '@/lib/dashboard-helpers'
+import {
+  BackendOfflineBanner,
+  BackendOfflineEmptyState,
+} from '@/components/dashboard/BackendOfflineBanner'
 
 type Section = 'overview' | 'trading' | 'agents' | 'learning' | 'proposals' | 'system'
 
@@ -142,6 +146,7 @@ export function DashboardView({ section }: { section: Section }) {
     notifications = [],
     proposals = [],
     tradeFeed = [],
+    closedTrades = [],
     riskAlerts = [],
     regime,
     killSwitchActive,
@@ -164,6 +169,8 @@ export function DashboardView({ section }: { section: Section }) {
   const {
     apiHealth,
     systemFeedError,
+    backendOffline,
+    lastSyncAt,
     llmAvailable,
     llmProvider,
     pricesFetched,
@@ -179,6 +186,18 @@ export function DashboardView({ section }: { section: Section }) {
   const isInMemoryMode = String((dashboardData as Record<string, unknown> | null)?.mode ?? '').includes('in_memory')
   const baseSystemStatus = useSystemStatus()
   const systemStatus = systemFeedError ? 'error' : baseSystemStatus
+
+  // Backend-offline handling: the store is never wiped on a failed fetch, so
+  // last-known data stays rendered behind a dismissible banner (the banner
+  // owns its dismissal). Only when this session never loaded anything do we
+  // swap the panels for an explanatory empty state (empty panels otherwise
+  // read as "everything is broken").
+  const hasAnyLoadedData =
+    dashboardData != null ||
+    orders.length > 0 ||
+    tradeFeed.length > 0 ||
+    notifications.length > 0
+  const lastKnownAt = lastSyncAt ?? dashboardData?.timestamp ?? null
 
   // Live-marked positions for the System view (P&L re-valued against the stream).
   const livePositions = useLivePositions()
@@ -357,8 +376,19 @@ export function DashboardView({ section }: { section: Section }) {
         <div className="space-y-2 px-2 pt-2 empty:hidden">
           <LLMDegradedBanner />
           {memoryBanner}
+          {/* Backend unreachable — keep last-known data visible, never blank panels */}
+          <BackendOfflineBanner
+            active={backendOffline && hasAnyLoadedData}
+            lastKnownAt={lastKnownAt}
+          />
         </div>
-        <TradingTerminal recentDecisions={recentDecisions} />
+        {backendOffline && !hasAnyLoadedData ? (
+          <div className="px-2 pt-2">
+            <BackendOfflineEmptyState />
+          </div>
+        ) : (
+          <TradingTerminal recentDecisions={recentDecisions} />
+        )}
         {activeTraceId && <TraceModal traceId={activeTraceId} onClose={() => setActiveTraceId(null)} />}
       </div>
     )
@@ -386,6 +416,7 @@ export function DashboardView({ section }: { section: Section }) {
           decisionStats={decisionStats}
           recentDecisions={recentDecisions}
           recentEvents={recentEvents}
+          closedTradesCount={Math.max(closedTrades.length, tradeFeed.filter((t) => t.pnl != null).length)}
           apiHealth={apiHealth}
           marketTickCount={marketTickCount}
           lastMarketSymbol={lastMarketSymbol}
@@ -450,7 +481,12 @@ export function DashboardView({ section }: { section: Section }) {
         <LLMDegradedBanner />
         {/* Persistence / memory-mode banner — single page-level indicator */}
         {memoryBanner}
-        {contentBySection}
+        {/* Backend unreachable — keep last-known data visible, never blank panels */}
+        <BackendOfflineBanner
+          active={backendOffline && hasAnyLoadedData}
+          lastKnownAt={lastKnownAt}
+        />
+        {backendOffline && !hasAnyLoadedData ? <BackendOfflineEmptyState /> : contentBySection}
       </main>
 
       {activeTraceId && <TraceModal traceId={activeTraceId} onClose={() => setActiveTraceId(null)} />}

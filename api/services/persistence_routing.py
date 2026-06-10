@@ -160,32 +160,41 @@ def build_memory_agent_log_row(msg_id: str, stream: str, event: dict[str, Any]) 
 
 def write_event_to_memory(
     stream: str, msg_id: str, event: dict[str, Any], store: InMemoryStore
-) -> None:
+) -> bool:
     """Write a pipeline event to the appropriate InMemoryStore bucket.
 
     Each stream maps to its dedicated store method so the in-memory snapshot
     mirrors the same shape as the corresponding Postgres table.  Streams
     without a dedicated bucket fall through to add_event() so nothing is lost.
+
+    Returns True when the row landed in the generic ``event_history`` bucket,
+    so the pipeline can skip its own events-feed append for the same msg_id
+    (otherwise fall-through streams would appear twice in the feed).
     """
     if stream == STREAM_AGENT_LOGS:
         store.add_agent_log(build_memory_agent_log_row(msg_id, stream, event))
-    elif stream == STREAM_ORDERS:
+        return False
+    if stream == STREAM_ORDERS:
         store.add_order(event)
-    elif stream == STREAM_AGENT_GRADES:
+        return False
+    if stream == STREAM_AGENT_GRADES:
         store.add_grade(event)
-    elif stream == STREAM_LEARNING_EVENTS:
+        return False
+    if stream == STREAM_LEARNING_EVENTS:
         store.add_vector_memory(event)
-    elif stream == STREAM_TRADE_PERFORMANCE:
+        return False
+    if stream == STREAM_TRADE_PERFORMANCE:
         store.upsert_trade_fill(event)
-    else:
-        # STREAM_EXECUTIONS, STREAM_RISK_ALERTS, STREAM_FACTOR_IC_HISTORY,
-        # STREAM_REFLECTION_OUTPUTS, STREAM_PROPOSALS, STREAM_NOTIFICATIONS
-        store.add_event(
-            {
-                FieldName.ID: msg_id,
-                FieldName.KIND: stream,
-                FieldName.SOURCE: str(event.get(FieldName.SOURCE) or stream),
-                FieldName.CREATED_AT: str(event.get(FieldName.TIMESTAMP) or ""),
-                FieldName.PAYLOAD: event,
-            }
-        )
+        return False
+    # STREAM_EXECUTIONS, STREAM_RISK_ALERTS, STREAM_FACTOR_IC_HISTORY,
+    # STREAM_REFLECTION_OUTPUTS, STREAM_PROPOSALS, STREAM_NOTIFICATIONS
+    store.add_event(
+        {
+            FieldName.ID: msg_id,
+            FieldName.KIND: stream,
+            FieldName.SOURCE: str(event.get(FieldName.SOURCE) or stream),
+            FieldName.CREATED_AT: str(event.get(FieldName.TIMESTAMP) or ""),
+            FieldName.PAYLOAD: event,
+        }
+    )
+    return True

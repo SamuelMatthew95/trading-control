@@ -54,6 +54,9 @@ export interface AgentsDashboardProps {
   decisionStats: DecisionStats | null
   recentDecisions: Array<Record<string, unknown>>
   recentEvents: RecentEvent[]
+  /** Closed round-trips this session — gates the learning stages' "waiting for
+   *  closed trades" hint in the pipeline. */
+  closedTradesCount: number
   apiHealth: ApiHealth
   marketTickCount: number
   lastMarketSymbol: string | null
@@ -74,6 +77,7 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
     decisionStats,
     recentDecisions,
     recentEvents,
+    closedTradesCount,
     apiHealth,
     marketTickCount,
     lastMarketSymbol,
@@ -137,6 +141,7 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
           marketLive={marketLive}
           decisionStats={decisionStats}
           proposalsCount={proposals.length}
+          closedTradesCount={closedTradesCount}
         />
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

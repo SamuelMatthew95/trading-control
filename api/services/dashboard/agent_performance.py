@@ -679,9 +679,15 @@ async def record_grade_snapshots() -> int:
     if store is None:
         return 0
     heartbeats, runs_by_agent = await _collect()
+    # Same inputs as the live view — snapshots must include the PnL dimension
+    # or the recorded streak (the promotion source) is built from a different
+    # score than the grade the dashboard displays.
+    pnl_by_agent = await _collect_pnl()
     recorded = 0
     for name in ALL_AGENT_NAMES:
-        graded = _grade_agent(name, heartbeats.get(name, {}), runs_by_agent.get(name, []))
+        graded = _grade_agent(
+            name, heartbeats.get(name, {}), runs_by_agent.get(name, []), pnl_by_agent.get(name)
+        )
         grade = graded[FieldName.GRADE]
         if grade is None:
             continue

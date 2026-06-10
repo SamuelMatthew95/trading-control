@@ -146,3 +146,21 @@ def test_normalize_position_prefers_unrealized_pnl_over_pnl():
     raw = {"qty": 1.0, "unrealized_pnl": 100.0, "pnl": 999.0}
     out = store._normalize_position(raw)
     assert out["pnl"] == 100.0
+
+
+def test_decision_dedup_keys_are_bounded():
+    """Regression: applied_decision_keys grew one key per decision forever —
+    the only unbounded collection in a store whose whole point is long runs."""
+    from api.in_memory_store import DECISION_KEY_CAP, InMemoryStore
+
+    store = InMemoryStore()
+    for i in range(DECISION_KEY_CAP + 200):
+        store.record_decision({"id": f"dec-{i}", "symbol": "BTC/USD", "action": "hold"})
+
+    assert len(store.applied_decision_keys) <= DECISION_KEY_CAP
+    assert len(store.decision_key_order) <= DECISION_KEY_CAP
+    # The newest keys are retained — re-delivering the latest decision still dedups.
+    last = store.record_decision(
+        {"id": f"dec-{DECISION_KEY_CAP + 199}", "symbol": "BTC/USD", "action": "hold"}
+    )
+    assert last.get("deduplicated") is True

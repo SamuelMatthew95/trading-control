@@ -34,8 +34,10 @@ const NAV = [
 ]
 
 const LogoGlyph = () => (
-  <div className="flex h-7 w-7 items-center justify-center rounded-lg" style={{ background: 'var(--accent)' }}>
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#04141a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+  // Token-driven mark: chip + glyph derive from the success token so the
+  // glyph flips with the theme and never renders dark-on-dark.
+  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-success/15 text-success">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 17l5-5 4 3 6-7" />
       <path d="M3 21h18" />
     </svg>

@@ -31,7 +31,7 @@ from api.observability import log_structured
 from api.runtime_state import is_db_available
 from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agent_state import AgentStateRegistry
-from api.services.agents.base import MultiStreamAgent
+from api.services.agents.base import MultiStreamAgent, PairedCloseDeduper
 from api.services.agents.db_helpers import (
     persist_factor_ic,
 )
@@ -71,8 +71,14 @@ class ICUpdater(MultiStreamAgent):
         self.redis = redis_client
         self._fills = 0
         self._score_pnl_buffer: deque[tuple[float, float]] = deque(maxlen=200)
+        # The same round-trip close arrives on BOTH trade_performance and
+        # trade_completed; fold it into the IC inputs once or the Spearman
+        # series carries duplicated points and the cadence fires early.
+        self._close_dedup = PairedCloseDeduper()
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
+        if self._close_dedup.is_duplicate(data):
+            return
         self._fills += 1
         pnl = float(data.get(FieldName.PNL) or 0.0)
         composite_score = await self._fetch_composite_score(data.get(FieldName.TRACE_ID))

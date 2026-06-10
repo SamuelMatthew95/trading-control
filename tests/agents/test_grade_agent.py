@@ -119,6 +119,52 @@ async def test_accumulates_fills_from_trade_performance(grade_agent):
 
 @pytest.mark.asyncio
 @patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
+async def test_paired_close_events_graded_once(grade_agent):
+    """A round-trip close arrives on BOTH trade_performance and trade_completed
+    (same trace_id, same realized PnL). It must grade once — otherwise the
+    durable agent PnL store and every fill counter double-counts each trade."""
+    from api.constants import PNL_GRADED_AGENTS
+    from api.services.agent_pnl_store import set_agent_pnl_store
+
+    recorded: list[tuple[str, float]] = []
+
+    class _CaptureStore:
+        async def record_trade(self, agent_name: str, pnl: float) -> None:
+            recorded.append((agent_name, pnl))
+
+    close = {"pnl": 42.0, "trace_id": "trace-close-1"}
+    set_agent_pnl_store(_CaptureStore())
+    try:
+        await grade_agent.process("trade_performance", "id-1", close)
+        await grade_agent.process("trade_completed", "id-2", dict(close))
+    finally:
+        set_agent_pnl_store(None)
+
+    assert grade_agent._fills == 1
+    assert list(grade_agent._pnl_buffer) == [42.0]
+    # One attribution per graded agent — not two.
+    assert len(recorded) == len(PNL_GRADED_AGENTS)
+
+
+@pytest.mark.asyncio
+@patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
+async def test_opening_fill_does_not_consume_decision_tool_cache(grade_agent):
+    """An opening fill (pnl None) must NOT pop the cached decision tools —
+    popping before validating PnL destroyed entry-tool attribution and logged
+    a spurious error per open."""
+    from api.constants import FieldName
+
+    grade_agent._trace_tools["trace-open-1"] = ["tool_a"]
+    grade_agent._attribute_pnl_to_tools({FieldName.TRACE_ID: "trace-open-1", FieldName.PNL: None})
+    assert "trace-open-1" in grade_agent._trace_tools
+
+    # The bus serializes None to "" — same outcome required.
+    grade_agent._attribute_pnl_to_tools({FieldName.TRACE_ID: "trace-open-1", FieldName.PNL: ""})
+    assert "trace-open-1" in grade_agent._trace_tools
+
+
+@pytest.mark.asyncio
+@patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
 async def test_accumulates_confidence_from_executions(grade_agent):
     """Each executions event populates _confidence_buffer from the confidence field."""
     await grade_agent.process("executions", "id-1", {"confidence": 0.9})
@@ -581,3 +627,111 @@ async def test_pnl_attribution_noop_without_store(grade_agent):
 
     set_agent_pnl_store(None)
     await grade_agent._attribute_pnl_to_agents({FieldName.PNL: 10.0})  # must not raise
+
+
+@pytest.mark.asyncio
+@patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
+async def test_grade_metrics_carry_fills_graded(grade_agent, monkeypatch):
+    """Regression: write_grade_to_db reads FILLS_GRADED from the METRICS dict,
+    but the payload only carried it at the top level — every stored grade
+    record said fills_graded=None."""
+    from api.runtime_state import get_runtime_store
+
+    monkeypatch.setattr(
+        "api.services.agents.grade_agent.write_agent_log", AsyncMock(), raising=True
+    )
+    grade_agent._fills = 5
+    grade_agent._pnl_buffer.extend([1.0, -2.0, 3.0])
+    await grade_agent._compute_and_publish_grade()
+
+    grades = get_runtime_store().grade_history
+    assert grades, "expected a grade record in memory mode"
+    assert grades[-1][FieldName.FILLS_GRADED] == 5
+
+
+@pytest.mark.asyncio
+@patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
+async def test_entry_decision_tools_credited_on_round_trip_close(grade_agent):
+    """Regression: a close carries only the CLOSING decision's trace, so the
+    BUY-side tools never received PnL attribution — tool alpha graded only the
+    exit half of every trade. The entry decision's tools are promoted to the
+    symbol slot when its order FILLS, and credited when the round trip closes."""
+    from api.constants import (
+        STREAM_DECISIONS,
+        STREAM_EXECUTIONS,
+        STREAM_TRADE_COMPLETED,
+        ToolPhase,
+    )
+    from api.services.tool_registry import ToolMetadata, ToolRegistry, set_tool_registry
+
+    registry = ToolRegistry()
+    for name in ("entry_tool", "exit_tool"):
+        registry.register(
+            ToolMetadata(name=name, phase=ToolPhase.MEMORY, description="d", alpha_score=0.0)
+        )
+    set_tool_registry(registry)
+    try:
+        # 1) BUY decision (trace-ENTRY) consulted entry_tool …
+        await grade_agent.process(
+            STREAM_DECISIONS,
+            "1-0",
+            {
+                FieldName.TRACE_ID: "trace-ENTRY",
+                FieldName.SYMBOL: "BTC/USD",
+                FieldName.TOOLS_USED: [{FieldName.NAME: "entry_tool"}],
+            },
+        )
+        # 2) … and its order actually FILLED (promotes tools to the symbol slot).
+        await grade_agent.process(
+            STREAM_EXECUTIONS,
+            "2-0",
+            {
+                FieldName.TRACE_ID: "trace-ENTRY",
+                FieldName.SYMBOL: "BTC/USD",
+                FieldName.SIDE: "buy",
+                FieldName.CONFIDENCE: 0.8,
+            },
+        )
+        # 3) SELL decision (trace-EXIT) consulted exit_tool, then the close fires
+        #    carrying ONLY the exit trace.
+        await grade_agent.process(
+            STREAM_DECISIONS,
+            "3-0",
+            {
+                FieldName.TRACE_ID: "trace-EXIT",
+                FieldName.SYMBOL: "BTC/USD",
+                FieldName.TOOLS_USED: [{FieldName.NAME: "exit_tool"}],
+            },
+        )
+        await grade_agent.process(
+            STREAM_TRADE_COMPLETED,
+            "4-0",
+            {FieldName.TRACE_ID: "trace-EXIT", FieldName.SYMBOL: "BTC/USD", FieldName.PNL: 10.0},
+        )
+
+        assert registry.get("exit_tool").alpha_score > 0.0
+        assert registry.get("entry_tool").alpha_score > 0.0  # the previously-lost half
+        # Both caches consumed — a redelivered close can't double-credit.
+        assert "BTC/USD" not in grade_agent._entry_tools
+        assert "trace-EXIT" not in grade_agent._trace_tools
+    finally:
+        set_tool_registry(None)
+
+
+@pytest.mark.asyncio
+@patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
+async def test_gated_decision_never_pollutes_entry_attribution(grade_agent):
+    """A BUY decision that never fills must NOT leave tools in the symbol slot —
+    only executed entries earn attribution rights."""
+    from api.constants import STREAM_DECISIONS
+
+    await grade_agent.process(
+        STREAM_DECISIONS,
+        "1-0",
+        {
+            FieldName.TRACE_ID: "trace-GATED",
+            FieldName.SYMBOL: "ETH/USD",
+            FieldName.TOOLS_USED: [{FieldName.NAME: "some_tool"}],
+        },
+    )
+    assert "ETH/USD" not in grade_agent._entry_tools

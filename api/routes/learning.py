@@ -165,7 +165,7 @@ async def get_trade_evaluation(trade_id: str) -> dict[str, Any]:
                 if g.get(FieldName.GRADE_TYPE) not in (None, GradeType.OVERALL):
                     continue
                 if str(g.get(FieldName.TRACE_ID) or "") == trade_id:
-                    raw = float(g.get(FieldName.SCORE) or g.get(FieldName.SCORE_PCT, 0))
+                    raw = float(g.get(FieldName.SCORE) or g.get(FieldName.SCORE_PCT) or 0)
                     score = raw / 100.0 if raw > 1.0 else raw
                     return {
                         "trade": _grade_record_to_trade(
@@ -262,7 +262,7 @@ async def get_learning_metrics() -> dict[str, Any]:
             for g in store.grade_history:
                 if g.get(FieldName.GRADE_TYPE) not in (None, GradeType.OVERALL):
                     continue
-                raw = float(g.get(FieldName.SCORE) or g.get(FieldName.SCORE_PCT, 0))
+                raw = float(g.get(FieldName.SCORE) or g.get(FieldName.SCORE_PCT) or 0)
                 score_n = raw / 100.0 if raw > 1.0 else raw
                 evaluations.append(
                     {

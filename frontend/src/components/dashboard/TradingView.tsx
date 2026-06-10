@@ -6,15 +6,18 @@ import { cn } from '@/lib/utils'
 import { deriveActivityIndicator, ACTIVITY_FRESH_MS } from '@/lib/agent-activity'
 import { formatUSD, formatQuantity, formatTimeAgo, getField, getStr, isActivePosition, toFiniteNum as toNum } from '@/lib/formatters'
 import { GRADE_STYLES } from '@/lib/grade-colors'
-import { Activity, BarChart2, TrendingDown, TrendingUp } from 'lucide-react'
+import { Activity, BarChart2, History, TrendingDown, TrendingUp } from 'lucide-react'
 import { useLivePnl } from '@/hooks/useLivePnl'
 import { useLivePositions } from '@/hooks/useLivePositions'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { EmptyState } from '@/components/ui/empty-state'
 import {
   tradeFeedEmptyLabel,
   activityDotClass,
   activityLabel,
   confColorClass,
   actionBadgeClass,
+  pnlColorClass,
   winRateFromFeed,
 } from '@/lib/dashboard-helpers'
 
@@ -211,6 +214,93 @@ function TradeFeedPanel({
               </div>
             )
           })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Closed Trades — the verifiable ledger behind the headline P&L
+// ---------------------------------------------------------------------------
+
+/**
+ * Compact table of completed round-trips (newest first, from
+ * `/dashboard/state.closed_trades`). Sits below Open Positions / the trade feed
+ * so the operator can reconcile the header P&L against actual past trades.
+ */
+function ClosedTradesPanel() {
+  const { closedTrades = [] } = useCodexStore()
+
+  return (
+    <div className="flex flex-col rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
+      <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5 dark:border-slate-800">
+        <p className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+          Closed Trades
+        </p>
+        <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-mono text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+          {closedTrades.length} closed
+        </span>
+      </div>
+
+      {closedTrades.length === 0 ? (
+        <div className="px-4 py-4">
+          <EmptyState icon={History} message="No closed trades yet this session" />
+        </div>
+      ) : (
+        <div className="max-h-[360px] overflow-y-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="pl-5">Time</TableHead>
+                <TableHead>Symbol</TableHead>
+                <TableHead>Side</TableHead>
+                <TableHead className="text-right">Qty</TableHead>
+                <TableHead className="text-right">Entry → Exit</TableHead>
+                <TableHead className="pr-5 text-right">P&L</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {closedTrades.slice(0, 50).map((trade, i) => (
+                <TableRow key={`${trade.symbol}-${trade.closed_at ?? i}`}>
+                  <TableCell
+                    className="whitespace-nowrap pl-5 font-mono text-xs tabular-nums text-slate-500 dark:text-slate-400"
+                    title={trade.closed_at ?? undefined}
+                  >
+                    {formatTimeAgo(trade.closed_at) || '--'}
+                  </TableCell>
+                  <TableCell className="font-mono font-semibold">{trade.symbol || '--'}</TableCell>
+                  <TableCell>
+                    <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide', actionBadgeClass(trade.side.toUpperCase()))}>
+                      {trade.side}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs tabular-nums text-slate-700 dark:text-slate-300">
+                    {formatQuantity(trade.qty)}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-right font-mono text-xs tabular-nums text-slate-700 dark:text-slate-300">
+                    {trade.entry_price != null ? formatUSD(trade.entry_price) : '--'}
+                    <span className="text-slate-400 dark:text-slate-500"> → </span>
+                    {trade.exit_price != null ? formatUSD(trade.exit_price) : '--'}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap pr-5 text-right">
+                    {trade.pnl != null ? (
+                      <span className={cn('font-mono text-sm font-semibold tabular-nums', pnlColorClass(trade.pnl))}>
+                        {trade.pnl >= 0 ? '+' : '-'}{formatUSD(trade.pnl)}
+                        {trade.pnl_percent != null && (
+                          <span className="ml-1.5 text-xs font-normal">
+                            {trade.pnl_percent >= 0 ? '+' : ''}{trade.pnl_percent.toFixed(2)}%
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-400">--</span>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
       )}
     </div>
@@ -456,6 +546,9 @@ export function TradingView({
           <AgentActivityPanel setActiveTraceId={setActiveTraceId} />
         </div>
       </div>
+
+      {/* Past round-trips — lets the operator verify the headline P&L number. */}
+      <ClosedTradesPanel />
     </div>
   )
 }

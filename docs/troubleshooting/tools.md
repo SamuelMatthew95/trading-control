@@ -40,3 +40,25 @@ The visible problem was non-persistence + an unclear UI, not fabricated data.
 **Regression test:** `tests/api/test_tool_telemetry.py` (flush→restart→hydrate
 roundtrip) + `tests/api/test_tool_registry.py` (snapshot/restore) +
 `frontend/src/test/components/ToolGovernancePanel.test.tsx`.
+
+## Tool alpha graded only the exit half of every round trip
+
+**Symptom:** Entry-decision tools (the look-ups behind the BUY) never
+accumulated realized-PnL alpha — only the SELL decision's tools were credited,
+so tool governance judged every tool on half its actual influence.
+
+**Root cause:** The round-trip-close events carry only the CLOSING decision's
+trace_id; GradeAgent's trace→tools cache therefore could never resolve the
+entry decision at attribution time.
+
+**Fix:** When a BUY order FILLS (`STREAM_EXECUTIONS`), the decision's cached
+tools are promoted to a bounded per-symbol entry slot
+(`GradeAgent._remember_entry_tools`); on close,
+`_attribute_pnl_to_tools` credits BOTH the closing-trace tools and the entry
+tools (one credit per tool per trade, both caches popped so a redelivered
+close can't double-credit). Gated/rejected decisions never fill, so they can't
+pollute attribution.
+
+**Regression tests:**
+`tests/agents/test_grade_agent.py::test_entry_decision_tools_credited_on_round_trip_close`,
+`::test_gated_decision_never_pollutes_entry_attribution`

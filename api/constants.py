@@ -209,6 +209,10 @@ class ProposalStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
+    # Terminal state for proposals the ProposalApplier has acted on. Audit
+    # rows MUST carry this so the review queue never renders an
+    # already-applied change as a fresh pending decision.
+    APPLIED = "applied"
 
 
 class LLMCallResult(StrEnum):
@@ -1460,11 +1464,6 @@ LEARNING_CONTROL_TTL_SECONDS: Final[int] = 90_000  # ~25h, matches IC weights
 # scans (the GitHub Action de-dupes, so this only bounds the read window).
 PARAM_PR_REQUESTS_SCAN_LIMIT: Final[int] = 200
 
-# Auto-PR writes ONLY under this directory — a config ledger the app reads at
-# startup, never source code. GitOpsPublisher hard-guards every commit path
-# against this prefix so the learning loop can never edit code.
-PARAMETER_OVERRIDES_DIR: Final[str] = "config/parameter_overrides"
-
 # ---------------------------------------------------------------------------
 # Candidate Sharpe may be at most this far BELOW the champion's.
 REGRESSION_MIN_SHARPE_DELTA: Final[float] = -0.10
@@ -1482,6 +1481,12 @@ REGRESSION_MIN_REPLAY_TRADES: Final[int] = 10
 # baseline" is signal, not noise. Decouples challenger learning from the live-fill
 # starvation that otherwise gates grades/retirement on trades that never close.
 CHALLENGER_MIN_SHADOW_TRADES: Final[int] = 25
+# Hard cap on concurrently RUNNING shadow challengers, with one-per-strategy
+# dedup, enforced by ChallengerSpawner. Without these, the promotion loop
+# (auto-applied promotion → spawn clone of same strategy → clone beats
+# baseline → promotes again) appended near-identical challengers to the live
+# fleet without bound.
+MAX_CONCURRENT_CHALLENGERS: Final[int] = 3
 
 REDIS_KEY_PRICES: Final[str] = "prices:{symbol}"  # use .format(symbol=symbol)
 # Market-intel caches (Category 1 market-data cache) — written by the reasoning
@@ -1514,6 +1519,11 @@ REDIS_KEY_NOTIFICATIONS_RECENT: Final[str] = "notifications:recent"
 REDIS_KEY_NOTIFICATIONS_READ: Final[str] = "notifications:read"
 REDIS_KEY_DECISIONS_RECENT: Final[str] = "decisions:recent"
 REDIS_KEY_LLM_METRICS: Final[str] = "llm:metrics"
+# Closed round-trips (LPUSH, LTRIM cap) — the trade history behind the header
+# PnL. The PaperBroker equity survives restarts (Redis), so the trades that
+# produced it must too, or the dashboard shows a PnL no visible trade explains.
+REDIS_KEY_CLOSED_TRADES_RECENT: Final[str] = "closed_trades:recent"
+REDIS_CLOSED_TRADES_MAX: Final[int] = 100
 # Cooling-off: recent trade PnL outcomes (LPUSH, LTRIM cap COOLING_OFF_WINDOW+5)
 REDIS_KEY_RECENT_OUTCOMES: Final[str] = "trading:recent_outcomes"
 REDIS_RECENT_OUTCOMES_MAXLEN: Final[int] = 10

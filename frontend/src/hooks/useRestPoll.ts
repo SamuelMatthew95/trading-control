@@ -67,6 +67,11 @@ interface TradeFeedUpstream {
 export interface RestPollState {
   apiHealth: ApiHealth
   systemFeedError: string | null
+  /** True while the `/dashboard/state` read-path is unreachable/erroring. The
+   *  store is never wiped on failure — last-known data stays rendered. */
+  backendOffline: boolean
+  /** ISO timestamp of the last successful `/dashboard/state` hydration. */
+  lastSyncAt: string | null
   llmAvailable: boolean | null
   llmProvider: string
   pricesFetched: boolean
@@ -86,6 +91,8 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
     eventHistory: 'pending',
   })
   const [systemFeedError, setSystemFeedError] = useState<string | null>(null)
+  const [backendOffline, setBackendOffline] = useState(false)
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null)
   const [llmAvailable, setLlmAvailable] = useState<boolean | null>(null)
   const [llmProvider, setLlmProvider] = useState<string>('')
   const [pricesFetched, setPricesFetched] = useState(false)
@@ -106,17 +113,24 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
           const data = await res.json()
           useCodexStore.getState().hydrateDashboard(data)
           setApiHealth((prev) => ({ ...prev, dashboardState: 'ok' }))
+          setBackendOffline(false)
+          setLastSyncAt(new Date().toISOString())
           if (typeof data.llm_available === 'boolean') setLlmAvailable(data.llm_available)
           if (typeof data.llm_provider === 'string') setLlmProvider(data.llm_provider)
         } else {
           setApiHealth((prev) => ({ ...prev, dashboardState: 'error' }))
+          setBackendOffline(true)
         }
       } catch {
         // Only surface REST unreachability when WS is not covering live data.
         if (!wsConnected) {
           setSystemFeedError('Dashboard API unreachable')
         }
+        // Flag the outage but deliberately do NOT touch the store: previously
+        // hydrated data stays rendered as "last known" instead of blanking the
+        // dashboard while the backend is unreachable.
         setApiHealth((prev) => ({ ...prev, dashboardState: 'error' }))
+        setBackendOffline(true)
       }
     }
 
@@ -335,6 +349,8 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
   return {
     apiHealth,
     systemFeedError,
+    backendOffline,
+    lastSyncAt,
     llmAvailable,
     llmProvider,
     pricesFetched,

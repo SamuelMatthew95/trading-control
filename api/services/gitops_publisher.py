@@ -5,9 +5,13 @@ a `pr_request` artifact AND (via this module) opens a pull request that edits a
 **config file** — never raw source code — so the change is version-controlled
 and human-reviewed before it can affect anything.
 
-The PR writes a JSON entry under ``config/parameter_overrides/`` describing the
-proposed value + evidence. A human merges it; nothing in the live system changes
-until then.
+The PR edits ``config/param_overrides.json`` — the SAME validated overrides
+file the GitHub Action path (``param-evolution-pr.yml`` →
+``apply_param_change.py``) edits and that ``api/constants.py`` loads at import
+time. One artifact format, one loader, one safe-bounds validator
+(``param_evolution.validate_param_change``); a junk or out-of-bounds change is
+refused before any branch or PR exists. A human merges the PR; nothing in the
+live system changes until the next deploy reads the merged file.
 
 Safety: this only acts when ``GITHUB_AUTOPR_ENABLED`` is set AND a token + repo
 are configured (``GITHUB_TOKEN`` lives in the Render env). With no token/repo —
@@ -18,16 +22,16 @@ All failures are swallowed: a GitOps hiccup must never break the trading loop.
 from __future__ import annotations
 
 import base64
-import json
 import uuid
-from datetime import datetime, timezone
 from typing import Any
 
 import httpx
 
 from api.config import settings
-from api.constants import PARAMETER_OVERRIDES_DIR, FieldName
+from api.constants import FieldName
 from api.observability import log_structured
+from api.services.param_evolution import validate_param_change
+from api.services.param_overrides import DEFAULT_OVERRIDES_PATH, apply_param_override
 
 _GITHUB_API = "https://api.github.com"
 _HTTP_TIMEOUT = 10.0
@@ -55,42 +59,38 @@ class GitOpsPublisher:
         }
 
     async def open_parameter_pr(self, artifact: dict[str, Any]) -> dict[str, Any]:
-        """Open a PR writing the parameter change to a config-override file.
+        """Open a PR applying the parameter change to ``config/param_overrides.json``.
 
         Returns a status dict — ``{status: dry_run}`` when not configured,
-        ``{status: opened, pr_url: ...}`` on success, ``{status: error}`` on
+        ``{status: rejected, reason}`` when the change fails safe-bounds
+        validation (refused BEFORE any branch/PR exists),
+        ``{status: opened, pr_url}`` on success, ``{status: error}`` on
         failure. Never raises.
         """
         if not _autopr_ready():
             return {FieldName.STATUS: "dry_run"}
 
         parameter = str(artifact.get(FieldName.PARAMETER) or "").strip()
-        if not parameter:
-            return {FieldName.STATUS: "error", FieldName.REASON: "missing_parameter"}
-
-        short = uuid.uuid4().hex[:8]
-        branch = f"auto/param-{parameter.lower()}-{short}"
-        path = f"{PARAMETER_OVERRIDES_DIR}/{parameter}.{short}.json"
         proposed = artifact.get(FieldName.PROPOSED_VALUE)
+        err = validate_param_change(parameter, proposed)
+        if err is not None:
+            log_structured("warning", "gitops_autopr_rejected", parameter=parameter, reason=err)
+            return {FieldName.STATUS: "rejected", FieldName.REASON: err}
+
         previous = artifact.get(FieldName.PREVIOUS_VALUE)
         reason = str(artifact.get(FieldName.REASON) or "")
-        override = {
-            FieldName.PARAMETER: parameter,
-            FieldName.PREVIOUS_VALUE: previous,
-            FieldName.PROPOSED_VALUE: proposed,
-            FieldName.REASON: reason,
-            FieldName.TRACE_ID: artifact.get(FieldName.TRACE_ID),
-            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
-        }
+        branch = f"auto/param-{parameter.lower()}-{uuid.uuid4().hex[:8]}"
         title = f"[auto] param {parameter}: {previous} → {proposed}"
         body = (
             f"Automated parameter-change proposal from the learning loop.\n\n"
             f"- **parameter**: `{parameter}`\n"
             f"- **previous**: `{previous}`\n"
             f"- **proposed**: `{proposed}`\n"
-            f"- **reason**: {reason}\n\n"
-            f"This PR edits a config override only (no source code). "
-            f"Review and merge to adopt."
+            f"- **reason**: {reason}\n"
+            f"- **trace_id**: `{artifact.get(FieldName.TRACE_ID)}`\n\n"
+            f"This PR edits the validated config-overrides file only (no source "
+            f"code); `api/constants.py` re-validates and applies it on the next "
+            f"deploy. Review and merge to adopt."
         )
 
         try:
@@ -100,8 +100,19 @@ class GitOpsPublisher:
                 base_sha = await self._base_sha(client)
                 if not base_sha:
                     return {FieldName.STATUS: "error", FieldName.REASON: "base_ref_not_found"}
+                # Read-modify-write the overrides document BEFORE creating any
+                # branch, so a no-op/refused change leaves no orphan branches.
+                current_text, file_sha = await self._get_overrides_file(client)
+                ok, new_text, apply_err = apply_param_override(current_text, parameter, proposed)
+                if not ok or new_text is None:
+                    log_structured(
+                        "info", "gitops_autopr_no_change", parameter=parameter, reason=apply_err
+                    )
+                    return {FieldName.STATUS: "rejected", FieldName.REASON: apply_err}
                 await self._create_branch(client, branch, base_sha)
-                await self._put_file(client, path, override, branch, title)
+                await self._put_file(
+                    client, str(DEFAULT_OVERRIDES_PATH), new_text, branch, title, sha=file_sha
+                )
                 pr_url = await self._open_pr(client, branch, title, body)
         except Exception:
             log_structured("warning", "gitops_autopr_failed", parameter=parameter, exc_info=True)
@@ -154,18 +165,46 @@ class GitOpsPublisher:
         )
         resp.raise_for_status()
 
-    async def _put_file(
-        self, client: httpx.AsyncClient, path: str, content: dict[str, Any], branch: str, msg: str
-    ) -> None:
-        # Structural config-only guarantee: auto-PR may ONLY write under the
-        # config-overrides dir, never source code. Anything else needs an issue.
-        if not path.startswith(f"{PARAMETER_OVERRIDES_DIR}/"):
-            raise ValueError(f"auto-PR refused: {path} is outside {PARAMETER_OVERRIDES_DIR}")
-        encoded = base64.b64encode(json.dumps(content, indent=2).encode()).decode()
-        resp = await client.put(
-            f"/repos/{self.repo}/contents/{path}",
-            json={"message": msg, "content": encoded, "branch": branch},
+    async def _get_overrides_file(self, client: httpx.AsyncClient) -> tuple[str, str | None]:
+        """Current text + blob sha of the overrides file on the base branch.
+
+        Returns ``("", None)`` when the file does not exist yet (first override).
+        """
+        resp = await client.get(
+            f"/repos/{self.repo}/contents/{DEFAULT_OVERRIDES_PATH}",
+            params={"ref": self.base_branch},
         )
+        if resp.status_code == 404:
+            return "", None
+        resp.raise_for_status()
+        payload = resp.json()
+        # "content" is the GitHub contents-API key; FieldName.CONTENT serializes
+        # to the same string, satisfying the no-raw-FieldName-reads guardrail.
+        text = base64.b64decode(payload.get(FieldName.CONTENT) or "").decode("utf-8")
+        return text, payload.get("sha")
+
+    async def _put_file(
+        self,
+        client: httpx.AsyncClient,
+        path: str,
+        content_text: str,
+        branch: str,
+        msg: str,
+        *,
+        sha: str | None = None,
+    ) -> None:
+        # Structural config-only guarantee: auto-PR may ONLY write the validated
+        # overrides document, never source code. Anything else needs an issue.
+        if path != str(DEFAULT_OVERRIDES_PATH):
+            raise ValueError(f"auto-PR refused: {path} is outside {DEFAULT_OVERRIDES_PATH}")
+        body: dict[str, Any] = {
+            "message": msg,
+            "content": base64.b64encode(content_text.encode()).decode(),
+            "branch": branch,
+        }
+        if sha:  # required by the contents API when updating an existing file
+            body["sha"] = sha
+        resp = await client.put(f"/repos/{self.repo}/contents/{path}", json=body)
         resp.raise_for_status()
 
     async def _open_pr(self, client: httpx.AsyncClient, branch: str, title: str, body: str) -> str:

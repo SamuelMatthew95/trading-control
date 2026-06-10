@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Any
 
@@ -47,6 +48,7 @@ from api.constants import (
     STREAM_PROPOSALS,
     FieldName,
     LogType,
+    ProposalStatus,
     ProposalType,
 )
 from api.events.bus import EventBus
@@ -57,6 +59,7 @@ from api.services.agent_state import AgentStateRegistry
 from api.services.agents.base import MultiStreamAgent
 from api.services.agents.db_helpers import write_agent_log
 from api.services.gitops_publisher import GitOpsPublisher
+from api.services.param_evolution import validate_param_change
 from api.services.prompt_store import get_prompt_store
 from api.services.redis_store import get_redis_store
 from api.services.tool_registry import get_tool_registry
@@ -85,6 +88,10 @@ class ProposalApplier(MultiStreamAgent):
         )
         self.redis = redis_client
         self._applied_count = 0
+        # Bounded LRU of already-applied proposal identities (msg_id when
+        # present, else type+trace). Stream retries and DLQ replays redeliver
+        # the same proposal; re-running a handler duplicates its side effects.
+        self._applied_keys: OrderedDict[str, None] = OrderedDict()
         # Injected at startup so an approved NEW_AGENT can spawn a challenger
         # dynamically (config, no deploy). None → fall back to filing an issue.
         self.spawner: Any = None
@@ -110,6 +117,19 @@ class ProposalApplier(MultiStreamAgent):
         content = data.get(FieldName.CONTENT) or {}
         action = content.get(FieldName.ACTION) if isinstance(content, dict) else None
         trace_id = data.get(FieldName.TRACE_ID) or f"applier_{uuid.uuid4().hex[:8]}"
+
+        # Idempotency: stream retries / DLQ replays redeliver the SAME proposal
+        # (same msg_id). Re-running a handler re-fires its side effects — a
+        # duplicate PR artifact, a duplicate audit row in the review queue —
+        # so apply each proposal exactly once.
+        if self._already_applied(data, proposal_type, trace_id):
+            log_structured(
+                "info",
+                "proposal_apply_skipped_duplicate",
+                proposal_type=proposal_type,
+                trace_id=trace_id,
+            )
+            return
 
         # Approval-gated types sit in the queue until an operator approves (the
         # approval path republishes them with APPROVED=True) — EXCEPT challenger
@@ -176,6 +196,16 @@ class ProposalApplier(MultiStreamAgent):
             FieldName.TRACE_ID: trace_id,
             FieldName.MESSAGE: applied.get(FieldName.MESSAGE, ""),
             FieldName.PAYLOAD: applied,
+            # An audit row is a RECORD of an action, not a fresh decision. The
+            # review queue defaults a missing status to "pending" and a missing
+            # content to {}, which rendered every applied change as a new
+            # evidence-less proposal with live Approve/Reject buttons (the
+            # queue-spam bug). Stamp the terminal status and carry the applied
+            # summary so readers show what happened instead.
+            FieldName.STATUS: ProposalStatus.APPLIED,
+            FieldName.CONTENT: applied,
+            FieldName.REQUIRES_APPROVAL: False,
+            FieldName.MSG_ID: str(uuid.uuid4()),
         }
         try:
             await write_agent_log(trace_id, LogType.PROPOSAL, log_payload)
@@ -230,6 +260,22 @@ class ProposalApplier(MultiStreamAgent):
             )
         except Exception:
             log_structured("warning", "proposal_applier_heartbeat_failed", exc_info=True)
+
+    def _already_applied(self, data: dict[str, Any], proposal_type: Any, trace_id: str) -> bool:
+        """True when this proposal identity was already applied (records it if not).
+
+        Approval republishes carry APPROVED=True and must be allowed through
+        even when the original (gated, skipped) publish was seen — the key
+        includes the approved flag so the operator's approval still acts.
+        """
+        identity = data.get(FieldName.MSG_ID) or f"{proposal_type}:{trace_id}"
+        key = f"{identity}|approved={bool(data.get(FieldName.APPROVED))}"
+        if key in self._applied_keys:
+            return True
+        self._applied_keys[key] = None
+        while len(self._applied_keys) > 1000:
+            self._applied_keys.popitem(last=False)
+        return False
 
     # ------------------------------------------------------------------
     # Action handlers — each returns a dict describing what changed.
@@ -439,22 +485,29 @@ class ProposalApplier(MultiStreamAgent):
         return result
 
     async def _bias_directive_toward(self, strategy: str, advisory: str) -> dict[str, Any] | None:
-        """Append *advisory* to the durable adaptive directive (idempotent).
+        """Set *strategy*'s promotion advisory on the durable adaptive directive.
 
         Reuses the ``PromptStore`` so the bias is persistent (Redis, no TTL —
         survives restarts/deploys), versioned/auditable, and visible in the Prompt
-        Evolution panel. Appends beneath any existing (e.g. LLM-evolved) directive
-        rather than replacing it; de-dupes so re-approval is a no-op. Returns the
-        new directive record, or ``None`` when no store is installed or the line
-        is already present."""
+        Evolution panel. ONE advisory line per strategy: any previous promotion
+        line for the same strategy is REPLACED, not stacked — advisories embed
+        edge/win-rate numbers, so plain append-with-exact-match-dedup grew the
+        live LLM prompt by one near-duplicate line per promotion cycle, without
+        bound. Replacing also self-heals a directive that already accumulated
+        duplicates. Returns the new directive record, or ``None`` when no store
+        is installed or the directive is already exactly this state."""
         store = get_prompt_store()
         if store is None:
             log_structured("warning", "challenger_promotion_no_prompt_store", strategy=strategy)
             return None
         current = await store.get_active_text(REASONING_NODE) or ""
-        if advisory in current:
-            return None  # already biased toward this strategy — idempotent
-        new_text = f"{current}\n{advisory}".strip() if current else advisory
+        # Drop every prior promotion advisory for this strategy (stable prefix),
+        # keep everything else (LLM-evolved guidance, other strategies' lines).
+        stale_prefix = f"Promoted strategy '{strategy}':"
+        kept = [ln for ln in current.splitlines() if not ln.strip().startswith(stale_prefix)]
+        new_text = "\n".join([*kept, advisory]).strip()
+        if new_text == current.strip():
+            return None  # already biased exactly this way — idempotent
         return await store.set_directive(
             REASONING_NODE,
             new_text,
@@ -538,6 +591,20 @@ class ProposalApplier(MultiStreamAgent):
         previous_value = content.get(FieldName.PREVIOUS_VALUE)
         proposed_value = content.get(FieldName.NEW_VALUE)
         reason = content.get(FieldName.REASON, "")
+        # Safe-bounds gate (param_evolution contract: enforced BEFORE emitting a
+        # pr_request artifact). An off-allowlist or out-of-bounds change emits
+        # nothing — no artifact, no PR, no "applied" audit row — so the queue
+        # can never claim the loop acted on an unsafe change.
+        validation_error = validate_param_change(str(parameter), proposed_value)
+        if validation_error is not None:
+            log_structured(
+                "warning",
+                "param_change_rejected_unsafe",
+                parameter=parameter,
+                reason=validation_error,
+                trace_id=trace_id,
+            )
+            return None
         await self.bus.publish(
             STREAM_GITHUB_PRS,
             {

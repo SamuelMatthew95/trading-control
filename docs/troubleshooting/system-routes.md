@@ -241,3 +241,26 @@ assigning a grade — otherwise the agent is UNRATED. Liveness alone never earns
 letter.
 
 **Regression test:** `tests/api/test_agent_performance.py::test_alive_but_idle_agent_is_unrated_not_graded`
+
+## /health/logs ran SQL in memory mode + both SSE log streams pinned a DB connection
+
+**Symptom:** With no Postgres, `GET /health/logs` immediately emitted an SSE
+`error` event (it tried to query `agent_logs`) instead of degrading like
+`/system/logs`. Separately, every connected SSE client on either endpoint held
+one extra DB pool connection for the stream's entire lifetime.
+
+**Root cause:** `/system/logs` and `/health/logs` each carried their own copy
+of the same ~110-line SSE generator; only the `/system` copy had a memory-mode
+guard, and in both copies the `while True` poll loop sat *inside* the initial
+query's `async with _make_session()` block, so the first session was never
+released.
+
+**Fix:** Both generators consolidated into
+`api/services/agent_log_stream.py` (`agent_log_stream_response` +
+`memory_mode_log_stream_response`). The initial batch runs in its own
+short-lived session that closes before the poll loop starts, and both routes
+short-circuit to the one-frame memory response when `is_db_available()` is
+False. Output shape per route is unchanged (`timestamp` vs `created_at` key,
+trace_id only on `/health/logs`).
+
+**Regression test:** `tests/core/test_agent_log_stream.py::test_initial_session_closed_before_first_frame_is_yielded`

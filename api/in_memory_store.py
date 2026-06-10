@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections import deque
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -21,6 +22,7 @@ from api.constants import (
     AGENT_STRATEGY_PROPOSER,
     DEFAULT_PAPER_CASH,
     FieldName,
+    GradeType,
     LogType,
 )
 from api.services.metrics_calc import closed_trade_stats, win_rate_from_counts
@@ -40,6 +42,9 @@ DEFAULT_AGENTS: dict[str, dict[str, Any]] = {
 }
 DEFAULT_TRADE_NOTIONAL: float = float(getattr(settings, "EQUITY_PER_TRADE", 1000.0) or 1000.0)
 POSITION_EPSILON: float = 1e-9
+# Max retained decision-dedup keys (4× the decision list cap so keys outlive
+# their decisions long enough to still dedup stream re-deliveries).
+DECISION_KEY_CAP: int = 2000
 
 
 @dataclass(slots=True)
@@ -65,6 +70,10 @@ class InMemoryStore:
     closed_trades: list[dict[str, Any]] = field(default_factory=list)
     equity_curve: list[dict[str, Any]] = field(default_factory=list)
     applied_decision_keys: set[str] = field(default_factory=set)
+    # Insertion order companion for applied_decision_keys so the dedup set can
+    # be pruned oldest-first — it was the only unbounded collection here (one
+    # key per decision ever seen, fed on every /dashboard/state hydration).
+    decision_key_order: deque[str] = field(default_factory=deque)
     rejected_sells: list[dict[str, Any]] = field(default_factory=list)
 
     @staticmethod
@@ -315,6 +324,23 @@ class InMemoryStore:
         safe_limit = max(1, min(limit, 200))
         return list(reversed(self.grade_history[-safe_limit:]))
 
+    def get_overall_grades(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Grade rows for the grade-history / learning views — overall/untyped only.
+
+        SignalGenerator writes per-signal ``GradeType.ACCURACY`` rows into the
+        same ``grade_history`` list. The DB read path filters those out
+        (``log_type=GRADE`` rows are GradeAgent-only), so the memory path must
+        apply the same rule or the two modes show different "grade history"
+        semantics. Single source for that filter.
+        """
+        safe_limit = max(1, min(limit, 200))
+        rows = [
+            g
+            for g in self.grade_history
+            if g.get(FieldName.GRADE_TYPE) in (None, GradeType.OVERALL)
+        ]
+        return list(reversed(rows[-safe_limit:]))
+
     def add_event(self, event_payload: dict[str, Any]) -> dict[str, Any]:
         payload = dict(event_payload)
         payload.setdefault(FieldName.TIMESTAMP, time.time())
@@ -502,7 +528,7 @@ class InMemoryStore:
             FieldName.DAILY_PNL: round(realized_pnl, 2),
             FieldName.DAILY_CHANGE_PCT: daily_change_pct,
             FieldName.AGENT_LOGS: list(reversed(self.agent_logs[-50:])),
-            FieldName.LEARNING_EVENTS: list(reversed(self.grade_history[-20:])),
+            FieldName.LEARNING_EVENTS: self.get_overall_grades(limit=20),
             FieldName.PROPOSALS: [
                 e
                 for e in reversed(self.event_history[-100:])
@@ -545,6 +571,9 @@ class InMemoryStore:
                 FieldName.DEDUPLICATED: True,
             }
         self.applied_decision_keys.add(decision_key)
+        self.decision_key_order.append(decision_key)
+        while len(self.decision_key_order) > DECISION_KEY_CAP:
+            self.applied_decision_keys.discard(self.decision_key_order.popleft())
         action = str(payload.get(FieldName.ACTION, "hold")).upper()
         symbol = str(payload.get(FieldName.SYMBOL) or "").strip()
         price = self._safe_float(payload.get(FieldName.PRICE)) or 0.0

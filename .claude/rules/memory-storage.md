@@ -214,6 +214,7 @@ routes in `api/routes/{notifications,decisions,llm_health}.py`.
 | `REDIS_KEY_NOTIFICATIONS_RECENT` | `notifications:recent` (LPUSH, LTRIM cap 20) | None | NotificationAgent + ReasoningAgent |
 | `REDIS_KEY_NOTIFICATIONS_READ` | `notifications:read` (SET of read ids) | None | REST POST `/notifications/{id}/read` |
 | `REDIS_KEY_DECISIONS_RECENT` | `decisions:recent` (LPUSH, LTRIM cap 50) | None | ReasoningAgent |
+| `REDIS_KEY_CLOSED_TRADES_RECENT` | `closed_trades:recent` (LPUSH, LTRIM cap 100) | None | ExecutionEngine (close mirror), startup hydration reads |
 | `REDIS_KEY_LLM_METRICS` | `llm:metrics` hash: `total_calls`, `successes`, `rate_limits`, `timeouts`, `errors`, `last_success_at`, `last_latency_ms` | None | `LLMMetricsCollector` fire-and-forget |
 
 **Rules:**

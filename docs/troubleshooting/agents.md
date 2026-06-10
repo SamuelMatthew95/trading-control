@@ -84,3 +84,90 @@ treats unproven as not-promotable rather than guessing.
 `tests/agents/test_grade_agent.py::test_attributes_realized_pnl_to_trading_agents`,
 `tests/api/test_agent_performance.py::test_trading_agent_graded_on_realized_pnl`,
 `::test_pnl_gate_blocks_promotion_when_losing`
+
+## ReasoningAgent defined _compute_kelly_position_size twice
+
+**Symptom:** No runtime misbehavior — but `ReasoningAgent` carried two
+near-identical definitions of `_compute_kelly_position_size` (lines ~487 and
+~1313), and only the second ever executed (Python silently lets the later
+class-body definition shadow the earlier one).
+
+**Root cause:** A refactor moved the Kelly sizing helper next to the risk
+hierarchy but left the original copy behind; nothing flags duplicate method
+names in a class body.
+
+**Fix:** Removed the dead first definition; the surviving copy (the one that
+was already in effect at runtime) is unchanged, so behavior is identical. An
+AST sweep confirmed no other duplicate function/method definitions exist in
+`api/`.
+
+**Regression test:** behavior-neutral dead-code removal — covered by the
+existing reasoning-agent suite (`tests/agents/test_reasoning_*.py`).
+
+## Grade snapshots recorded without the PnL dimension
+
+**Symptom:** For PnL-graded agents the dashboard's live grade could differ
+from the recorded snapshot history (the source of promotion streaks) — an
+agent could display "B" while accumulating "A" snapshots, making promotion
+unexplainable from the UI.
+
+**Root cause:** `record_grade_snapshots` called `_grade_agent` without
+`pnl_stats`, while the live view passes them — two different scores for the
+same agent.
+
+**Fix:** `record_grade_snapshots` now collects `_collect_pnl()` and passes
+each agent's stats, matching the live view
+(`api/services/dashboard/agent_performance.py`).
+
+**Regression test:** covered by `tests/api/test_agent_performance.py`
+(snapshot path now exercises the same `_grade_agent` inputs as the live view).
+
+## Stored grade records always said fills_graded=None
+
+**Symptom:** Grade history rows (memory mode and the DB agent_grades fallback)
+showed `fills_graded: null` even though every grade cycle runs on a known fill
+count.
+
+**Root cause:** GradeAgent put `FILLS_GRADED` at the payload top level, but
+`write_grade_to_db` receives only the `METRICS` dict and reads
+`metrics.get(FILLS_GRADED)` — as does the DB grade-history fallback reader.
+
+**Fix:** `FILLS_GRADED` is also carried inside `METRICS` at payload
+construction (`api/services/agents/grade_agent.py`), healing both persistence
+paths with no signature changes.
+
+**Regression test:** `tests/agents/test_grade_agent.py::test_grade_metrics_carry_fills_graded`
+
+## Challenger promotion loop spawned unbounded clones and bloated the live prompt
+
+**Symptom:** /dashboard/agents became an endless wall: 15+ near-identical
+"challenger being tested" cards (same strategy, 0/20 fills each), a huge
+"challenger shadows" list, and an adaptive directive whose ACTIVE text held
+~12 stacked "Promoted strategy 'mean_reversion': …" lines (×10 history
+versions) — every reasoning call paid for that bloated prompt.
+
+**Root cause (two unbounded feedback legs):**
+1. `ChallengerSpawner.spawn` had no dedup or cap: each auto-applied
+   challenger promotion spawned a follow-up candidate of the SAME strategy,
+   which accumulated shadow evidence, beat baseline, promoted again, and
+   spawned another clone — one new fleet member per cycle.
+2. `_bias_directive_toward` appended the promotion advisory with
+   exact-string dedup only; advisories embed edge/win-rate numbers, so every
+   cycle's line was unique and the directive grew without bound.
+
+**Fix:**
+- Spawner enforces one RUNNING challenger per strategy (returns the existing
+  descriptor with `status: already_running`) and a hard
+  `MAX_CONCURRENT_CHALLENGERS` cap (`status: capacity`) — a retired
+  challenger frees its slot (`api/services/challenger_spawner.py`).
+- The promotion advisory REPLACES the strategy's previous advisory lines
+  (stable `Promoted strategy '<name>':` prefix) instead of stacking — one
+  line per strategy, and the rewrite self-heals an already-bloated directive
+  on the next promotion (`api/services/agents/proposal_applier.py`).
+- UI: prior directive versions and challenger-shadow evidence collapse to
+  one-line summaries (expand on demand) so the agents page stays one screen
+  (`PromptEvolutionPanel.tsx`, `LearningLoopPanel.tsx`).
+
+**Regression tests:**
+`tests/agents/test_challenger_spawner.py` (dedup / cap / slot-free),
+`tests/agents/test_proposal_applier.py::test_promotion_advisory_replaces_stale_lines_for_same_strategy`

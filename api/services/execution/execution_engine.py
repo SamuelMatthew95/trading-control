@@ -94,6 +94,7 @@ from api.services.execution.position_math import (
     signed_position_qty,
 )
 from api.services.market_status import get_market_status
+from api.services.redis_store import get_redis_store
 from api.services.risk_filters import is_cooling_off
 from api.services.tool_registry import get_tool_registry
 
@@ -1064,20 +1065,24 @@ class ExecutionEngine(BaseStreamConsumer):
             }
         )
         # A round-trip close is a completed trade — record it so the dashboard's
-        # closed-trades panel reflects real activity in memory mode.
+        # closed-trades panel reflects real activity in memory mode, and mirror
+        # it to Redis so the history survives restarts (the broker's equity
+        # does, so the trades explaining it must too).
         if ctx.is_round_trip_close:
-            store.add_closed_trade(
-                {
-                    FieldName.SYMBOL: ctx.symbol,
-                    FieldName.SIDE: ctx.side,
-                    FieldName.QTY: ctx.qty,
-                    FieldName.ENTRY_PRICE: ctx.entry_price,
-                    FieldName.EXIT_PRICE: ctx.fill_price,
-                    FieldName.PNL: ctx.realized_pnl,
-                    FieldName.PNL_PERCENT: ctx.pnl_percent,
-                    FieldName.FILLED_AT: ctx.filled_at.isoformat(),
-                }
-            )
+            closed_trade = {
+                FieldName.SYMBOL: ctx.symbol,
+                FieldName.SIDE: ctx.side,
+                FieldName.QTY: ctx.qty,
+                FieldName.ENTRY_PRICE: ctx.entry_price,
+                FieldName.EXIT_PRICE: ctx.fill_price,
+                FieldName.PNL: ctx.realized_pnl,
+                FieldName.PNL_PERCENT: ctx.pnl_percent,
+                FieldName.FILLED_AT: ctx.filled_at.isoformat(),
+            }
+            store.add_closed_trade(closed_trade)
+            redis_store = get_redis_store()
+            if redis_store is not None:
+                await redis_store.push_closed_trade(closed_trade)
         # PaperBroker (Redis) is the position source of truth — mirror its
         # authoritative post-fill state instead of recomputing it locally.
         broker_position = await self.broker.get_position(ctx.symbol)

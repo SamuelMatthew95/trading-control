@@ -1,4 +1,4 @@
- name: PR Review Automation
+name: PR Review Automation
 
 on:
   workflow_dispatch:

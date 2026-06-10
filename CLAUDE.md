@@ -284,9 +284,9 @@ Key invariants:
   measured `ReplayHarness` verdict (win rate / PnL / Sharpe / drawdown / FPR)
   over the recent trade buffer — evidence, not a blind guess.
 - **Proposal routing (ProposalApplier handler-map, never edits code):**
-  `PARAMETER_CHANGE` → config-only auto-PR (`GitOpsPublisher`, writes under
-  `config/parameter_overrides/`, applied at next startup by
-  `apply_parameter_overrides`); `NEW_AGENT` → spawn a shadow challenger
+  `PARAMETER_CHANGE` → config-only auto-PR (`GitOpsPublisher`, edits the
+  bounds-validated `config/param_overrides.json` — same file the GitHub Action
+  path edits — loaded by `api/constants.py` at import); `NEW_AGENT` → spawn a shadow challenger
   **dynamically** via `ChallengerSpawner` when its strategy is in
   `backtest.strategies.STRATEGIES` (config, no deploy), else file an issue;
   `CODE_CHANGE`/`REGIME_ADJUSTMENT` → GitHub issue for human design;

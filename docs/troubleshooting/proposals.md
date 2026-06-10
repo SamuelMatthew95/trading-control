@@ -189,6 +189,77 @@ durable, auditable, operator-visible source of truth.
 `::test_challenger_promotion_reapproval_is_idempotent`,
 `tests/api/test_proposal_approval_republish.py`
 
+## Review queue spammed by evidence-less "parameter change" rows
+
+**Symptom:** The proposal queue filled with near-identical pending
+"parameter change" rows — no description, no confidence, no backtest delta
+(everything `--`), several sharing one trace_id — each with live
+Approve/Reject buttons that changed nothing.
+
+**Root cause (three stacked defects):**
+1. The ProposalApplier's audit rows (`write_agent_log(trace, PROPOSAL, ...)`)
+   carried no `status` and no `content`. Every proposals read path defaults a
+   missing status to `pending` and missing content to `{}` — so each change
+   the applier ACTED ON re-appeared in the queue as a fresh evidence-less
+   pending proposal.
+2. The applier had no idempotency: stream retries / DLQ replays redelivered
+   the same proposal and re-ran the handler — duplicating PR artifacts and
+   audit rows.
+3. `_in_memory_proposals` keyed row identity on the trace_id, which all
+   proposals from one reflection share — siblings collapsed to one identity
+   and approving one row matched all of them.
+
+**Fix:** Audit rows now stamp `status=ProposalStatus.APPLIED` (new enum
+member), `requires_approval=False`, a fresh `msg_id`, and carry the applied
+summary as `content` (`api/services/agents/proposal_applier.py`). The applier
+dedups on msg_id (bounded LRU; approval republishes with `APPROVED=True` still
+pass). `_in_memory_proposals` keys rows on `payload.msg_id` and maps legacy
+`applied=True` rows to status `applied`
+(`api/services/dashboard/proposals.py`).
+
+**Regression tests:**
+`tests/agents/test_proposal_applier.py::test_audit_log_row_is_terminal_not_pending`,
+`::test_redelivered_proposal_applies_exactly_once`,
+`tests/core/test_memory_dashboard_reads.py::test_memory_proposals_have_unique_ids_and_applied_rows_are_not_pending`
+
+## Parameter-change artifacts could never actually apply (two drifting override mechanisms)
+
+**Symptom:** The learning loop "tuned" parameters and the queue showed applied
+parameter changes, but no merged change ever altered runtime behavior on the
+in-process auto-PR path.
+
+**Root cause:** Two parallel override mechanisms had drifted. The validated
+one (`config/param_overrides.json`, safe-bounds checked by
+`param_evolution.validate_param_change`, loaded by `api/constants.py` at
+import) is what the GitHub Action edits. The in-process
+`GitOpsPublisher.open_parameter_pr` wrote a DIFFERENT artifact
+(`config/parameter_overrides/*.json`) consumed by a settings-based loader —
+but every allowlisted tunable is a **constant, not a Settings field**, so the
+loader skipped each merged artifact as "unknown param". Dead path, unvalidated
+on top (`REASONING_COOLDOWN_SECONDS`, off-allowlist, flowed through in tests).
+
+**Fix:** Consolidated on the validated mechanism:
+- `GitOpsPublisher.open_parameter_pr` now read-modify-writes
+  `config/param_overrides.json` via `apply_param_override` (bounds-validated;
+  refused BEFORE any branch/PR exists, so no orphan branches; preserves other
+  entries; carries the file sha the contents API requires).
+- `ProposalApplier._emit_param_change_artifact` enforces
+  `validate_param_change` before emitting anything — an unsafe change produces
+  no artifact, no PR, and no "applied" audit row (the `param_evolution`
+  docstring contract, previously unwired at this site).
+- `LLM_CALL_DELAY_MS` added to `PARAM_BOUNDS` (0–2000ms) so GradeAgent's
+  rate-limit tuning is a first-class durable tunable instead of a dead artifact.
+- Dead mechanism removed: `api/services/config_overrides.py`, its startup
+  call, the `PARAMETER_OVERRIDES_DIR` constant, and its tests.
+
+**Regression tests:**
+`tests/api/test_gitops_publisher.py::test_opens_pr_when_configured` (asserts
+the committed file IS `config/param_overrides.json` with the applied entry),
+`::test_updating_existing_overrides_preserves_other_entries`,
+`::test_rejects_off_allowlist_or_out_of_bounds_before_any_network`,
+`tests/agents/test_proposal_applier.py::test_unsafe_parameter_change_emits_nothing`,
+`::test_llm_call_delay_param_change_is_allowlisted`
+
 ## Approved challenger promotion could vanish without a trace
 
 **Symptom:** Operator approves a `challenger_promotion` proposal and then…

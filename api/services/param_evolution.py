@@ -36,6 +36,10 @@ PARAM_BOUNDS: dict[str, tuple[float, float]] = {
     "TAKE_PROFIT_PCT": (0.02, 0.40),
     "MAX_RISK_PER_TRADE_PCT": (0.005, 0.05),
     "KELLY_FRACTION_SCALE": (0.05, 0.50),
+    # GradeAgent's rate-limit response. Upper bound mirrors LLM_DELAY_MAX_MS in
+    # api/constants.py (literal here — this module must stay import-cycle-free).
+    # Whole-number bounds → the override is coerced to int, matching the constant.
+    "LLM_CALL_DELAY_MS": (0, 2000),
 }
 
 _NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")

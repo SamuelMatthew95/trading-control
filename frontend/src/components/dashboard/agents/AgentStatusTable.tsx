@@ -4,10 +4,19 @@ import { cn } from '@/lib/utils'
 import { formatTimeAgo } from '@/lib/formatters'
 import { agentDisplayName, canonicalAgentKey } from '@/constants/agents'
 import { cardClass, sectionTitleClass, mutedClass } from '@/lib/dashboard-styles'
-import { agentStatusDotClass } from '@/lib/dashboard-helpers'
+import { StatusBadge } from '@/components/dashboard/StatusBadge'
 import { EmptyState } from './shared'
 
-const COLUMNS = ['Agent', 'Status', 'Source', 'Events', 'Uptime', 'Last Seen']
+// Numeric columns are right-aligned in BOTH the header and the cells so the
+// table scans cleanly — a left header over right-aligned numbers reads ragged.
+const COLUMNS: ReadonlyArray<{ label: string; align: 'left' | 'right' }> = [
+  { label: 'Agent', align: 'left' },
+  { label: 'Status', align: 'left' },
+  { label: 'Source', align: 'left' },
+  { label: 'Events', align: 'right' },
+  { label: 'Uptime', align: 'right' },
+  { label: 'Last Seen', align: 'right' },
+]
 
 function formatAgentSource(source: AgentSummary['source']): string {
   if (source === 'realtime') return 'Realtime'
@@ -68,12 +77,15 @@ export function AgentStatusTable({
         <table className="min-w-full">
           <thead>
             <tr className="border-b border-slate-200 dark:border-slate-800">
-              {COLUMNS.map((head) => (
+              {COLUMNS.map(({ label, align }) => (
                 <th
-                  key={head}
-                  className="px-2 py-2 text-left text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400"
+                  key={label}
+                  className={cn(
+                    'px-2 py-2 text-xs font-sans font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400',
+                    align === 'right' ? 'text-right' : 'text-left',
+                  )}
                 >
-                  {head}
+                  {label}
                 </th>
               ))}
             </tr>
@@ -116,10 +128,7 @@ export function AgentStatusTable({
                       {agentDisplayName(agent.name)}
                     </td>
                     <td className="px-2 py-2 text-xs font-sans">
-                      <span className="inline-flex items-center gap-2">
-                        <span className={cn('h-2 w-2 rounded-full', agentStatusDotClass(agent.status))} />
-                        <span className="text-slate-700 dark:text-slate-300">{agent.status}</span>
-                      </span>
+                      <StatusBadge status={agent.status} />
                     </td>
                     <td className="px-2 py-2 text-xs font-sans text-slate-700 dark:text-slate-300">
                       {formatAgentSource(agent.source)}

@@ -5,15 +5,11 @@ Aggregates stream lag, agent pulse, and database health.
 Provides SSE streaming of agent logs.
 """
 
-import asyncio
-import json
-import logging
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 
 import redis.asyncio as redis
 from fastapi import APIRouter, Body, HTTPException, Query
-from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
@@ -21,13 +17,16 @@ from sqlalchemy.orm import sessionmaker
 from api.constants import REDIS_KEY_KILL_SWITCH, REDIS_KEY_TRADING_PAUSED, FieldName
 from api.events.bus import DEFAULT_GROUP
 from api.runtime_state import is_db_available
+from api.services.agent_log_stream import (
+    agent_log_stream_response,
+    memory_mode_log_stream_response,
+)
 
 from ..config import get_database_url
 from ..core.models import Order, SystemMetrics
 from ..observability import log_structured
 from ..redis_client import get_redis
 
-logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/system", tags=["system"])
 
 # Database connection — built lazily so import succeeds when DATABASE_URL is None
@@ -271,129 +270,14 @@ async def stream_agent_logs(
 ):
     """Stream agent logs using Server-Sent Events."""
     if not is_db_available():
-
-        async def _empty_generator():
-            yield f"data: {json.dumps({FieldName.MODE: 'memory', FieldName.LOGS: []})}\n\n"
-
-        return StreamingResponse(
-            _empty_generator(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
-        )
-
-    async def log_generator():
-        """SSE generator for agent logs."""
-        try:
-            # Get initial logs
-            async with _make_session() as session:
-                col_result = await session.execute(
-                    text(
-                        """
-                        SELECT column_name, udt_name
-                        FROM information_schema.columns
-                        WHERE table_schema = current_schema()
-                          AND table_name = 'agent_logs'
-                        """
-                    )
-                )
-                column_types = {row[0]: row[1] for row in col_result}
-                available_columns = set(column_types)
-                time_col = "created_at" if "created_at" in available_columns else "timestamp"
-                run_col = "agent_run_id" if "agent_run_id" in available_columns else "source"
-                level_col = "log_level" if "log_level" in available_columns else "log_type"
-                trace_col = "trace_id" if "trace_id" in available_columns else "NULL"
-                step_name_col = "step_name" if "step_name" in available_columns else "NULL"
-                step_data_col = "step_data" if "step_data" in available_columns else "NULL"
-                payload_is_json = column_types.get(FieldName.PAYLOAD) in {"json", "jsonb"}
-                payload_message = "payload::jsonb->>'message'" if payload_is_json else "NULL"
-                payload_content = "payload::jsonb->>'content'" if payload_is_json else "NULL"
-                payload_text = "payload::text" if "payload" in available_columns else "NULL"
-                legacy_log_type = "log_type" if "log_type" in available_columns else "NULL"
-                message_col = "message" if "message" in available_columns else "NULL"
-                base_sql = f"""
-                    SELECT
-                        id,
-                        {trace_col} AS trace_id,
-                        {run_col} AS agent_run_id,
-                        {level_col} AS log_level,
-                        COALESCE({message_col}, {payload_message}, {payload_content}, {payload_text}, {legacy_log_type}) AS message,
-                        {step_name_col} AS step_name,
-                        {step_data_col} AS step_data,
-                        {time_col} AS ts
-                    FROM agent_logs
-                    WHERE 1=1
-                """
-                params: dict[str, Any] = {FieldName.LIMIT: limit}
-                if agent_id:
-                    base_sql += " AND " + run_col + " = :agent_id"
-                    params[FieldName.AGENT_ID] = agent_id
-                if level:
-                    base_sql += " AND LOWER(COALESCE(" + level_col + "::text, '')) = :level"
-                    params[FieldName.LEVEL] = level.lower()
-                base_sql += f" ORDER BY {time_col} DESC LIMIT :limit"
-
-                result = await session.execute(text(base_sql), params)
-                logs = result.fetchall()
-
-                # Send initial logs
-                for log in reversed(logs):  # Send in chronological order
-                    log_data = {
-                        FieldName.ID: log.id,
-                        "agent_run_id": log.agent_run_id,
-                        "log_level": log.log_level,
-                        "message": log.message,
-                        "step_name": log.step_name,
-                        "step_data": log.step_data,
-                        "timestamp": log.ts.isoformat() if log.ts else None,
-                    }
-                    yield f"data: {json.dumps(log_data)}\n\n"
-
-                # Continue streaming new logs
-                last_timestamp = logs[0].ts if logs else datetime.now(timezone.utc)
-
-                while True:
-                    await asyncio.sleep(1)  # Log streaming interval - allowed
-
-                    async with _make_session() as session:
-                        poll_sql = base_sql.replace(
-                            f" ORDER BY {time_col} DESC LIMIT :limit",
-                            f" AND {time_col} > :last_timestamp ORDER BY {time_col} ASC",
-                        )
-                        poll_params = dict(params)
-                        poll_params[FieldName.LAST_TIMESTAMP] = last_timestamp
-                        poll_params.pop(FieldName.LIMIT, None)
-                        result = await session.execute(text(poll_sql), poll_params)
-                        new_logs = result.fetchall()
-
-                        for log in new_logs:
-                            log_data = {
-                                FieldName.ID: log.id,
-                                "agent_run_id": log.agent_run_id,
-                                "log_level": log.log_level,
-                                "message": log.message,
-                                "step_name": log.step_name,
-                                "step_data": log.step_data,
-                                "timestamp": log.ts.isoformat() if log.ts else None,
-                            }
-                            yield f"data: {json.dumps(log_data)}\n\n"
-                            last_timestamp = max(last_timestamp, log.ts)
-
-        except Exception as e:
-            log_structured("error", "log stream error", exc_info=True)
-            error_data = {
-                "error": str(e),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-            yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
-
-    return StreamingResponse(
-        log_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*",
-        },
+        return memory_mode_log_stream_response()
+    return agent_log_stream_response(
+        _make_session,
+        limit=limit,
+        agent_id=agent_id,
+        level=level,
+        ts_field=FieldName.TIMESTAMP,
+        include_trace_id=False,
     )
 
 

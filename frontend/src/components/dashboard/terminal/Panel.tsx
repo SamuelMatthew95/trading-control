@@ -26,7 +26,10 @@ export function Panel({
   return (
     <section
       className={cn(
-        'flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900',
+        // h-full pins the panel to its wrapper's height so the scrollable body
+        // actually scrolls — content-sized panels overflowed their grid track
+        // and painted over the panel below them.
+        'flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900',
         className,
       )}
     >

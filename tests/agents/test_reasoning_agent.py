@@ -1083,3 +1083,31 @@ async def test_apply_trust_weighting_preserves_dampening_and_caps_top():
     # Promotion boost amplifies, capped at AGENT_TRUST_MAX.
     assert ReasoningAgent._apply_trust_weighting(1.0, 1.15) == pytest.approx(1.15)
     assert ReasoningAgent._apply_trust_weighting(1.0, 99.0) == AGENT_TRUST_MAX
+
+
+@pytest.mark.asyncio
+async def test_decision_recorded_in_memory_even_without_redis_store(agent):
+    """Regression: with no RedisStore singleton installed (partial startup),
+    the decision and its notification must still land in the runtime store —
+    the old early-return dropped them from BOTH stores and the dashboard
+    showed zero decisions while the agent was actively deciding."""
+    from api.constants import AgentAction, FieldName
+    from api.runtime_state import get_runtime_store
+    from api.services.redis_store import get_redis_store, set_redis_store
+
+    previous = get_redis_store()
+    set_redis_store(None)
+    try:
+        await agent._record_decision_to_redis(
+            data={FieldName.SYMBOL: "BTC/USD", FieldName.PRICE: 67000.0},
+            summary={FieldName.CONFIDENCE: 0.9, FieldName.PRIMARY_EDGE: "momentum"},
+            trace_id="t-no-redis-store",
+            action=AgentAction.BUY,
+            is_fallback=False,
+        )
+    finally:
+        set_redis_store(previous)
+
+    store = get_runtime_store()
+    assert any(d.get(FieldName.TRACE_ID) == "t-no-redis-store" for d in store.decisions)
+    assert len(store.notifications) == 1

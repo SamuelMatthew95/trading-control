@@ -74,6 +74,9 @@ export interface PipelineStageDef {
   agentKey: string | null
   /** Display name for stages with no agent (the market data source). */
   infraLabel?: string
+  /** Learning-loop stage: its output only exists once trades have CLOSED, so a
+   *  zero count is expected (not broken) while nothing has closed yet. */
+  learning?: boolean
 }
 
 /** Minimal shape of `/decisions/stats` — fields optional so a partial `{}` mid-fetch is safe. */
@@ -89,6 +92,10 @@ export interface AgentPipelineInput {
   marketLive: boolean
   decisionStats: DecisionStatsLike | null
   proposalsCount: number
+  /** Closed round-trips this session. Optional: when absent (or 0) a learning
+   *  stage with 0 output shows a "waiting for closed trades" hint instead of a
+   *  bare 0, which operators read as broken. */
+  closedTradesCount?: number
 }
 
 export interface PipelineStageView {
@@ -101,6 +108,8 @@ export interface PipelineStageView {
   count: number
   fact: string | null
   tone: StageTone
+  /** Non-null when the zero count is expected (learning stage, no closed trades yet). */
+  waitingHint: string | null
 }
 
 /**
@@ -112,11 +121,14 @@ export const PIPELINE_STAGE_DEFS: readonly PipelineStageDef[] = [
   { key: 'signal', label: 'Signal', does: 'Turns market ticks into trade signals', unit: 'signals', agentKey: AGENT_SIGNAL },
   { key: 'reasoning', label: 'Reasoning', does: 'LLM weighs signals into buy / sell / hold', unit: 'decisions', agentKey: AGENT_REASONING },
   { key: 'execution', label: 'Execution', does: 'Places orders and records fills', unit: 'orders', agentKey: AGENT_EXECUTION },
-  { key: 'grade', label: 'Grade', does: 'Scores how each trade performed', unit: 'grades', agentKey: AGENT_GRADE },
-  { key: 'ic', label: 'IC Update', does: 'Re-weights signal factors from results', unit: 'updates', agentKey: AGENT_IC_UPDATER },
-  { key: 'reflection', label: 'Reflection', does: 'Forms improvement hypotheses', unit: 'reflections', agentKey: AGENT_REFLECTION },
-  { key: 'proposer', label: 'Proposer', does: 'Proposes new strategies', unit: 'proposals', agentKey: AGENT_STRATEGY_PROPOSER },
+  { key: 'grade', label: 'Grade', does: 'Scores how each closed trade performed', unit: 'grades', agentKey: AGENT_GRADE, learning: true },
+  { key: 'ic', label: 'IC Update', does: 'Re-weights signal factors from trade results', unit: 'updates', agentKey: AGENT_IC_UPDATER, learning: true },
+  { key: 'reflection', label: 'Reflection', does: 'Reviews closed trades, writes improvement hypotheses', unit: 'reflections', agentKey: AGENT_REFLECTION, learning: true },
+  { key: 'proposer', label: 'Proposer', does: 'Turns hypotheses into reviewable strategy changes', unit: 'proposals', agentKey: AGENT_STRATEGY_PROPOSER, learning: true },
 ]
+
+/** Hint shown on a learning stage whose 0 output is expected, not a failure. */
+export const LEARNING_WAITING_HINT = 'waiting for closed trades'
 
 const STATUS_TO_TONE: Record<PipelineAgentStatus, StageTone> = {
   Live: 'live',
@@ -166,9 +178,12 @@ function factFor(key: PipelineStageKey, input: AgentPipelineInput): string | nul
 export function buildPipelineStages(input: AgentPipelineInput): PipelineStageView[] {
   const byKey = indexAgents(input.agents)
 
+  const noClosedTrades = (input.closedTradesCount ?? 0) === 0
+
   return PIPELINE_STAGE_DEFS.map((def) => {
     const agent = def.agentKey ? byKey.get(def.agentKey) : undefined
     const isMarket = def.key === 'market'
+    const count = isMarket ? input.marketTickCount : eventsOf(agent)
     return {
       key: def.key,
       label: def.label,
@@ -176,9 +191,12 @@ export function buildPipelineStages(input: AgentPipelineInput): PipelineStageVie
       agent: def.agentKey ? agentDisplayName(def.agentKey) : def.infraLabel ?? def.label,
       does: def.does,
       unit: def.unit,
-      count: isMarket ? input.marketTickCount : eventsOf(agent),
+      count,
       fact: factFor(def.key, input),
       tone: isMarket ? marketTone(input) : toneOf(agent),
+      // A learning stage with 0 output and no closed trades is waiting on
+      // input, not broken — surface that instead of a bare 0.
+      waitingHint: def.learning && count === 0 && noClosedTrades ? LEARNING_WAITING_HINT : null,
     }
   })
 }

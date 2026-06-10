@@ -386,3 +386,30 @@ describe('DashboardView — theming (light/dark duality)', () => {
     expect(header.className).toContain('dark:bg-slate-950/90')
   })
 })
+
+describe('DashboardView — backend offline', () => {
+  beforeEach(() => {
+    mockStore.wsConnected = false
+    mockStore.orders = []
+    mockStore.tradeFeed = []
+    mockStore.notifications = []
+    mockStore.dashboardData = null
+    // Every REST endpoint unreachable — drives useRestPoll's backendOffline flag
+    // through the real hook rather than stubbing it.
+    global.fetch = vi.fn().mockRejectedValue(new Error('backend down')) as unknown as typeof fetch
+  })
+
+  it('keeps last-known panels and shows the dismissible banner when data was loaded', async () => {
+    mockStore.dashboardData = { mode: 'in_memory' } // something loaded this session
+    render(<DashboardView section="overview" />)
+    expect(await screen.findByText(/Backend unreachable — showing last known data/)).toBeInTheDocument()
+    // The panels behind the banner keep rendering last-known values.
+    expect(screen.getByText('Watchlist')).toBeInTheDocument()
+  })
+
+  it('swaps content for the explanatory empty state when nothing was ever loaded', async () => {
+    render(<DashboardView section="overview" />)
+    expect(await screen.findByText('Backend offline — no data received yet')).toBeInTheDocument()
+    expect(screen.queryByText('Watchlist')).not.toBeInTheDocument()
+  })
+})
