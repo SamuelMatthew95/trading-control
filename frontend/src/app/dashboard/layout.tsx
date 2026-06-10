@@ -17,7 +17,7 @@ import {
 import { useEffect, useState } from 'react'
 import { useCodexStore } from '@/stores/useCodexStore'
 import { ThemeToggle } from '@/components/ThemeToggle'
-import { useWebSocket } from '@/hooks/useWebSocket'
+import { useGlobalWebSocket } from '@/hooks/useGlobalWebSocket'
 import { api } from '@/lib/apiClient'
 import { formatUSD } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
@@ -71,7 +71,7 @@ function HeaderStat({ label, value, className }: { label: string; value: string;
 const HeaderDivider = () => <div className="h-4 w-px bg-slate-300 dark:bg-slate-800" />
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  useWebSocket()
+  useGlobalWebSocket()
 
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(false)
