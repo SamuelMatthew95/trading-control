@@ -1,26 +1,17 @@
 import { describe, it, expect } from 'vitest'
 import {
   pnlColorClass,
-  tradeSideClass,
-  strategyStatusClass,
   confColorClass,
   actionBadgeClass,
-  positionSideBadgeClass,
   activityDotClass,
   activityLabel,
   tradeFeedEmptyLabel,
   winRateFromFeed,
-  agentCardBorderClass,
-  agentCardDotClass,
-  agentCardTextClass,
-  streamEventBadgeClass,
   systemStatusBadgeClass,
   agentStatusDotClass,
-  pipelineStatusTextClass,
   apiHealthBadgeClass,
-  priceChangeTextClass,
   agentTierFromStatus,
-  performancePnlColorClass,
+  proposalStatusClass,
 } from '@/lib/dashboard-helpers'
 import { sentimentOf, sentimentTextClass, SENTIMENT_EPSILON } from '@/lib/design/sentiment'
 
@@ -57,39 +48,6 @@ describe('pnlColorClass', () => {
   })
 })
 
-describe('tradeSideClass', () => {
-  it('returns the success token for buy', () => {
-    expect(tradeSideClass('buy')).toBe('text-success')
-  })
-  it('returns the danger token for sell', () => {
-    expect(tradeSideClass('sell')).toBe('text-danger')
-  })
-  it('returns the danger token for null (unknown treated as sell)', () => {
-    expect(tradeSideClass(null)).toBe('text-danger')
-  })
-  it('returns the danger token for unrecognised side', () => {
-    expect(tradeSideClass('short')).toBe('text-danger')
-  })
-})
-
-describe('strategyStatusClass', () => {
-  it('returns the success token for approved', () => {
-    expect(strategyStatusClass('approved')).toContain('success')
-  })
-  it('returns the danger token for rejected', () => {
-    expect(strategyStatusClass('rejected')).toContain('danger')
-  })
-  it('returns the warning token for pending', () => {
-    expect(strategyStatusClass('pending')).toContain('warning')
-  })
-  it('returns the warning token for null (treated as pending)', () => {
-    expect(strategyStatusClass(null)).toContain('warning')
-  })
-  it('returns the warning token for unknown status', () => {
-    expect(strategyStatusClass('draft')).toContain('warning')
-  })
-})
-
 describe('confColorClass', () => {
   it('returns the muted token for null', () => {
     expect(confColorClass(null)).toBe('text-muted-foreground')
@@ -121,21 +79,6 @@ describe('actionBadgeClass', () => {
   })
   it('returns the muted token for empty string', () => {
     expect(actionBadgeClass('')).toContain('muted')
-  })
-})
-
-describe('positionSideBadgeClass', () => {
-  it('returns the success token for LONG', () => {
-    expect(positionSideBadgeClass('LONG')).toContain('success')
-  })
-  it('returns the danger token for SHORT', () => {
-    expect(positionSideBadgeClass('SHORT')).toContain('danger')
-  })
-  it('returns the muted token for empty string', () => {
-    expect(positionSideBadgeClass('')).toContain('muted')
-  })
-  it('returns the muted token for unrecognised value', () => {
-    expect(positionSideBadgeClass('FLAT')).toContain('muted')
   })
 })
 
@@ -192,104 +135,6 @@ describe('tradeFeedEmptyLabel', () => {
   })
 })
 
-describe('agentCardBorderClass', () => {
-  it('returns emerald for Live', () => {
-    expect(agentCardBorderClass('Live')).toContain('emerald')
-  })
-  it('returns rose for Error', () => {
-    expect(agentCardBorderClass('Error')).toContain('rose')
-  })
-  it('returns slate for Stale', () => {
-    expect(agentCardBorderClass('Stale')).toContain('slate')
-  })
-  it('returns slate for Idle', () => {
-    expect(agentCardBorderClass('Idle')).toContain('slate')
-  })
-  it('returns slate for unknown status', () => {
-    expect(agentCardBorderClass('unknown')).toContain('slate')
-  })
-})
-
-describe('agentCardDotClass', () => {
-  it('includes animate-pulse and the success token for Live', () => {
-    const cls = agentCardDotClass('Live')
-    expect(cls).toContain('animate-pulse')
-    expect(cls).toContain('bg-success')
-  })
-  it('returns the warning token for Stale', () => {
-    expect(agentCardDotClass('Stale')).toBe('bg-warning')
-  })
-  it('returns the danger token for Error', () => {
-    expect(agentCardDotClass('Error')).toBe('bg-danger')
-  })
-  it('returns the muted token for Idle', () => {
-    expect(agentCardDotClass('Idle')).toBe('bg-muted-foreground')
-  })
-  it('returns the muted token for unknown status', () => {
-    expect(agentCardDotClass('unknown')).toBe('bg-muted-foreground')
-  })
-})
-
-describe('agentCardTextClass', () => {
-  it('returns the success token for Live', () => {
-    expect(agentCardTextClass('Live')).toBe('text-success')
-  })
-  it('returns the warning token for Stale', () => {
-    expect(agentCardTextClass('Stale')).toBe('text-warning')
-  })
-  it('returns the danger token for Error', () => {
-    expect(agentCardTextClass('Error')).toBe('text-danger')
-  })
-  it('returns the muted token for Idle', () => {
-    expect(agentCardTextClass('Idle')).toBe('text-muted-foreground')
-  })
-  it('returns the muted token for unknown status', () => {
-    expect(agentCardTextClass('unknown')).toBe('text-muted-foreground')
-  })
-})
-
-describe('streamEventBadgeClass', () => {
-  it('returns emerald for market_ticks', () => {
-    expect(streamEventBadgeClass('market_ticks')).toContain('emerald')
-  })
-  it('returns emerald for market_events', () => {
-    expect(streamEventBadgeClass('market_events')).toContain('emerald')
-  })
-  it('returns sky for signals', () => {
-    expect(streamEventBadgeClass('signals')).toContain('sky')
-  })
-  it('returns violet for decisions', () => {
-    expect(streamEventBadgeClass('decisions')).toContain('violet')
-  })
-  it('returns amber for orders', () => {
-    expect(streamEventBadgeClass('orders')).toContain('amber')
-  })
-  it('returns orange for executions', () => {
-    expect(streamEventBadgeClass('executions')).toContain('orange')
-  })
-  it('returns rose for risk_alerts', () => {
-    expect(streamEventBadgeClass('risk_alerts')).toContain('rose')
-  })
-  it('returns blue for notifications', () => {
-    expect(streamEventBadgeClass('notifications')).toContain('blue')
-  })
-  it('returns indigo for system_metrics', () => {
-    expect(streamEventBadgeClass('system_metrics')).toContain('indigo')
-  })
-  it('returns pink for graded_decisions', () => {
-    expect(streamEventBadgeClass('graded_decisions')).toContain('pink')
-  })
-  it('returns slate for unknown stream', () => {
-    expect(streamEventBadgeClass('mystery_stream')).toContain('slate')
-  })
-  it('returns slate for null', () => {
-    expect(streamEventBadgeClass(null)).toContain('slate')
-  })
-  it('returns slate for undefined', () => {
-    expect(streamEventBadgeClass(undefined)).toContain('slate')
-  })
-})
-
 describe('systemStatusBadgeClass', () => {
   it('returns the success token for trading', () => {
     expect(systemStatusBadgeClass('trading')).toContain('success')
@@ -335,33 +180,18 @@ describe('winRateFromFeed', () => {
 })
 
 describe('agentStatusDotClass', () => {
-  it('returns emerald for Live', () => {
-    expect(agentStatusDotClass('Live')).toContain('emerald')
+  it('returns the success token for Live', () => {
+    expect(agentStatusDotClass('Live')).toBe('bg-success')
   })
-  it('returns amber for Stale', () => {
-    expect(agentStatusDotClass('Stale')).toContain('amber')
+  it('returns the warning token for Stale', () => {
+    expect(agentStatusDotClass('Stale')).toBe('bg-warning')
   })
-  it('returns rose for Error', () => {
-    expect(agentStatusDotClass('Error')).toContain('rose')
+  it('returns the danger token for Error', () => {
+    expect(agentStatusDotClass('Error')).toBe('bg-danger')
   })
-  it('returns slate for Idle', () => {
-    expect(agentStatusDotClass('Idle')).toContain('slate')
-  })
-  it('uses lighter shade than agentCardDotClass (bg-emerald-300 not 500)', () => {
-    expect(agentStatusDotClass('Live')).toBe('bg-emerald-300')
-  })
-})
-
-describe('pipelineStatusTextClass', () => {
-  it('returns the success token for Healthy', () => {
-    expect(pipelineStatusTextClass('Healthy')).toBe('text-success')
-  })
-  it('returns the warning token for Degraded', () => {
-    expect(pipelineStatusTextClass('Degraded')).toBe('text-warning')
-  })
-  it('returns the danger token for Stalled or unknown', () => {
-    expect(pipelineStatusTextClass('Stalled')).toBe('text-danger')
-    expect(pipelineStatusTextClass('unknown')).toBe('text-danger')
+  it('returns the muted token for Idle and unknown statuses', () => {
+    expect(agentStatusDotClass('Idle')).toBe('bg-muted-foreground')
+    expect(agentStatusDotClass('unknown')).toBe('bg-muted-foreground')
   })
 })
 
@@ -375,24 +205,6 @@ describe('apiHealthBadgeClass', () => {
   it('returns the muted token for unknown values', () => {
     expect(apiHealthBadgeClass('pending')).toContain('muted')
     expect(apiHealthBadgeClass('')).toContain('muted')
-  })
-})
-
-describe('priceChangeTextClass', () => {
-  it('returns the muted token when change is null', () => {
-    expect(priceChangeTextClass(null, true)).toBe('text-muted-foreground')
-  })
-  it('returns the muted token when hasData is false', () => {
-    expect(priceChangeTextClass(5, false)).toBe('text-muted-foreground')
-  })
-  it('returns the success token for positive change', () => {
-    expect(priceChangeTextClass(1, true)).toBe('text-success')
-  })
-  it('returns the danger token for negative change', () => {
-    expect(priceChangeTextClass(-1, true)).toBe('text-danger')
-  })
-  it('returns the muted token for zero change', () => {
-    expect(priceChangeTextClass(0, true)).toBe('text-muted-foreground')
   })
 })
 
@@ -411,17 +223,16 @@ describe('agentTierFromStatus', () => {
   })
 })
 
-describe('performancePnlColorClass', () => {
-  it('keeps the heading slate for null pnl', () => {
-    expect(performancePnlColorClass(null)).toContain('slate')
+describe('proposalStatusClass', () => {
+  it('returns the success token for approved', () => {
+    expect(proposalStatusClass('approved')).toContain('success')
   })
-  it('returns the success token for positive pnl', () => {
-    expect(performancePnlColorClass(100)).toBe('text-success')
+  it('returns the danger token for rejected', () => {
+    expect(proposalStatusClass('rejected')).toContain('danger')
   })
-  it('returns the success token for zero pnl', () => {
-    expect(performancePnlColorClass(0)).toBe('text-success')
-  })
-  it('returns the danger token for negative pnl', () => {
-    expect(performancePnlColorClass(-1)).toBe('text-danger')
+  it('returns the warning token for pending / null / unknown', () => {
+    expect(proposalStatusClass('pending')).toContain('warning')
+    expect(proposalStatusClass(null)).toContain('warning')
+    expect(proposalStatusClass('draft')).toContain('warning')
   })
 })

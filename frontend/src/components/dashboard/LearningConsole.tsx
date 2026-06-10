@@ -10,7 +10,8 @@ import { cardClass, mutedClass, sectionTitleClass } from '@/lib/dashboard-styles
 import { pnlColorClass, proposalStatusClass } from '@/lib/dashboard-helpers'
 // Reuse the shared learning-grade colour language (the Cognitive page uses the
 // same A/B/C/D/F scale) instead of re-deriving hardcoded emerald/rose classes.
-import { actionTone, gradeTone } from '@/lib/cognitive'
+import { actionTone } from '@/lib/cognitive'
+import { gradeTone } from '@/lib/grade-colors'
 import { EmptyState } from '@/components/ui/empty-state'
 
 // Decorative icon-chip tints. Neutral uses the slate chrome scale; the rest map
