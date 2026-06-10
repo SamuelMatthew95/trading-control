@@ -1314,8 +1314,9 @@ AGENT_PERF_W_PNL: Final[float] = 0.50
 AGENT_PERF_LIVENESS_ACTIVE: Final[float] = 1.0
 AGENT_PERF_LIVENESS_STALE: Final[float] = 0.45
 
-# event_count at which the throughput dimension saturates to 1.0.
-AGENT_PERF_THROUGHPUT_SATURATION: Final[int] = 20
+# event_count at which the throughput dimension saturates to 1.0. High enough
+# that a few dozen events cannot max the dimension — sustained flow is required.
+AGENT_PERF_THROUGHPUT_SATURATION: Final[int] = 100
 
 # Promotion tiers, ordered best → worst. Mirrored by the frontend badge map.
 TIER_PROMOTED: Final[str] = "PROMOTED"
@@ -1370,7 +1371,7 @@ AGENT_GRADE_SNAPSHOT_INTERVAL_SECONDS: Final[int] = 300  # throttle: ≤1 write 
 # Promotion requires SUSTAINED top performance: the agent must hold an A/A+
 # grade for this many consecutive snapshots before it earns the PROMOTED tier
 # (a single good window shows TRUSTED until the streak is built).
-AGENT_PROMOTION_STREAK: Final[int] = 3
+AGENT_PROMOTION_STREAK: Final[int] = 5
 
 # ── Realized-PnL agent grading (durable in Redis — no Postgres) ──────────────
 # The agents whose decisions produce realized PnL. GradeAgent attributes each
@@ -1384,11 +1385,13 @@ REDIS_KEY_AGENT_PNL: Final[str] = "agent:pnl:{name}"
 # A trading agent must have closed at least this many trades before its PnL
 # dimension is scored (avoids grading on a 1-trade fluke) AND before PnL can
 # gate promotion. Below this the dimension reads "no data", never fabricated.
-AGENT_PNL_MIN_TRADES: Final[int] = 10
+AGENT_PNL_MIN_TRADES: Final[int] = 20
 # Promotion gate: a trading agent cannot reach PROMOTED unless its realized win
-# rate clears this bar (with ≥ AGENT_PNL_MIN_TRADES trades). Stops an agent
-# being promoted on liveness/throughput while its trades bleed money.
-AGENT_PNL_PROMOTION_MIN_WIN_RATE: Final[float] = 0.50
+# rate clears this bar (with ≥ AGENT_PNL_MIN_TRADES trades) AND its total
+# realized PnL is positive — a winning rate that still loses money must not
+# promote. Stops an agent being promoted on liveness/throughput while its
+# trades bleed money.
+AGENT_PNL_PROMOTION_MIN_WIN_RATE: Final[float] = 0.55
 
 # Behavioral promotion — per-agent trust weight (control plane). ReasoningAgent
 # multiplies its signal_weight_scale by this when AGENT_TRUST_WEIGHTING_ENABLED
@@ -1480,7 +1483,12 @@ REGRESSION_MIN_REPLAY_TRADES: Final[int] = 10
 # may emit a (human-approvable) promotion proposal — enough evidence that "beats
 # baseline" is signal, not noise. Decouples challenger learning from the live-fill
 # starvation that otherwise gates grades/retirement on trades that never close.
-CHALLENGER_MIN_SHADOW_TRADES: Final[int] = 25
+CHALLENGER_MIN_SHADOW_TRADES: Final[int] = 40
+# Beating baseline alone is not enough: the challenger's OWN shadow record must
+# also be objectively good — minimum win rate, positive realized shadow PnL,
+# and positive Sharpe over the window. Without these, "beats baseline" can just
+# mean "lost less than a losing baseline".
+CHALLENGER_MIN_SHADOW_WIN_RATE: Final[float] = 0.55
 # Hard cap on concurrently RUNNING shadow challengers, with one-per-strategy
 # dedup, enforced by ChallengerSpawner. Without these, the promotion loop
 # (auto-applied promotion → spawn clone of same strategy → clone beats
