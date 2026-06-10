@@ -7,7 +7,7 @@ import {
   REAL_UNIVERSE,
   UNIVERSE_SYMBOLS,
   liveStorePrice,
-  resolvePrice,
+  liveStoreQuote,
   universeName,
 } from './marketData'
 import { usePriceHistory } from './usePriceHistory'
@@ -42,13 +42,19 @@ export function TradingTerminal({
     () =>
       REAL_UNIVERSE.map((u) => {
         const pts = history[u.sym] ?? []
-        const price = resolvePrice(prices, u.sym)
-        const open = pts[0]?.p ?? price
+        // Live stream price first, else the newest real history point, else
+        // null — a symbol with no data reads '--', never a fabricated price.
+        const price = liveStorePrice(prices, u.sym) ?? pts[pts.length - 1]?.p ?? null
+        const open = pts[0]?.p
+        const changePct =
+          price != null && open != null && open > 0 && pts.length > 1
+            ? ((price - open) / open) * 100
+            : null
         return {
           sym: u.sym,
           name: u.name,
           price,
-          changePct: open > 0 ? ((price - open) / open) * 100 : 0,
+          changePct,
           spark: pts.map((pt) => pt.p).slice(-32),
         }
       }),
@@ -57,7 +63,7 @@ export function TradingTerminal({
 
   const view = useMemo<SymbolView>(() => {
     const base = history[symbol] ?? []
-    const price = resolvePrice(prices, symbol)
+    const price = liveStorePrice(prices, symbol) ?? base[base.length - 1]?.p ?? 0
     // Append the latest live price as the line's tip so it stays current between
     // the (calm) history refreshes, without rewriting the real history behind it.
     const last = base[base.length - 1]
@@ -67,6 +73,7 @@ export function TradingTerminal({
     const seriesPrices = pts.map((pt) => pt.p)
     const high = seriesPrices.length > 0 ? Math.max(...seriesPrices) : price
     const low = seriesPrices.length > 0 ? Math.min(...seriesPrices) : price
+    const quote = liveStoreQuote(prices, symbol)
     return {
       sym: symbol,
       name: universeName(symbol),
@@ -76,6 +83,8 @@ export function TradingTerminal({
       low,
       changeAbs: price - open,
       changePct: open > 0 ? ((price - open) / open) * 100 : 0,
+      bid: quote?.bid ?? null,
+      ask: quote?.ask ?? null,
       points: pts,
     }
   }, [history, prices, symbol])
