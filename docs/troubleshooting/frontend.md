@@ -927,3 +927,43 @@ browser, so this is how the look was checked rather than guessed.
 **Regression test:** `frontend/src/test/components/EquityCurve.test.tsx`
 (`getLineDomain` fits-data + min-height floor; `shows only the period label for
 the all-time range`; `shows the signed change over a selected sub-window`).
+
+## Neon-cyan accent + invalid colour in dark mode — duplicate `--accent` definition
+
+**Symptom:** The logo, active-nav highlight, and watchlist selection rendered
+neon cyan (`#00e5ff`) in light mode; in dark mode the same surfaces silently
+lost their colour entirely (fell back to inherited text colour).
+
+**Root cause:** `globals.css` declared `--accent` twice in `:root`: the
+shadcn-style HSL triple (`214 28% 96%`, consumed as `hsl(var(--accent))` by
+Tailwind) was clobbered by a terminal-token hex (`#00e5ff`) consumed as a raw
+`var(--accent)` colour. `.dark` then re-set `--accent` back to an HSL triple,
+which is an invalid value for raw `var(--accent)` reads — so dark mode dropped
+the declaration. One variable, two incompatible consumers.
+
+**Fix:** The brand/interactive colour is its own token, `--brand:
+hsl(var(--primary))` (+ `--brand-soft`), so it can never collide with
+Tailwind's `accent` colour and stays one consistent indigo in both themes.
+`src/styles/globals.css`, `src/app/dashboard/layout.tsx`,
+`src/components/dashboard/terminal/Watchlist.tsx`.
+
+**Regression test:** none (pure CSS token wiring); the inline comment in
+`globals.css` documents the constraint.
+
+## Trace modal showed a red "Failed to load trace" for events that have no trace
+
+**Symptom:** Clicking a system notification in the Live Decision Feed opened
+the trace modal with a danger-toned "Failed to load trace"; the API response
+was `404 {"detail":"Trace not found"}`.
+
+**Root cause:** System notifications and rule-based fallback decisions carry a
+`trace_id` but never write pipeline rows, so the backend's 404 is an expected
+outcome — the modal treated every non-2xx as a hard failure.
+
+**Fix:** `TraceModal` treats 404 as the benign empty-trace case and renders the
+calm muted notice ("No pipeline trace was recorded for this event…"); the
+danger-toned error is reserved for real API failures
+(`src/components/dashboard/TraceModal.tsx`).
+
+**Regression test:** `frontend/src/test/components/TraceModal.test.tsx::shows a
+calm notice (not an error) when the backend has no trace (404)`

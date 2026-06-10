@@ -15,17 +15,41 @@ type TraceData = {
 export function TraceModal({ traceId, onClose }: { traceId: string; onClose: () => void }) {
   const [data, setData] = useState<TraceData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [notFound, setNotFound] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetch(api(`/dashboard/trace/${encodeURIComponent(traceId)}`))
-      .then((r) => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const r = await fetch(api(`/dashboard/trace/${encodeURIComponent(traceId)}`))
+        if (cancelled) return
+        // 404 is an expected outcome, not a failure: system notifications and
+        // fallback decisions carry a trace_id but never write pipeline rows.
+        if (r.status === 404) {
+          setNotFound(true)
+          return
+        }
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        return r.json()
-      })
-      .then((d) => { setData(d as TraceData); setLoading(false) })
-      .catch(() => { setError('Failed to load trace'); setLoading(false) })
+        const d = (await r.json()) as TraceData
+        if (!cancelled) setData(d)
+      } catch {
+        if (!cancelled) setError('Could not load this trace — the dashboard API did not respond.')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [traceId])
+
+  const isEmptyTrace =
+    notFound ||
+    (data != null &&
+      data.agent_runs.length === 0 &&
+      data.agent_logs.length === 0 &&
+      data.agent_grades.length === 0)
 
   return (
     <div
@@ -54,16 +78,14 @@ export function TraceModal({ traceId, onClose }: { traceId: string; onClose: () 
         {loading && <p className={mutedClass}>Loading…</p>}
         {error && <p className="text-sm text-danger">{error}</p>}
 
-        {data &&
-          data.agent_runs.length === 0 &&
-          data.agent_logs.length === 0 &&
-          data.agent_grades.length === 0 && (
-            <p className={mutedClass}>
-              No details found for this trace. In memory mode (no database) trace
-              history is cleared on restart — only live, in-session traces are
-              available here.
-            </p>
-          )}
+        {isEmptyTrace && (
+          <p className={mutedClass}>
+            No pipeline trace was recorded for this event. System notifications and
+            rule-based fallback decisions don&apos;t flow through the agent pipeline, and
+            in memory mode (no database) trace history clears on restart — only live,
+            in-session traces are available here.
+          </p>
+        )}
 
         {data && (
           <div className="space-y-4">
