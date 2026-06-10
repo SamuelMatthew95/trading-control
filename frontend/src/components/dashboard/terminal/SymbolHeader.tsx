@@ -38,6 +38,23 @@ export function SymbolHeader({ view, live }: { view: SymbolView; live: boolean }
           </span>
         </div>
       )}
+      {/* Real L1 best bid/ask from the Alpaca quote — only when two-sided. */}
+      {view.bid != null && view.ask != null && (
+        <div className="hidden items-center gap-3 font-mono text-[11px] tabular-nums text-slate-500 dark:text-slate-400 lg:flex">
+          <span>
+            BID <span className="txt-up">{view.bid.toFixed(2)}</span>
+          </span>
+          <span>
+            ASK <span className="txt-down">{view.ask.toFixed(2)}</span>
+          </span>
+          <span>
+            SPR{' '}
+            <span className="text-slate-700 dark:text-slate-300">
+              {(view.ask - view.bid).toFixed(2)}
+            </span>
+          </span>
+        </div>
+      )}
       <div className="ml-auto flex items-center gap-1.5">
         <span className={cn('h-1.5 w-1.5 rounded-full', live ? 'animate-pulse bg-[var(--up)]' : 'bg-slate-400')} />
         <span className="font-mono text-[10px] uppercase tracking-wider text-slate-500">{live ? 'Live' : 'Idle'}</span>
