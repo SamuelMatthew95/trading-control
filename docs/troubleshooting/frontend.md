@@ -962,3 +962,25 @@ the all-time range`; `shows the signed change over a selected sub-window`).
 **Regression tests:** `src/test/store/closed-trades.test.ts`,
 `src/test/helpers/activity-timeline.test.ts` (bare-market-row drop),
 full `pnpm lint` / `pnpm build` / `pnpm test` (58 files, 583 tests) green.
+
+## Terminal right rail: decision rows painted through the Executions panel
+
+**Symptom:** On the Overview terminal, Agent Decisions rows rendered both
+above AND below the Executions panel — the two panels read as one ugly
+interleaved list, and the decisions list never scrolled.
+
+**Root cause:** The panel wrapper divs used `lg:h-auto` and the `Panel`
+section had no `h-full` — both size to CONTENT, not to their grid track. A
+long decisions list grew past its `1fr` track, and since grid items don't
+clip overflow, the rows painted straight over the Executions cell below.
+The panel's `overflow-y-auto` body never engaged because nothing bounded
+its height.
+
+**Fix:** Wrappers use `lg:h-full` (fill the track; tracks declared
+`minmax(0,1fr)`), and the `Panel` section carries `h-full`
+(`components/dashboard/terminal/TradingTerminal.tsx`, `Panel.tsx`). Each
+panel now clips and scrolls inside its own bounds.
+
+**Regression test:** visual/layout fix — verified via `pnpm build` +
+existing terminal render tests; layout constraints are structural
+(grid `minmax(0,1fr)` + `h-full`), not content-dependent.
