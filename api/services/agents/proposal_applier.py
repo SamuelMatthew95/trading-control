@@ -110,17 +110,30 @@ class ProposalApplier(MultiStreamAgent):
         action = content.get(FieldName.ACTION) if isinstance(content, dict) else None
         trace_id = data.get(FieldName.TRACE_ID) or f"applier_{uuid.uuid4().hex[:8]}"
 
-        # Approval-gated types (e.g. challenger_promotion) must not auto-apply on
-        # first publish — they sit in the queue until an operator approves, at
-        # which point the approval path republishes them with APPROVED=True.
+        # Approval-gated types sit in the queue until an operator approves (the
+        # approval path republishes them with APPROVED=True) — EXCEPT challenger
+        # promotions when CHALLENGER_PROMOTION_AUTO_APPLY is on: shadow evidence
+        # already cleared the deterministic bar (min trades + beats baseline),
+        # and applying only biases the prompt directive / spawns a shadow — no
+        # live orders, no capital — so the loop closes without a manual vote.
         if proposal_type in APPROVAL_GATED_PROPOSAL_TYPES and not data.get(FieldName.APPROVED):
+            auto_apply = (
+                proposal_type == ProposalType.CHALLENGER_PROMOTION
+                and settings.CHALLENGER_PROMOTION_AUTO_APPLY
+            )
+            if not auto_apply:
+                log_structured(
+                    "info",
+                    "proposal_pending_approval",
+                    proposal_type=proposal_type,
+                    trace_id=trace_id,
+                )
+                return
             log_structured(
                 "info",
-                "proposal_pending_approval",
-                proposal_type=proposal_type,
+                "challenger_promotion_auto_applied",
                 trace_id=trace_id,
             )
-            return
 
         handler = self._handlers.get(proposal_type)
         if handler is None:
@@ -281,10 +294,25 @@ class ProposalApplier(MultiStreamAgent):
         result = await GitOpsPublisher().open_feature_issue(
             title, body, labels=["auto-proposal", proposal_type]
         )
+        # Say exactly what artifact exists now — "feature issue (dry_run)" read
+        # like success while no issue existed anywhere.
+        status = result.get(FieldName.STATUS)
+        if status == "opened":
+            message = f"GitHub issue opened for {proposal_type}: {result.get(FieldName.PR_URL)}"
+        elif status == "dry_run":
+            message = (
+                f"GitHub issue NOT opened for {proposal_type} — GitOps not configured "
+                "(set GITHUB_TOKEN / GITHUB_REPO / GITHUB_AUTOPR_ENABLED); proposal recorded only"
+            )
+        else:
+            message = (
+                f"GitHub issue failed for {proposal_type} "
+                f"({result.get(FieldName.REASON) or status})"
+            )
         return {
-            FieldName.MESSAGE: f"feature issue ({result.get(FieldName.STATUS)}) for {proposal_type}",
+            FieldName.MESSAGE: message,
             FieldName.PROPOSAL_TYPE: proposal_type,
-            FieldName.STATUS: result.get(FieldName.STATUS),
+            FieldName.STATUS: status,
             FieldName.PR_URL: result.get(FieldName.PR_URL),
         }
 
@@ -336,30 +364,44 @@ class ProposalApplier(MultiStreamAgent):
         Only reached after the approval path republishes with ``APPROVED=True`` —
         a human always gates this; nothing auto-promotes. Re-approving the same
         promotion is idempotent (the advisory de-dupes).
+
+        ALWAYS returns an applied-summary for a well-formed proposal — even when
+        every half was skipped — so an operator approval can never silently
+        vanish: the record says exactly what happened and why (the old code
+        returned ``None`` here, leaving "Approved" with no trace).
         """
         strategy = str(content.get(FieldName.STRATEGY) or "")
         if not strategy:
-            return None
+            log_structured("warning", "challenger_promotion_missing_strategy", trace_id=trace_id)
+            return None  # malformed payload — an "applied" record would be a lie
         edge = content.get(FieldName.SHADOW_EDGE)
         confidence = content.get(FieldName.CONFIDENCE)
         advisory = (
             f"Promoted strategy '{strategy}': favor {strategy}-aligned setups "
             f"(beat baseline by edge {edge}, shadow win-rate {confidence})."
         )
+        store_present = get_prompt_store() is not None
         directive = await self._bias_directive_toward(strategy, advisory)
+        if directive is not None:
+            directive_status = f"directive biased (v{directive[FieldName.VERSION]})"
+        elif store_present:
+            directive_status = "directive already biased (idempotent re-approval)"
+        else:
+            directive_status = "directive skipped — no prompt store installed"
 
         spawned: dict[str, Any] = {}
         config = content.get(FieldName.CHALLENGER_CONFIG) or {FieldName.STRATEGY: strategy}
-        if self.spawner is not None and strategy in STRATEGIES:
+        if self.spawner is None:
+            spawn_status = "spawn skipped — challenger spawner unavailable"
+        elif strategy not in STRATEGIES:
+            spawn_status = f"spawn skipped — strategy '{strategy}' not in backtest.strategies"
+        else:
             spawned = await self.spawner.spawn(config)
+            spawn_status = "candidate spawned"
 
-        if directive is None and not spawned:
-            return None  # nothing actually changed (no store + nothing to spawn)
         result: dict[str, Any] = {
             FieldName.MESSAGE: (
-                f"challenger '{strategy}' promoted: "
-                + ("directive biased" if directive else "directive unchanged")
-                + (" + candidate spawned" if spawned else "")
+                f"challenger '{strategy}' promotion applied: {directive_status}; {spawn_status}"
             ),
             FieldName.PROPOSAL_TYPE: ProposalType.CHALLENGER_PROMOTION,
             FieldName.STRATEGY: strategy,
@@ -498,14 +540,28 @@ class ProposalApplier(MultiStreamAgent):
                 FieldName.TRACE_ID: trace_id,
             }
         )
+        # The applied record names the real artifact: an OPEN PR with its URL,
+        # or the queued stream artifact plus exactly why no PR exists yet.
+        pr_status = pr_result.get(FieldName.STATUS)
+        change = f"{parameter}: {previous_value} -> {proposed_value}"
+        if pr_status == "opened":
+            message = f"config PR opened for {change} ({pr_result.get(FieldName.PR_URL)})"
+        elif pr_status == "dry_run":
+            message = (
+                f"PR artifact queued for {change}; auto-PR dry-run — GitOps not configured "
+                "(set GITHUB_TOKEN / GITHUB_REPO / GITHUB_AUTOPR_ENABLED)"
+            )
+        else:
+            message = (
+                f"PR artifact queued for {change}; auto-PR failed "
+                f"({pr_result.get(FieldName.REASON) or pr_status}) — left for the GitHub Action"
+            )
         return {
-            FieldName.MESSAGE: (
-                f"PR artifact queued for {parameter}: {previous_value} -> {proposed_value}"
-            ),
+            FieldName.MESSAGE: message,
             FieldName.PARAMETER: parameter,
             FieldName.PREVIOUS_VALUE: previous_value,
             FieldName.PROPOSED_VALUE: proposed_value,
-            FieldName.STATUS: "pending_pr",
+            FieldName.STATUS: "opened" if pr_status == "opened" else "pending_pr",
             FieldName.REASON: reason,
             FieldName.PR_URL: pr_result.get(FieldName.PR_URL),
         }
