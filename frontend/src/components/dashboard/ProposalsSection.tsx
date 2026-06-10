@@ -43,7 +43,7 @@ function EmptyProposals() {
   return (
     <div className="rounded-lg border border-dashed border-slate-200 bg-white px-4 py-6 dark:border-slate-800 dark:bg-slate-950/60">
       <p className="text-center text-sm font-semibold text-slate-600 dark:text-slate-300">
-        No proposals awaiting review.
+        No proposals yet.
       </p>
       <p className="mt-1 text-center text-xs text-slate-500 dark:text-slate-400">
         An empty queue is normal — proposals only come from three places, each
