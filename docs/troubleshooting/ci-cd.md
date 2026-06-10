@@ -46,3 +46,20 @@ lowercasing. Used by `_run_tallies` and `_liveness_dimension`.
 Compare the member directly (StrEnum `==` str works) or go through `.value`.
 
 **Regression test:** `tests/api/test_agent_performance.py::test_status_text_handles_enum_and_string`
+
+## Every push logged a failed "PR Review Automation" run with zero jobs
+
+**Symptom:** GitHub Actions showed a red `pr-review.yml` failure on every push
+to every branch — `completed / failure` with `total_jobs: 0`, so there were no
+job logs to inspect.
+
+**Root cause:** Line 1 of `.github/workflows/pr-review.yml` had a single
+leading space (` name: …`), making the YAML document invalid. GitHub registers
+a startup-failure run for an unparseable workflow file on each push, even
+though the workflow is `workflow_dispatch`-only.
+
+**Fix:** Removed the leading space; all six workflow files now parse
+(`python -c "yaml.safe_load(...)"` clean).
+
+**Regression test:** n/a (workflow metadata) — validated by YAML parse of all
+files under `.github/workflows/`.
