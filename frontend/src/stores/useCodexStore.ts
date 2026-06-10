@@ -153,6 +153,9 @@ export interface PriceData {
   changePercent?: number
   previousPrice?: number
   updatedAt?: string
+  /** Real L1 best bid/ask from the poller cache (two-sided quotes only). */
+  bid?: number
+  ask?: number
   [key: string]: unknown
 }
 
@@ -388,8 +391,8 @@ export function normalizeStoredNotification(input: unknown): Notification | null
 // Type for price data from API
 interface CachedPriceData {
   price: string | number;
-  bid?: string;
-  ask?: string;
+  bid?: string | number;
+  ask?: string | number;
   timestamp: string;
   source?: string;
 }
@@ -549,10 +552,13 @@ export const useCodexStore = create<CodexState>((set) => ({
   setPerformanceSummary: (performanceSummary) => set({ performanceSummary }),
   setDailyPnl: (dailyPnl) => set({ dailyPnl }),
 
+  // Spread the existing entry first: WS price ticks carry no bid/ask, so they
+  // must not wipe the L1 quote the REST poll hydrated (it refreshes next poll).
   updatePrice: (symbol, price, change) => set((state) => ({
     prices: {
       ...state.prices,
       [symbol]: {
+        ...state.prices[symbol],
         price,
         change,
         previousPrice: state.prices[symbol]?.price ?? price - change,
@@ -564,6 +570,7 @@ export const useCodexStore = create<CodexState>((set) => ({
     prices: {
       ...state.prices,
       [symbol]: {
+        ...state.prices[symbol],
         price: Number(priceData.price),
         change: 0, // Will be calculated based on previous price
         previousPrice: state.prices[symbol]?.price ?? Number(priceData.price),
@@ -589,12 +596,21 @@ export const useCodexStore = create<CodexState>((set) => ({
             if (!Number.isFinite(price)) continue
             const previousPrice = state.prices[symbol]?.price ?? price
             const change = price - previousPrice
+            // Real L1 best bid/ask from the poller cache — kept only when the
+            // quote is two-sided so the UI can never show a fake $0.00 side.
+            const bid = Number(priceData.bid)
+            const ask = Number(priceData.ask)
+            const quote =
+              Number.isFinite(bid) && bid > 0 && Number.isFinite(ask) && ask > 0
+                ? { bid, ask }
+                : {}
 
             updatedPrices[symbol] = {
               price,
               change,
               previousPrice,
               updatedAt: priceData.timestamp || new Date().toISOString(),
+              ...quote,
             }
           }
         }
