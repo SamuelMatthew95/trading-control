@@ -45,7 +45,6 @@ export interface WsDiagnosticsLike {
 }
 
 export type StatusTone = 'ok' | 'warn' | 'err' | 'neutral'
-export type StageStatus = 'live' | 'idle' | 'stalled' | 'flowing'
 export type AlertVariant = 'ok' | 'warn' | 'err' | 'info'
 
 export type PipelineStatus = 'Healthy' | 'Degraded' | 'Stalled'
