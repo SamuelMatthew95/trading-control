@@ -1,5 +1,8 @@
 'use client'
 import { create } from 'zustand'
+import { createLogger } from '@/lib/logger'
+
+const log = createLogger('store')
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { coerceProposalContent, proposalStrategyName } from '@/lib/proposal-content'
 import { NOTIFICATION_FALLBACKS, NOTIFICATION_SEVERITIES, type NotificationSeverity } from '@/constants/notifications'
@@ -289,7 +292,7 @@ export interface RecentEvent {
   eventType?: string | null
 }
 
-type DashboardData = {
+export type DashboardData = {
   system_metrics?: SystemMetric[]
   orders?: Order[]
   agent_logs?: AgentLog[]
@@ -620,7 +623,7 @@ export const useCodexStore = create<CodexState>((set) => ({
         return { prices: updatedPrices }
       })
     } catch (error) {
-      console.error('Error fetching prices:', error)
+      log.error('Error fetching prices:', error)
     }
   },
   // Authoritative open positions from the PaperBroker-backed /positions endpoint.
@@ -642,7 +645,7 @@ export const useCodexStore = create<CodexState>((set) => ({
         return { positions: merged }
       })
     } catch (error) {
-      console.error('Error fetching positions:', error)
+      log.error('Error fetching positions:', error)
     }
   },
   // Live realized + unrealized PnL breakdown from the PaperBroker-backed /pnl
@@ -658,7 +661,7 @@ export const useCodexStore = create<CodexState>((set) => ({
         set({ pnlSummary: summary as PnlSummary })
       }
     } catch (error) {
-      console.error('Error fetching pnl:', error)
+      log.error('Error fetching pnl:', error)
     }
   },
   addSignal: (signal) => set((state) => ({

@@ -1,17 +1,25 @@
 'use client'
 import { useEffect, useRef } from 'react'
-import { useCodexStore, normalizeTradeFeedItem, type AgentStatus } from '@/stores/useCodexStore'
+import {
+  useCodexStore,
+  normalizeTradeFeedItem,
+  type AgentLog,
+  type AgentStatus,
+  type DashboardData,
+  type SystemMetric,
+} from '@/stores/useCodexStore'
 import { coerceProposalContent, proposalStrategyName } from '@/lib/proposal-content'
+import { createLogger } from '@/lib/logger'
+
+const log = createLogger('WS')
 
 // --- Types ---
 type WebSocketMessage = {
   type: string
   schema_version?: string
   timestamp?: string
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-  data?: any
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-  payload?: any
+  data?: unknown
+  payload?: unknown
   stream?: string
   event_type?: string
   message_id?: string
@@ -78,8 +86,7 @@ class WebSocketManager {
     }
     this._listeners.clear()
   }
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-  dispatch(event: string, detail?: any) {
+  dispatch(event: string, detail?: unknown) {
     try {
       window.dispatchEvent(new CustomEvent(event, { detail }))
     } catch {}
@@ -98,7 +105,7 @@ class WebSocketManager {
       this._state === ConnectionState.CONNECTED ||
       this._state === ConnectionState.RECONNECTING
     ) {
-      console.info('[WS] connect() skipped — already in state:', this._state)
+      log.debug('connect() skipped — already in state:', this._state)
       return
     }
     this._cleanupSocket()
@@ -106,19 +113,19 @@ class WebSocketManager {
     this._updateStoreState()
     const url = this._getWsUrl()
     if (!url) {
-      console.error('[WS] No URL resolved — cannot connect')
+      log.error('No URL resolved — cannot connect')
       this._state = ConnectionState.ERROR
       this._updateStoreState()
       return
     }
-    console.info('[WS] Connecting to', url, '(attempt', this._retry + 1, ')')
+    log.info('Connecting to', url, '(attempt', this._retry + 1, ')')
     try {
       this._socket = new WebSocket(url)
       this._lastConnectAt = Date.now()
       this._setupSocketHandlers()
       this._connTimeout = setTimeout(() => {
         if (this._state === ConnectionState.CONNECTING) {
-          console.error('[WS] Connection timed out after', this.CONN_TIMEOUT, 'ms →', url)
+          log.error('Connection timed out after', this.CONN_TIMEOUT, 'ms →', url)
           this._state = ConnectionState.ERROR
           this._cleanupSocket()
           this._updateStoreState()
@@ -129,7 +136,7 @@ class WebSocketManager {
         }
       }, this.CONN_TIMEOUT)
     } catch (err) {
-      console.error('[WS] Failed to create WebSocket:', err)
+      log.error('Failed to create WebSocket:', err)
       this._state = ConnectionState.ERROR
       this._updateStoreState()
     }
@@ -165,7 +172,7 @@ class WebSocketManager {
     if (envUrl) {
       const wsBase = envUrl.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://').replace(/\/$/, '')
       const url = `${wsBase}/ws/dashboard`
-      console.info('[WS] URL source: NEXT_PUBLIC_WS_URL →', url)
+      log.info('URL source: NEXT_PUBLIC_WS_URL →', url)
       return url
     }
 
@@ -180,7 +187,7 @@ class WebSocketManager {
         .replace(/^http:\/\//, 'ws://')
         .replace(/\/$/, '')
       const url = `${wsBase}/ws/dashboard`
-      console.info('[WS] URL source: NEXT_PUBLIC_API_URL (derived) →', url)
+      log.info('URL source: NEXT_PUBLIC_API_URL (derived) →', url)
       return url
     }
 
@@ -189,7 +196,7 @@ class WebSocketManager {
     const { protocol, host } = window.location
     const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:'
     const url = `${wsProtocol}//${host}/ws/dashboard`
-    console.warn('[WS] URL source: same-origin fallback (NEXT_PUBLIC_WS_URL and NEXT_PUBLIC_API_URL are not set) →', url)
+    log.warn('URL source: same-origin fallback (NEXT_PUBLIC_WS_URL and NEXT_PUBLIC_API_URL are not set) →', url)
     return url
   }
   private _getRetryDelay(attempt: number): number {
@@ -198,7 +205,7 @@ class WebSocketManager {
   }
   private _scheduleReconnect() {
     if (this._retry >= this.MAX_RETRIES) {
-      console.error('[WS] Max retries reached — giving up. Check NEXT_PUBLIC_WS_URL / NEXT_PUBLIC_API_URL env vars.')
+      log.error('Max retries reached — giving up. Check NEXT_PUBLIC_WS_URL / NEXT_PUBLIC_API_URL env vars.')
       this._state = ConnectionState.ERROR
       useCodexStore.getState().setWsDiagnostics({
         reconnectAttempts: this._retry,
@@ -210,7 +217,7 @@ class WebSocketManager {
     this._state = ConnectionState.RECONNECTING
     this._retry++
     const delay = this._getRetryDelay(this._retry)
-    console.info('[WS] Reconnecting in', delay, 'ms (attempt', this._retry, '/', this.MAX_RETRIES, ')')
+    log.info('Reconnecting in', delay, 'ms (attempt', this._retry, '/', this.MAX_RETRIES, ')')
     useCodexStore.getState().setWsDiagnostics({ reconnectAttempts: this._retry })
     this._reconnectTimer = setTimeout(() => {
       // connect() bails out while state is RECONNECTING, so flip to
@@ -246,7 +253,7 @@ class WebSocketManager {
   private _setupSocketHandlers() {
     if (!this._socket) return
     this._socket.onopen = () => {
-      console.info('[WS] Connected ✓', this._socket?.url)
+      log.info('Connected ✓', this._socket?.url)
       this._state = ConnectionState.CONNECTED
       this._retry = 0
       if (this._connTimeout) clearTimeout(this._connTimeout)
@@ -323,7 +330,7 @@ class WebSocketManager {
     }
     this._socket.onclose = (event) => {
       const wasConnected = this._state === ConnectionState.CONNECTED
-      console.warn('[WS] Closed — code:', event.code, 'reason:', event.reason || '(none)', 'wasConnected:', wasConnected)
+      log.warn('Closed — code:', event.code, 'reason:', event.reason || '(none)', 'wasConnected:', wasConnected)
       this._state = ConnectionState.DISCONNECTED
       this._cleanupSocket()
       this._updateStoreState()
@@ -334,7 +341,7 @@ class WebSocketManager {
       }
     }
     this._socket.onerror = (event) => {
-      console.error('[WS] Socket error — state was:', this._state, event)
+      log.error('Socket error — state was:', this._state, event)
       useCodexStore.getState().setWsDiagnostics({
         lastError: 'WebSocket error',
         reconnectAttempts: this._retry,
@@ -361,7 +368,7 @@ class WebSocketManager {
     try {
       store.hydrateDashboard(this._normalizeDashboardData(msg.data))
     } catch (error) {
-      console.error('Error hydrating dashboard:', error)
+      log.error('Error hydrating dashboard:', error)
     }
   }
 
@@ -505,84 +512,69 @@ class WebSocketManager {
   }
 
   // --- Normalization ---
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private _normalizeDashboardData(data: any): any {
-    if (!data || typeof data !== 'object') return data
-    
-    const normalized = { ...data }
-    
-    // Normalize orders - handle both object and array formats
-    if (normalized.orders && typeof normalized.orders === 'object' && !Array.isArray(normalized.orders)) {
-      // Convert orders object to array format expected by store
-      // Extract actual order arrays from the object
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const ordersArray: any[] = []
-      
-      // Look for common order array keys
+  /**
+   * Shape a dashboard_update payload for the store: `orders` and the other
+   * collection fields may arrive as arrays, keyed objects, or be missing —
+   * normalize all of them to arrays so hydrateDashboard never branches.
+   */
+  private _normalizeDashboardData(data: unknown): DashboardData {
+    // This function IS the wire-shape coercion — every collection field is
+    // forced to an array below, which is exactly the DashboardData contract.
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return data as DashboardData
+
+    const normalized: Record<string, unknown> = { ...(data as Record<string, unknown>) }
+
+    const isRecord = (v: unknown): v is Record<string, unknown> =>
+      typeof v === 'object' && v != null && !Array.isArray(v)
+
+    const orders = normalized.orders
+    if (isRecord(orders)) {
+      // Prefer the known order-array keys; fall back to the object's values
+      // (excluding metadata entries, which carry a top-level timestamp).
+      const ordersArray: unknown[] = []
       const orderKeys = ['orders_last_hour', 'recent_orders', 'active_orders', 'pending_orders']
       for (const key of orderKeys) {
-        const orderArray = normalized.orders[key]
-        if (Array.isArray(orderArray)) {
-          ordersArray.push(...orderArray)
-        }
+        const orderArray = orders[key]
+        if (Array.isArray(orderArray)) ordersArray.push(...orderArray)
       }
-      
-      // If no arrays found, convert object values to array
       if (ordersArray.length === 0) {
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const objectValues = Object.values(normalized.orders) as any[]
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ordersArray.push(...objectValues.filter((item: any) => 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-          typeof item === 'object' && item !== null && !(item as any).timestamp // exclude metadata
-        ))
+        ordersArray.push(...Object.values(orders).filter((item) => isRecord(item) && !item.timestamp))
       }
-      
       normalized.orders = ordersArray
-    } else if (!normalized.orders) {
+    } else if (!orders) {
       normalized.orders = []
     }
-    
-    // Normalize other array fields safely
+
     const arrayFields = ['agent_logs', 'system_metrics', 'signals', 'positions', 'risk_alerts', 'learning_events', 'notifications']
     for (const field of arrayFields) {
-      if (normalized[field] && !Array.isArray(normalized[field])) {
-        if (typeof normalized[field] === 'object') {
-          // Convert object to array of values
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const objectValues = Object.values(normalized[field]) as any[]
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-          normalized[field] = objectValues.filter((item: any) => 
-            typeof item === 'object' && item !== null
-          )
-        } else {
-          // Set to empty array if not convertible
-          normalized[field] = []
-        }
-      } else if (!normalized[field]) {
+      const value = normalized[field]
+      if (value && !Array.isArray(value)) {
+        normalized[field] = isRecord(value) ? Object.values(value).filter(isRecord) : []
+      } else if (!value) {
         normalized[field] = []
       }
     }
-    
-    return normalized
+
+    return normalized as DashboardData
   }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private _normalizeAgentEvent(raw: any): any | null {
-    if (!raw || typeof raw !== 'object') return null
-    const inferredAgentName = raw.agent_name || raw.agent || raw.source_agent || (raw.stream === 'agent_logs' ? 'Agent Pipeline' : null)
+  private _normalizeAgentEvent(value: unknown): AgentLog | null {
+    if (!value || typeof value !== 'object') return null
+    const raw = value as Record<string, unknown>
+    const inferredAgentName =
+      raw.agent_name || raw.agent || raw.source_agent || (raw.stream === 'agent_logs' ? 'Agent Pipeline' : null)
     if (!inferredAgentName) return null
     return {
-      agent_name: inferredAgentName,
-      event_type: this._normalizeEventType(raw.event_type || raw.action || raw.type || 'processed'),
-      timestamp: raw.timestamp || raw.created_at || new Date().toISOString(),
-      symbol: raw.symbol,
-      action: raw.action,
+      agent_name: String(inferredAgentName),
+      event_type: this._normalizeEventType(String(raw.event_type || raw.action || raw.type || 'processed')),
+      timestamp: String(raw.timestamp || raw.created_at || new Date().toISOString()),
+      symbol: raw.symbol as string | undefined,
+      action: raw.action as string | undefined,
       latency_ms: Number(raw.latency_ms) || 0,
-      primary_edge: raw.primary_edge,
-      ...(raw.stream && { stream: raw.stream }),
-      ...(raw.message_id && { message_id: raw.message_id }),
-      ...(raw.data && { data: raw.data }),
+      primary_edge: raw.primary_edge as string | undefined,
+      ...(raw.stream ? { stream: raw.stream } : null),
+      ...(raw.message_id ? { message_id: raw.message_id } : null),
+      ...(raw.data ? { data: raw.data } : null),
     }
   }
 
@@ -603,17 +595,17 @@ class WebSocketManager {
     }
     return null
   }
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private _normalizeSystemMetric(raw: any): any | null {
-    if (!raw || typeof raw !== 'object') return null
+  private _normalizeSystemMetric(value: unknown): SystemMetric | null {
+    if (!value || typeof value !== 'object') return null
+    const raw = value as Record<string, unknown>
     return {
-      metric_name: raw.metric_name || raw.name || 'unknown',
+      metric_name: String(raw.metric_name || raw.name || 'unknown'),
       value: Number(raw.value) || 0,
-      timestamp: raw.timestamp || raw.created_at || new Date().toISOString(),
-      labels: raw.labels || {},
-      ...(raw.unit && { unit: raw.unit }),
-      ...(raw.tags && { tags: raw.tags }),
-    }
+      timestamp: String(raw.timestamp || raw.created_at || new Date().toISOString()),
+      labels: (raw.labels as Record<string, string> | undefined) ?? {},
+      ...(raw.unit ? { unit: raw.unit } : null),
+      ...(raw.tags ? { tags: raw.tags } : null),
+    } as SystemMetric
   }
   private _normalizeEventType(val: string): string {
     if (!val || typeof val !== 'string') return 'unknown'
