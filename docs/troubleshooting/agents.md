@@ -84,3 +84,40 @@ treats unproven as not-promotable rather than guessing.
 `tests/agents/test_grade_agent.py::test_attributes_realized_pnl_to_trading_agents`,
 `tests/api/test_agent_performance.py::test_trading_agent_graded_on_realized_pnl`,
 `::test_pnl_gate_blocks_promotion_when_losing`
+
+## ReasoningAgent defined _compute_kelly_position_size twice
+
+**Symptom:** No runtime misbehavior — but `ReasoningAgent` carried two
+near-identical definitions of `_compute_kelly_position_size` (lines ~487 and
+~1313), and only the second ever executed (Python silently lets the later
+class-body definition shadow the earlier one).
+
+**Root cause:** A refactor moved the Kelly sizing helper next to the risk
+hierarchy but left the original copy behind; nothing flags duplicate method
+names in a class body.
+
+**Fix:** Removed the dead first definition; the surviving copy (the one that
+was already in effect at runtime) is unchanged, so behavior is identical. An
+AST sweep confirmed no other duplicate function/method definitions exist in
+`api/`.
+
+**Regression test:** behavior-neutral dead-code removal — covered by the
+existing reasoning-agent suite (`tests/agents/test_reasoning_*.py`).
+
+## Grade snapshots recorded without the PnL dimension
+
+**Symptom:** For PnL-graded agents the dashboard's live grade could differ
+from the recorded snapshot history (the source of promotion streaks) — an
+agent could display "B" while accumulating "A" snapshots, making promotion
+unexplainable from the UI.
+
+**Root cause:** `record_grade_snapshots` called `_grade_agent` without
+`pnl_stats`, while the live view passes them — two different scores for the
+same agent.
+
+**Fix:** `record_grade_snapshots` now collects `_collect_pnl()` and passes
+each agent's stats, matching the live view
+(`api/services/dashboard/agent_performance.py`).
+
+**Regression test:** covered by `tests/api/test_agent_performance.py`
+(snapshot path now exercises the same `_grade_agent` inputs as the live view).
