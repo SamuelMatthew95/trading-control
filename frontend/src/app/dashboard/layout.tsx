@@ -80,10 +80,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [mounted, setMounted] = useState(false)
   const { killSwitchActive, wsConnected, setKillSwitch, hydrateFromLocalStorage } = useCodexStore()
 
-  // Real account stats — live P&L (realized + mark-to-market) over the real
-  // open positions, the same sources the rest of the dashboard reads.
-  const { equity, dayPnl, buyingPower } = useTerminalAccount()
-  const dayUp = dayPnl >= 0
+  // Real account stats — broker-truth cash with live-marked positions on top
+  // (see useTerminalAccount). P&L is lifetime paper P&L vs starting capital.
+  const { equity, pnl, buyingPower } = useTerminalAccount()
+  const pnlUp = pnl >= 0
 
   const live = !killSwitchActive
 
@@ -187,9 +187,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <HeaderStat label="Equity" value={formatUSD(equity)} className="text-slate-900 dark:text-slate-100" />
               <HeaderDivider />
               <HeaderStat
-                label="Day P&L"
-                value={`${dayUp ? '+' : '-'}${formatUSD(dayPnl)}`}
-                className={dayUp ? 'txt-up' : 'txt-down'}
+                label="P&L"
+                value={`${pnlUp ? '+' : '-'}${formatUSD(pnl)}`}
+                className={pnlUp ? 'txt-up' : 'txt-down'}
               />
               <HeaderDivider />
               <HeaderStat label="Buying Power" value={formatUSD(buyingPower)} />
