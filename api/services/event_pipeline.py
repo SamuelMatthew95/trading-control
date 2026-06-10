@@ -234,8 +234,11 @@ class EventPipeline:
         # Agents already write directly to the DB; the pipeline persist is a
         # secondary safety net.  Strict validation errors (wrong schema, missing
         # fields) are logged as warnings, not propagated.
+        wrote_event_history = False
         try:
-            await self._persist_event(stream=stream, msg_id=msg_id, event=event)
+            wrote_event_history = await self._persist_event(
+                stream=stream, msg_id=msg_id, event=event
+            )
         except Exception:  # noqa: BLE001
             log_structured(
                 "warning",
@@ -253,7 +256,10 @@ class EventPipeline:
             FieldName.PAYLOAD: event,
             FieldName.TIMESTAMP: ts,
         }
-        if not is_db_available():
+        # Skip the generic events-feed append when the memory persist above
+        # already landed this msg_id in event_history (fall-through streams) —
+        # otherwise the same event shows up twice in the dashboard feed.
+        if not is_db_available() and not wrote_event_history:
             get_runtime_store().add_event(
                 {
                     FieldName.ID: msg_id,
@@ -319,22 +325,23 @@ class EventPipeline:
         self._processed_msg_ids.append(msg_id)
         self._processed_msg_id_set.add(msg_id)
 
-    async def _persist_event(self, stream: str, msg_id: str, event: dict[str, Any]) -> None:
+    async def _persist_event(self, stream: str, msg_id: str, event: dict[str, Any]) -> bool:
+        """Persist one event; returns True when it landed in event_history."""
         # Route is selected before any write attempt — no exception-driven fallbacks.
         route = determine_persist_route(stream, event)
 
         if route == PersistRoute.SKIP:
-            return
+            return False
 
         if route == PersistRoute.MEMORY:
-            write_event_to_memory(stream, msg_id, event, get_runtime_store())
+            wrote_event_history = write_event_to_memory(stream, msg_id, event, get_runtime_store())
             log_structured(
                 "info",
                 "pipeline_event_routed_to_memory",
                 stream=stream,
                 msg_id=msg_id,
             )
-            return
+            return wrote_event_history
 
         # DB route — system_metrics is intentionally omitted (different signature).
         writer_methods = {
@@ -352,7 +359,7 @@ class EventPipeline:
         }
         writer = writer_methods.get(stream)
         if writer is None:
-            return
+            return False
         ok = await writer(msg_id=msg_id, stream=stream, data=event)
         if not ok:
             log_structured(
@@ -361,3 +368,4 @@ class EventPipeline:
                 stream=stream,
                 msg_id=msg_id,
             )
+        return False

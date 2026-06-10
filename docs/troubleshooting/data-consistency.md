@@ -178,3 +178,114 @@ mark-to-market is visible, falling back to the DB/trends aggregate then the
 trade-feed realized sum.
 
 **Regression test:** `frontend/src/test/store/positions-pnl.test.ts`
+
+## Memory-mode events feed showed the same pipeline event twice
+
+**Symptom:** In memory mode, events from fall-through streams (risk_alerts,
+executions, proposals, reflection_outputs, factor_ic_history, notifications)
+appeared twice in `event_history` — once rich (with payload), once as a bare
+`{id, kind, source, created_at}` row — duplicating rows in every dashboard
+panel that reads the events feed.
+
+**Root cause:** `EventPipeline._process_message` appended its generic
+events-feed row unconditionally in memory mode, on top of the
+`write_event_to_memory` fall-through which had already written the same
+`msg_id` into `event_history`.
+
+**Fix:** `write_event_to_memory` (`api/services/persistence_routing.py`) now
+returns True when the row landed in the generic `event_history` bucket, and
+`_process_message` (`api/services/event_pipeline.py`) skips its own append in
+that case. Dedicated-bucket streams (orders, agent_logs, grades, learning
+events, trade performance) still get their one generic events-feed row.
+
+**Regression test:** `tests/integration/test_pipeline_flow.py::test_pipeline_memory_fallthrough_stream_lands_once_in_event_history`
+
+## Every closed trade was counted twice by the learning agents
+
+**Symptom:** The durable per-agent PnL store (`agent:pnl:{name}`) showed
+`trade_count` / `total_pnl` at exactly 2× reality; trade evaluations appeared
+twice in `/learning/trades`; grade / IC / reflection cadences
+(`*_EVERY_N_FILLS`) fired at half the configured interval.
+
+**Root cause:** `publish_fill_events` emits the SAME round-trip close to both
+`STREAM_TRADE_PERFORMANCE` and `STREAM_TRADE_COMPLETED` (same trace_id, same
+realized PnL). GradeAgent, ICUpdater, and ReflectionAgent all subscribe to
+both streams and processed the paired events independently.
+
+**Fix:** `PairedCloseDeduper` (`api/services/agents/base.py`) — a bounded LRU
+keyed on trace_id, consulted at the top of each agent's `process()`. Only
+events carrying both a trace_id and a realized PnL are deduped; opening fills
+and trace-less events pass through.
+
+**Regression tests:**
+`tests/agents/test_grade_agent.py::test_paired_close_events_graded_once`,
+`tests/agents/test_ic_updater.py::test_paired_close_events_counted_once`,
+`tests/agents/test_reflection_agent.py::test_paired_close_events_processed_once`
+
+## Opening fills destroyed the decision→tools attribution cache
+
+**Symptom:** Tool alpha (realized-PnL attribution in the ToolRegistry) was only
+ever credited on some closes, and `tool_pnl_attribution_failed` warnings
+appeared on every position open.
+
+**Root cause:** `GradeAgent._attribute_pnl_to_tools` popped the
+trace→tools cache BEFORE validating PnL. An opening fill (pnl None, serialized
+to `""` by the bus) consumed the cached tool list, and `""` slipped past the
+`is None` check into `float("")`.
+
+**Fix:** Parse/validate the PnL first; only pop the cache when a numeric
+realized PnL exists (`api/services/agents/grade_agent.py`).
+
+**Regression test:** `tests/agents/test_grade_agent.py::test_opening_fill_does_not_consume_decision_tool_cache`
+
+## Decisions vanished from the dashboard when the RedisStore was missing
+
+**Symptom:** In memory mode without an installed RedisStore (partial startup,
+supervisor restart window), `/dashboard/state` showed zero decisions and
+`has_data=false` while the ReasoningAgent was actively deciding.
+
+**Root cause:** `ReasoningAgent._record_decision_to_redis` returned early when
+`get_redis_store()` was None — skipping the InMemoryStore ledger writes nested
+below the guard, violating the "None degrades, never drops" contract.
+
+**Fix:** The decision/notification payloads are always recorded to the runtime
+store in memory mode; the RedisStore push is now the optional mirror
+(`api/services/agents/reasoning_agent.py`).
+
+**Regression test:** `tests/agents/test_reasoning_agent.py::test_decision_recorded_in_memory_even_without_redis_store`
+
+## Memory-mode reflections listed twice — one empty
+
+**Symptom:** Every reflection appeared twice in `/dashboard/reflections`; one
+copy had empty summary/hypotheses.
+
+**Root cause:** `write_agent_log` dual-writes a reflection in memory mode (a
+payload-bearing event_history row + a payload-less agent_logs mirror), and
+`_in_memory_reflections` scanned both without dedup.
+
+**Fix:** Collapse to one row per trace_id, preferring the payload-bearing copy
+(`api/services/dashboard/learning.py`).
+
+**Regression test:** `tests/core/test_memory_dashboard_reads.py::test_memory_reflections_deduped_to_payload_bearing_row`
+
+## Assorted memory-mode read-path bugs (flow counters, None scores, mixed windows, unbounded dedup set)
+
+**Symptoms / fixes (one commit, same sweep):**
+- `/dashboard/flow` claimed 0 orders / 0 trade-lifecycle rows and reported the
+  events-feed length as agent logs in memory mode → counts now read
+  `len(store.orders)` / `len(store.trade_feed)` / `len(store.agent_logs)`
+  (`api/services/dashboard/flow.py`).
+- `float(g.get(SCORE) or g.get(SCORE_PCT, 0))` raised TypeError (HTTP 500) on
+  grade rows whose score fields exist with value None — `dict.get(key, default)`
+  keeps an explicit None → `or 0` coalescing in `api/routes/learning_helpers.py`
+  and `api/routes/learning.py`.
+- `_performance_trends_from_runtime_store` mixed counts from the paired-PnL
+  window (last 100 orders) with sums over ALL orders → averages now computed
+  from the same paired window (`api/services/dashboard/trading.py`).
+- `InMemoryStore.applied_decision_keys` grew without bound (one key per
+  decision ever seen) → bounded by `DECISION_KEY_CAP` with an insertion-order
+  deque, same pattern as the pipeline's processed-msg-id cache
+  (`api/in_memory_store.py`).
+
+**Regression tests:** `tests/core/test_memory_dashboard_reads.py`,
+`tests/core/test_in_memory_store.py::test_decision_dedup_keys_are_bounded`
