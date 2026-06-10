@@ -7,6 +7,7 @@ import { useRestPoll } from '@/hooks/useRestPoll'
 import { useLivePositions } from '@/hooks/useLivePositions'
 import { cn } from '@/lib/utils'
 import { toFiniteNum as toFiniteNumber } from '@/lib/formatters'
+import { ChallengersPanel } from '@/components/dashboard/ChallengersPanel'
 import { LearningConsole } from '@/components/dashboard/LearningConsole'
 import { TradingView } from '@/components/dashboard/TradingView'
 import { TraceModal } from '@/components/dashboard/TraceModal'
@@ -24,7 +25,7 @@ import {
   BackendOfflineEmptyState,
 } from '@/components/dashboard/BackendOfflineBanner'
 
-type Section = 'overview' | 'trading' | 'agents' | 'learning' | 'proposals' | 'system'
+type Section = 'overview' | 'trading' | 'agents' | 'challengers' | 'learning' | 'proposals' | 'system'
 
 const SECTION_META: Record<Section, { eyebrow: string; title: string; description: string }> = {
   overview: {
@@ -41,6 +42,11 @@ const SECTION_META: Record<Section, { eyebrow: string; title: string; descriptio
     eyebrow: 'Runtime agents',
     title: 'Agent health and production activity',
     description: 'Inspect agent heartbeats, streams, decisions, and diagnostics in a dense operations layout.',
+  },
+  challengers: {
+    eyebrow: 'Challenger shadows',
+    title: 'Rival strategies on live data',
+    description: 'Follow each shadow challenger: its record, the baseline comparison, and exactly what still blocks promotion.',
   },
   learning: {
     eyebrow: 'Learning loop',
@@ -425,6 +431,8 @@ export function DashboardView({ section }: { section: Section }) {
           isInMemoryMode={isInMemoryMode}
         />
       )}
+
+      {section === 'challengers' && <ChallengersPanel />}
 
       {section === 'learning' && <LearningConsole setActiveTraceId={setActiveTraceId} />}
 
