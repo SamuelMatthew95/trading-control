@@ -184,20 +184,21 @@ describe('DashboardView — agents', () => {
     expect(() => render(<DashboardView section="agents" />)).not.toThrow()
   })
 
-  it('shows the pipeline, KPIs, diagnostics and empty state when no agent wiring data is available', () => {
+  it('shows the pipeline, KPIs, diagnostics and scorecards when no agent wiring data is available', () => {
     render(<DashboardView section="agents" />)
     expect(screen.getByText(/Agent Pipeline/i)).toBeInTheDocument()
     expect(screen.getByText(/Agents Online/i)).toBeInTheDocument()
     expect(screen.getByText(/System Diagnostics/i)).toBeInTheDocument()
     expect(screen.getByText(/Heartbeats \(in-memory\/Redis\)/i)).toBeInTheDocument()
-    // Agent Instances merged into the single Agent Status table.
-    expect(screen.getByText('Agent Status')).toBeInTheDocument()
-    expect(screen.queryByText(/No instances registered yet/i)).toBeNull()
+    // The scorecards are the single per-agent view — the redundant Agent Status
+    // table ("Live · Hybrid" rows) was removed.
+    expect(screen.getByText('Agent Scorecards')).toBeInTheDocument()
+    expect(screen.queryByText('Agent Status')).toBeNull()
   })
 
   it('does not count agent lifecycle (spawn) logs as produced events', () => {
     // Regression: an agent coming online writes an agent_log with
-    // log_type="lifecycle". Counting it made idle learning agents read "1 event"
+    // log_type="lifecycle". Counting it made idle learning agents read as live
     // while the Cognitive Engine correctly showed 0. Only the real (grade) log
     // should be counted.
     mockStore.agentLogs = [
@@ -205,16 +206,13 @@ describe('DashboardView — agents', () => {
       { agent_name: 'GRADE_AGENT', log_type: 'grade', message: 'scored', timestamp: new Date().toISOString() },
     ]
     render(<DashboardView section="agents" />)
-    // Exactly one Agent Status row shows an event count — Grade's real output.
-    // The proposer's only log was a spawn, so it is not counted (renders "—").
-    const eventCells = screen.getAllByText(
-      (_, el) => el?.tagName === 'TD' && /^\d+ events$/.test(el.textContent ?? ''),
-    )
-    expect(eventCells).toHaveLength(1)
-    expect(eventCells[0].textContent).toBe('1 events')
+    // Exactly one pipeline stage reads Live — Grade's real output. The
+    // proposer's only log was a spawn, so it is not counted (stays Waiting).
+    expect(screen.getAllByText('Live')).toHaveLength(1)
+    expect(screen.getByText(/Agents Online/i)).toBeInTheDocument()
   })
 
-  it('renders heartbeat-wired agent status rows (in-memory running -> Live)', () => {
+  it('renders heartbeat-wired agents as Live in the pipeline', () => {
     mockStore.agentStatuses = [
       {
         name: 'SIGNAL_AGENT',
@@ -228,11 +226,8 @@ describe('DashboardView — agents', () => {
       }
     ]
     render(<DashboardView section="agents" />)
-    // "Signal Agent" and "Live" now appear in BOTH the pipeline and the status
-    // table — same label in both places, which is the point (uniform names).
     expect(screen.getAllByText('Signal Agent').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Live').length).toBeGreaterThan(0)
-    expect(screen.getByText('Realtime')).toBeInTheDocument()
   })
 
   it('keeps an agent Live while its heartbeat is within the backend 2-min window', () => {
@@ -257,15 +252,10 @@ describe('DashboardView — agents', () => {
     expect(screen.queryByText('Stale')).not.toBeInTheDocument()
   })
 
-  it('always registers the full agent roster, even before any agent reports', () => {
-    // Notification / Challenger / Proposal Applier are roster members that are
-    // NOT pipeline stages, so they only appear via the status-table backfill.
-    // Seeing them with an empty store proves every documented agent is wired in.
-    render(<DashboardView section="agents" />)
-    expect(screen.getByText('Proposal Applier')).toBeInTheDocument()
-    expect(screen.getByText('Notification Agent')).toBeInTheDocument()
-    expect(screen.getByText('Challenger Agent')).toBeInTheDocument()
-  })
+  // NOTE: full-roster coverage ("every documented agent appears even before it
+  // reports") moved with the roster surface: the backend payload grades every
+  // ALL_AGENT_NAMES member (tests/api/test_agent_performance.py) and the
+  // scorecards render one card per payload agent (AgentScorecards.test.tsx).
 
   it('falls back when latest notification timestamp is invalid', () => {
     mockStore.notifications = [
