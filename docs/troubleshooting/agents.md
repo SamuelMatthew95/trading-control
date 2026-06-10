@@ -171,3 +171,52 @@ versions) — every reasoning call paid for that bloated prompt.
 **Regression tests:**
 `tests/agents/test_challenger_spawner.py` (dedup / cap / slot-free),
 `tests/agents/test_proposal_applier.py::test_promotion_advisory_replaces_stale_lines_for_same_strategy`
+
+## Agent scorecards read 100% A+ on partial evidence (grades looked fake)
+
+**Symptom:** Operator: "grades of the agents look random — should be real
+grades." Scorecards showed `A+ · 100%` with only `3/5 dims scored` (no
+latency, no realized-PnL data), every active agent converged on the same
+perfect grade, and "streak 50" promotions piled up — the letter carried no
+information.
+
+**Root cause:** The blended score renormalized over whichever dimensions had
+data, so missing evidence *raised* the grade instead of capping it; throughput
+saturated at only 20 events (anything alive maxed it); the PnL promotion gate
+accepted a 50% win rate with no requirement that total PnL be positive.
+
+**Fix:** `_grade_agent` multiplies the blend by **data coverage**
+(`available_weight / applicable_weight`) so a 3/5-dims agent caps well below
+an A and the card explains "Grade capped at N% by data coverage"
+(`api/services/dashboard/agent_performance.py`). Thresholds hardened in
+`api/constants.py`: `AGENT_PERF_THROUGHPUT_SATURATION` 20→100,
+`AGENT_PROMOTION_STREAK` 3→5, `AGENT_PNL_MIN_TRADES` 10→20,
+`AGENT_PNL_PROMOTION_MIN_WIN_RATE` 0.50→0.55, and the PnL gate now also
+requires **positive total realized PnL** (`_pnl_clears_promotion_gate`).
+
+**Regression tests:**
+`tests/api/test_agent_performance.py::test_partial_evidence_cannot_reach_top_grade`,
+`::test_pnl_gate_requires_positive_total_pnl`
+
+## Challenger promotion bar was just "beats baseline"
+
+**Symptom:** Challengers became promotion-eligible while losing money — a
+strategy that merely lost *less* than a losing baseline proposed itself for
+promotion, and the panel's only requirement readout was a trade counter
+(`12/25`).
+
+**Root cause:** `_maybe_propose_shadow_promotion` gated on
+`CHALLENGER_MIN_SHADOW_TRADES` + `beats_baseline_shadow` only; the
+challenger's own win rate / PnL / Sharpe were displayed but never enforced.
+
+**Fix:** `_promotion_blockers()` (`api/services/agents/challenger_agent.py`)
+is the single eligibility bar: ≥ `CHALLENGER_MIN_SHADOW_TRADES` (raised
+25→40), win rate ≥ `CHALLENGER_MIN_SHADOW_WIN_RATE` (0.55, new constant),
+positive shadow PnL, positive Sharpe, AND beats baseline. The proposal path
+requires the list to be empty, and `activity_snapshot()` exposes
+`promotion_blockers` + `min_shadow_win_rate` so the dedicated
+`/dashboard/challengers` page names exactly what is still unmet.
+
+**Regression tests:**
+`tests/agents/test_challenger_agent.py::test_no_promotion_when_own_record_is_weak`,
+`::test_snapshot_exposes_promotion_blockers`
