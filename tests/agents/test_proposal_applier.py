@@ -595,6 +595,40 @@ async def test_challenger_promotion_auto_applies_by_default(monkeypatch):
         set_prompt_store(None)
 
 
+async def test_applied_proposal_pushes_dashboard_notification(monkeypatch):
+    """REGRESSION (operator: "auto-applied and not shown anywhere"): every
+    applied proposal must surface in the dashboard notification feed, so an
+    application the operator never voted on is impossible to miss."""
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    from api.services.prompt_store import set_prompt_store  # noqa: PLC0415
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.STRATEGIES", {})
+    notif_store = _AsyncMock()
+    notif_store.push_notification = _AsyncMock()
+    monkeypatch.setattr("api.services.agents.proposal_applier.get_redis_store", lambda: notif_store)
+    store = await _install_prompt_store()
+    try:
+        applier = _make_applier(_FakeRedis())
+        proposal = {
+            FieldName.PROPOSAL_TYPE: ProposalType.CHALLENGER_PROMOTION,
+            FieldName.APPROVED: True,
+            FieldName.CONTENT: {FieldName.STRATEGY: "mean_reversion", FieldName.CONFIDENCE: 0.7},
+            FieldName.TRACE_ID: "t-notif",
+        }
+        await applier.process("proposals", "1-0", proposal)
+
+        notif_store.push_notification.assert_awaited_once()
+        payload = notif_store.push_notification.await_args.args[0]
+        assert payload[FieldName.NOTIFICATION_TYPE] == "proposal.applied"
+        assert "mean_reversion" in payload[FieldName.MESSAGE]
+        assert store is not None
+    finally:
+        set_prompt_store(None)
+
+
 async def test_challenger_promotion_approved_always_leaves_a_trace(monkeypatch):
     """REGRESSION: an APPROVED promotion must write an applied record even when
     BOTH halves are skipped (no prompt store, no spawner). The old code returned
