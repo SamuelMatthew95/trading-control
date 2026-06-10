@@ -1516,6 +1516,11 @@ REDIS_KEY_NOTIFICATIONS_RECENT: Final[str] = "notifications:recent"
 REDIS_KEY_NOTIFICATIONS_READ: Final[str] = "notifications:read"
 REDIS_KEY_DECISIONS_RECENT: Final[str] = "decisions:recent"
 REDIS_KEY_LLM_METRICS: Final[str] = "llm:metrics"
+# Closed round-trips (LPUSH, LTRIM cap) — the trade history behind the header
+# PnL. The PaperBroker equity survives restarts (Redis), so the trades that
+# produced it must too, or the dashboard shows a PnL no visible trade explains.
+REDIS_KEY_CLOSED_TRADES_RECENT: Final[str] = "closed_trades:recent"
+REDIS_CLOSED_TRADES_MAX: Final[int] = 100
 # Cooling-off: recent trade PnL outcomes (LPUSH, LTRIM cap COOLING_OFF_WINDOW+5)
 REDIS_KEY_RECENT_OUTCOMES: Final[str] = "trading:recent_outcomes"
 REDIS_RECENT_OUTCOMES_MAXLEN: Final[int] = 10

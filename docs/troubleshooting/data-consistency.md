@@ -308,3 +308,23 @@ payload-bearing event_history row + a payload-less agent_logs mirror), and
   `InMemoryStore.get_overall_grades()` applies the same rule in memory mode.
 
 **Regression test:** `tests/core/test_memory_dashboard_reads.py::test_grade_history_views_exclude_signal_accuracy_rows`
+
+## Header PnL survived restarts but the trades explaining it did not
+
+**Symptom:** After a redeploy the header showed a PnL figure (e.g. -$13.50)
+while the dashboard listed only open positions — no closed trades to verify
+the number against.
+
+**Root cause:** The header PnL derives from PaperBroker equity, which is
+durable in Redis — but closed round-trips were recorded only in the
+InMemoryStore, which is wiped on every restart.
+
+**Fix:** The execution engine mirrors each round-trip close to a capped Redis
+list (`closed_trades:recent`, `RedisStore.push_closed_trade`), and startup
+hydrates `InMemoryStore.closed_trades` back from it
+(`api/startup.py::_hydrate_closed_trades_from_redis`) — same pattern as the
+broker-position hydration.
+
+**Regression tests:**
+`tests/api/test_redis_store.py::test_push_closed_trade_roundtrip_and_cap`,
+`::test_startup_hydrates_closed_trades_from_redis`

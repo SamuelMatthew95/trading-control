@@ -446,3 +446,51 @@ async def test_agent_grade_history_scoped_per_agent(fake_redis) -> None:
 
     assert (await store.list_agent_grades("SIGNAL_AGENT"))[0][FieldName.GRADE] == "A"
     assert (await store.list_agent_grades("REASONING_AGENT"))[0][FieldName.GRADE] == "F"
+
+
+# ---------------------------------------------------------------------------
+# Closed trades — durable round-trip history behind the header PnL
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_push_closed_trade_roundtrip_and_cap(fake_redis) -> None:
+    """Closed trades persist newest-first and the list never exceeds its cap."""
+    from api.constants import REDIS_CLOSED_TRADES_MAX, REDIS_KEY_CLOSED_TRADES_RECENT
+
+    store = RedisStore(fake_redis)
+    over_cap = REDIS_CLOSED_TRADES_MAX + 10
+    for i in range(over_cap):
+        await store.push_closed_trade(
+            {FieldName.SYMBOL: "BTC/USD", FieldName.PNL: float(i), FieldName.SIDE: "sell"}
+        )
+
+    length = await fake_redis.llen(REDIS_KEY_CLOSED_TRADES_RECENT)
+    assert length == REDIS_CLOSED_TRADES_MAX
+
+    items = await store.list_closed_trades(limit=5)
+    assert len(items) == 5
+    assert items[0][FieldName.PNL] == float(over_cap - 1)  # newest first
+    assert all(FieldName.TIMESTAMP in item for item in items)
+
+
+@pytest.mark.asyncio
+async def test_startup_hydrates_closed_trades_from_redis(fake_redis, store_singleton_reset) -> None:
+    """Regression: after a restart the header PnL (durable broker equity)
+    showed no closed trades to explain it — the history lived only in the
+    wiped InMemoryStore. Startup now reloads it from the Redis mirror."""
+    from api.in_memory_store import InMemoryStore
+    from api.runtime_state import get_runtime_store, set_db_available, set_runtime_store
+    from api.startup import _hydrate_closed_trades_from_redis
+
+    redis_store = RedisStore(fake_redis)
+    await redis_store.push_closed_trade({FieldName.SYMBOL: "BTC/USD", FieldName.PNL: -7.5})
+    await redis_store.push_closed_trade({FieldName.SYMBOL: "ETH/USD", FieldName.PNL: 3.25})
+    set_redis_store(redis_store)
+
+    set_runtime_store(InMemoryStore())  # fresh boot — empty store
+    set_db_available(False)
+    await _hydrate_closed_trades_from_redis()
+
+    closed = get_runtime_store().closed_trades
+    assert [t[FieldName.SYMBOL] for t in closed] == ["BTC/USD", "ETH/USD"]  # oldest first
