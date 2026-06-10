@@ -121,3 +121,19 @@ each agent's stats, matching the live view
 
 **Regression test:** covered by `tests/api/test_agent_performance.py`
 (snapshot path now exercises the same `_grade_agent` inputs as the live view).
+
+## Stored grade records always said fills_graded=None
+
+**Symptom:** Grade history rows (memory mode and the DB agent_grades fallback)
+showed `fills_graded: null` even though every grade cycle runs on a known fill
+count.
+
+**Root cause:** GradeAgent put `FILLS_GRADED` at the payload top level, but
+`write_grade_to_db` receives only the `METRICS` dict and reads
+`metrics.get(FILLS_GRADED)` — as does the DB grade-history fallback reader.
+
+**Fix:** `FILLS_GRADED` is also carried inside `METRICS` at payload
+construction (`api/services/agents/grade_agent.py`), healing both persistence
+paths with no signature changes.
+
+**Regression test:** `tests/agents/test_grade_agent.py::test_grade_metrics_carry_fills_graded`

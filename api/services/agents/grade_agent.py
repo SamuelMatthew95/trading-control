@@ -124,6 +124,13 @@ class GradeAgent(MultiStreamAgent):
         # (not just decision-time latency/reliability). Bounded so a long run
         # cannot grow it without limit.
         self._trace_tools: OrderedDict[str, list[str]] = OrderedDict()
+        # symbol -> tool names behind the ENTRY decision whose order actually
+        # FILLED. A round-trip close carries only the closing decision's trace,
+        # so without this the BUY-side tools never received PnL attribution —
+        # tool alpha graded only the exit half of every trade. Populated from
+        # STREAM_EXECUTIONS buy fills (decision tools are promoted only once
+        # the order fills, so gated/rejected decisions can't mis-attribute).
+        self._entry_tools: OrderedDict[str, list[str]] = OrderedDict()
         # The same round-trip close arrives on BOTH trade_performance and
         # trade_completed; grade it exactly once or the durable agent PnL
         # store and every fill-cadence counter double-counts.
@@ -138,6 +145,7 @@ class GradeAgent(MultiStreamAgent):
             await self._score_and_persist_trade(data)
         elif stream == STREAM_EXECUTIONS:
             self._confidence_buffer.append(float(data.get(FieldName.CONFIDENCE) or 0.5))
+            self._remember_entry_tools(data)
         elif stream == STREAM_DECISIONS:
             # Cache the tools used so a later trade can be graded against them.
             self._remember_decision_tools(data)
@@ -224,22 +232,44 @@ class GradeAgent(MultiStreamAgent):
         while len(self._trace_tools) > 500:  # bound the map on long runs
             self._trace_tools.popitem(last=False)
 
+    def _remember_entry_tools(self, data: dict[str, Any]) -> None:
+        """On a BUY fill, promote the decision's cached tools to the symbol's
+        entry slot so the eventual round-trip close can credit them (bounded)."""
+        if str(data.get(FieldName.SIDE) or "").lower() != OrderSide.BUY:
+            return
+        symbol = data.get(FieldName.SYMBOL)
+        trace_id = data.get(FieldName.TRACE_ID)
+        if not symbol or not trace_id:
+            return
+        names = self._trace_tools.get(trace_id)
+        if not names:
+            return
+        self._entry_tools[str(symbol)] = list(names)
+        self._entry_tools.move_to_end(str(symbol))
+        while len(self._entry_tools) > 100:  # one slot per held symbol; tiny
+            self._entry_tools.popitem(last=False)
+
     def _attribute_pnl_to_tools(self, data: dict[str, Any]) -> None:
-        """Fold a completed trade's realized PnL into the alpha of each tool that
-        informed its decision. Pops the trace so one trade attributes exactly once.
+        """Fold a completed trade's realized PnL into the alpha of every tool
+        that informed it — BOTH the closing decision's tools (by trace) and the
+        entry decision's tools (by symbol). Pops both so one trade attributes
+        exactly once per tool.
 
         Validate the PnL BEFORE popping: an opening fill carries pnl None
         (serialized to "" by the bus), and popping on it would consume the
-        cached tool list so the eventual close finds nothing to attribute.
+        cached tool lists so the eventual close finds nothing to attribute.
         """
-        trace_id = data.get(FieldName.TRACE_ID)
-        if not trace_id:
-            return
         try:
             realized_pnl = float(data.get(FieldName.PNL))
         except (TypeError, ValueError):
-            return  # no realized PnL on this event — keep the cache for the close
-        names = self._trace_tools.pop(trace_id, None)
+            return  # no realized PnL on this event — keep the caches for the close
+        trace_id = data.get(FieldName.TRACE_ID)
+        closing_names = self._trace_tools.pop(trace_id, None) if trace_id else None
+        symbol = data.get(FieldName.SYMBOL)
+        entry_names = self._entry_tools.pop(str(symbol), None) if symbol else None
+        # One credit per tool per trade, even when the same tool informed both
+        # the entry and the exit decision.
+        names = list(dict.fromkeys((closing_names or []) + (entry_names or [])))
         if not names:
             return
         try:
@@ -307,6 +337,10 @@ class GradeAgent(MultiStreamAgent):
                 FieldName.COST_EFFICIENCY: round(cost_eff, 4),
                 FieldName.COST_NORMALIZED: round(cost_norm, 4),
                 FieldName.LATENCY_SCORE: round(latency, 4),
+                # Also carried at the payload top level; duplicated here because
+                # write_grade_to_db and the DB grade-history fallback read it
+                # FROM metrics — without it the stored record always said None.
+                FieldName.FILLS_GRADED: self._fills,
                 FieldName.LLM_HEALTH_SCORE: llm_health,
                 FieldName.LLM_RATE_LIMITED: llm_snap.get(FieldName.RATE_LIMITED_COUNT, 0),
                 FieldName.LLM_TIMEOUT_COUNT: llm_snap.get(FieldName.TIMEOUT_COUNT, 0),
