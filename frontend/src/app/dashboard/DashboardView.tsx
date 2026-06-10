@@ -25,8 +25,8 @@ type Section = 'overview' | 'trading' | 'agents' | 'learning' | 'proposals' | 's
 const SECTION_META: Record<Section, { eyebrow: string; title: string; description: string }> = {
   overview: {
     eyebrow: 'Trading terminal',
-    title: 'Live equities trading desk',
-    description: 'Watchlist, chart, order book, ticket, and blotter in one dense terminal.',
+    title: 'Live equities and crypto desk',
+    description: 'Real prices, chart, positions, and the agents’ live decisions and executions.',
   },
   trading: {
     eyebrow: 'Execution',
@@ -44,9 +44,9 @@ const SECTION_META: Record<Section, { eyebrow: string; title: string; descriptio
     description: 'Review outcomes, model performance, and learning-loop movement with clear evidence.',
   },
   proposals: {
-    eyebrow: 'Proposal review',
-    title: 'Candidate changes and challenger verdicts',
-    description: 'Approve or reject strategy mutations from a table-first queue with explicit expected impact.',
+    eyebrow: 'Proposal outcomes',
+    title: 'Strategy changes and challenger verdicts',
+    description: 'What the learning loop changed and where it routed — auto-applied, config PR, or GitHub issue.',
   },
   system: {
     eyebrow: 'Command Center',
