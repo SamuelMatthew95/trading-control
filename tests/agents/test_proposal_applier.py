@@ -899,3 +899,46 @@ async def test_promotion_advisory_replaces_stale_lines_for_same_strategy(monkeyp
         assert text.count("Promoted strategy 'strong_only'") == 1  # other strategy kept
     finally:
         set_prompt_store(None)
+
+
+async def test_repromotion_refreshes_advisory_without_version_bump(monkeypatch):
+    """Regression (version-history wall): re-promoting the same strategy only
+    refreshes its advisory's edge/win-rate numbers, so it must update the
+    directive IN PLACE — same version, no new history entry — instead of
+    minting a near-identical version per promotion cycle."""
+    from api.constants import REASONING_NODE
+    from api.services.prompt_store import set_prompt_store
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.STRATEGIES", {})
+    store = await _install_prompt_store()
+    try:
+        applier = _make_applier(_FakeRedis())
+
+        def _proposal(edge: float) -> dict:
+            return {
+                FieldName.PROPOSAL_TYPE: ProposalType.CHALLENGER_PROMOTION,
+                FieldName.APPROVED: True,
+                FieldName.CONTENT: {
+                    FieldName.STRATEGY: "mean_reversion",
+                    FieldName.CONFIDENCE: 0.71,
+                    FieldName.SHADOW_EDGE: edge,
+                },
+                FieldName.TRACE_ID: f"t-promo-{edge}",
+            }
+
+        # First promotion creates the advisory → a real new version.
+        await applier.process("proposals", "1-0", _proposal(10.0))
+        first = await store.get_directive(REASONING_NODE)
+        # Re-promotions with fresher numbers refresh in place.
+        await applier.process("proposals", "2-0", _proposal(20.0))
+        await applier.process("proposals", "3-0", _proposal(30.0))
+        record = await store.get_directive(REASONING_NODE)
+
+        assert "edge 30.0" in record[FieldName.TEXT]
+        assert record[FieldName.VERSION] == first[FieldName.VERSION]  # no bump
+        # In-place refreshes never push history entries — no near-identical wall.
+        assert await store.list_history(REASONING_NODE) == []
+    finally:
+        set_prompt_store(None)
