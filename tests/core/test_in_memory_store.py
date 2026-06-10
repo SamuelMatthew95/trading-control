@@ -160,5 +160,7 @@ def test_decision_dedup_keys_are_bounded():
     assert len(store.applied_decision_keys) <= DECISION_KEY_CAP
     assert len(store.decision_key_order) <= DECISION_KEY_CAP
     # The newest keys are retained — re-delivering the latest decision still dedups.
-    last = store.record_decision({"id": f"dec-{DECISION_KEY_CAP + 199}", "symbol": "BTC/USD", "action": "hold"})
+    last = store.record_decision(
+        {"id": f"dec-{DECISION_KEY_CAP + 199}", "symbol": "BTC/USD", "action": "hold"}
+    )
     assert last.get("deduplicated") is True
