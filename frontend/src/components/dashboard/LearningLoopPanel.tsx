@@ -399,13 +399,18 @@ export function LearningLoopPanel() {
               }
 
               return (
-                <div
+                // Collapsed by default — the summary line carries the verdict
+                // (strategy, badge, headline shadow stats); the evidence trail
+                // expands on demand so a fleet of challengers stays one screen.
+                <details
                   key={c.challenger_id}
-                  className="rounded-lg border border-slate-300 px-3 py-2 dark:border-slate-800"
+                  className="group rounded-lg border border-slate-300 dark:border-slate-800"
                 >
-                  {/* Header: liveness dot + strategy + badges · freshness + fills */}
-                  <div className="flex items-center justify-between gap-3">
+                  <summary className="flex cursor-pointer items-center justify-between gap-3 px-3 py-2 marker:content-none [&::-webkit-details-marker]:hidden">
                     <span className="flex items-center gap-2 truncate">
+                      <span className="text-[10px] text-slate-400 transition-transform group-open:rotate-90 dark:text-slate-600">
+                        ▸
+                      </span>
                       <span
                         className={`h-2 w-2 shrink-0 rounded-full ${live ? 'bg-emerald-500' : 'bg-slate-400'}`}
                         title={live ? 'live — ticking' : 'stale — no recent tick'}
@@ -424,12 +429,25 @@ export function LearningLoopPanel() {
                       ) : null}
                     </span>
                     <span className="shrink-0 font-mono text-[11px] tabular-nums text-slate-500 dark:text-slate-400">
-                      {relTime(c.last_tick_at)} · {c.fills}/{c.max_fills} fills
+                      {hasShadow ? (
+                        <>
+                          {shadowTrades} trades ·{' '}
+                          <span className={(c.shadow_pnl ?? 0) < 0 ? 'text-rose-500' : 'text-emerald-500'}>
+                            {c.shadow_pnl != null ? fmtUSD(c.shadow_pnl) : '--'}
+                          </span>{' '}
+                          ·{' '}
+                        </>
+                      ) : null}
+                      {relTime(c.last_tick_at)}
                     </span>
-                  </div>
+                  </summary>
+                  <div className="border-t border-slate-100 px-3 py-2 dark:border-slate-800/60">
 
                   {/* Status narrative */}
-                  <p className="mt-1 pl-4 text-[11px] text-slate-500 dark:text-slate-400">{status}</p>
+                  <p className="pl-4 text-[11px] text-slate-500 dark:text-slate-400">{status}</p>
+                  <p className="mt-0.5 pl-4 font-mono text-[10px] tabular-nums text-slate-400">
+                    {c.fills}/{c.max_fills} fills (live)
+                  </p>
 
                   {hasShadow ? (
                     <>
@@ -523,7 +541,8 @@ export function LearningLoopPanel() {
                       live grade: {c.latest_grade.win_rate != null ? `${(c.latest_grade.win_rate * 100).toFixed(0)}% win` : '--'} over {c.latest_grade.fills ?? c.fills} fills
                     </p>
                   ) : null}
-                </div>
+                  </div>
+                </details>
               )
             })}
           </div>

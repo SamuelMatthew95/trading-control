@@ -136,7 +136,7 @@ describe('LearningLoopPanel', () => {
 
     // Strategy name (not just the opaque challenger id) and fills progress.
     expect(await screen.findByText(/mean_reversion/)).toBeInTheDocument()
-    expect(screen.getByText(/12\/200 fills/)).toBeInTheDocument()
+    expect(screen.getByText(/12\/200 fills \(live\)/)).toBeInTheDocument()
     // Real shadow evidence is surfaced.
     expect(screen.getByText(/trades: 8/)).toBeInTheDocument()
     expect(screen.getByText(/win: 63%/)).toBeInTheDocument()

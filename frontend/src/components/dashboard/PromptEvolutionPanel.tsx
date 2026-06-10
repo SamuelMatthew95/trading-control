@@ -159,7 +159,9 @@ export function PromptEvolutionPanel() {
               </span>
               <VersionTag version={active.version} />
             </div>
-            <p className="whitespace-pre-wrap text-xs leading-snug text-slate-800 dark:text-slate-200">
+            {/* Bounded — a long directive scrolls inside the card instead of
+                stretching the page into a wall of text. */}
+            <p className="max-h-48 overflow-y-auto whitespace-pre-wrap text-xs leading-snug text-slate-800 dark:text-slate-200">
               {active.text}
             </p>
             {active.rationale && (
@@ -175,25 +177,33 @@ export function PromptEvolutionPanel() {
               <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 History · {history.length} prior {history.length === 1 ? 'version' : 'versions'}
               </p>
+              {/* Collapsed by default: prior versions are audit material, not
+                  reading material — full text only on expand. */}
               <div className="space-y-1.5">
                 {history.map((d) => (
-                  <div
+                  <details
                     key={d.version}
-                    className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800"
+                    className="group rounded-lg border border-slate-200 dark:border-slate-800"
                   >
-                    <div className="mb-1 flex items-center gap-2">
+                    <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-[11px] text-slate-500 marker:content-none dark:text-slate-400 [&::-webkit-details-marker]:hidden">
+                      <span className="text-slate-400 transition-transform group-open:rotate-90 dark:text-slate-600">
+                        ▸
+                      </span>
                       <VersionTag version={d.version} />
-                    </div>
-                    <p className="whitespace-pre-wrap text-[11px] leading-snug text-slate-600 dark:text-slate-300">
-                      {d.text}
-                    </p>
-                    {d.rationale && (
-                      <p className="mt-1 text-[10px] italic text-slate-400 dark:text-slate-500">
-                        why: {d.rationale}
+                      <span className="flex-1 truncate italic">
+                        {d.rationale || 'no rationale recorded'}
+                      </span>
+                      <span className="shrink-0 font-mono text-[10px] text-slate-400 dark:text-slate-500">
+                        {formatTimeAgo(d.updated_at)}
+                      </span>
+                    </summary>
+                    <div className="border-t border-slate-100 px-3 py-2 dark:border-slate-800/60">
+                      <p className="max-h-40 overflow-y-auto whitespace-pre-wrap text-[11px] leading-snug text-slate-600 dark:text-slate-300">
+                        {d.text}
                       </p>
-                    )}
-                    <MetaLine source={d.source} updatedAt={d.updated_at} />
-                  </div>
+                      <MetaLine source={d.source} updatedAt={d.updated_at} />
+                    </div>
+                  </details>
                 ))}
               </div>
             </div>

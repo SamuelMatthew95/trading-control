@@ -1481,6 +1481,12 @@ REGRESSION_MIN_REPLAY_TRADES: Final[int] = 10
 # baseline" is signal, not noise. Decouples challenger learning from the live-fill
 # starvation that otherwise gates grades/retirement on trades that never close.
 CHALLENGER_MIN_SHADOW_TRADES: Final[int] = 25
+# Hard cap on concurrently RUNNING shadow challengers, with one-per-strategy
+# dedup, enforced by ChallengerSpawner. Without these, the promotion loop
+# (auto-applied promotion → spawn clone of same strategy → clone beats
+# baseline → promotes again) appended near-identical challengers to the live
+# fleet without bound.
+MAX_CONCURRENT_CHALLENGERS: Final[int] = 3
 
 REDIS_KEY_PRICES: Final[str] = "prices:{symbol}"  # use .format(symbol=symbol)
 # Market-intel caches (Category 1 market-data cache) — written by the reasoning

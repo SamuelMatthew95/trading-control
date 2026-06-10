@@ -137,3 +137,37 @@ construction (`api/services/agents/grade_agent.py`), healing both persistence
 paths with no signature changes.
 
 **Regression test:** `tests/agents/test_grade_agent.py::test_grade_metrics_carry_fills_graded`
+
+## Challenger promotion loop spawned unbounded clones and bloated the live prompt
+
+**Symptom:** /dashboard/agents became an endless wall: 15+ near-identical
+"challenger being tested" cards (same strategy, 0/20 fills each), a huge
+"challenger shadows" list, and an adaptive directive whose ACTIVE text held
+~12 stacked "Promoted strategy 'mean_reversion': …" lines (×10 history
+versions) — every reasoning call paid for that bloated prompt.
+
+**Root cause (two unbounded feedback legs):**
+1. `ChallengerSpawner.spawn` had no dedup or cap: each auto-applied
+   challenger promotion spawned a follow-up candidate of the SAME strategy,
+   which accumulated shadow evidence, beat baseline, promoted again, and
+   spawned another clone — one new fleet member per cycle.
+2. `_bias_directive_toward` appended the promotion advisory with
+   exact-string dedup only; advisories embed edge/win-rate numbers, so every
+   cycle's line was unique and the directive grew without bound.
+
+**Fix:**
+- Spawner enforces one RUNNING challenger per strategy (returns the existing
+  descriptor with `status: already_running`) and a hard
+  `MAX_CONCURRENT_CHALLENGERS` cap (`status: capacity`) — a retired
+  challenger frees its slot (`api/services/challenger_spawner.py`).
+- The promotion advisory REPLACES the strategy's previous advisory lines
+  (stable `Promoted strategy '<name>':` prefix) instead of stacking — one
+  line per strategy, and the rewrite self-heals an already-bloated directive
+  on the next promotion (`api/services/agents/proposal_applier.py`).
+- UI: prior directive versions and challenger-shadow evidence collapse to
+  one-line summaries (expand on demand) so the agents page stays one screen
+  (`PromptEvolutionPanel.tsx`, `LearningLoopPanel.tsx`).
+
+**Regression tests:**
+`tests/agents/test_challenger_spawner.py` (dedup / cap / slot-free),
+`tests/agents/test_proposal_applier.py::test_promotion_advisory_replaces_stale_lines_for_same_strategy`

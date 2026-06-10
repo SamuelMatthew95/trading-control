@@ -485,22 +485,29 @@ class ProposalApplier(MultiStreamAgent):
         return result
 
     async def _bias_directive_toward(self, strategy: str, advisory: str) -> dict[str, Any] | None:
-        """Append *advisory* to the durable adaptive directive (idempotent).
+        """Set *strategy*'s promotion advisory on the durable adaptive directive.
 
         Reuses the ``PromptStore`` so the bias is persistent (Redis, no TTL —
         survives restarts/deploys), versioned/auditable, and visible in the Prompt
-        Evolution panel. Appends beneath any existing (e.g. LLM-evolved) directive
-        rather than replacing it; de-dupes so re-approval is a no-op. Returns the
-        new directive record, or ``None`` when no store is installed or the line
-        is already present."""
+        Evolution panel. ONE advisory line per strategy: any previous promotion
+        line for the same strategy is REPLACED, not stacked — advisories embed
+        edge/win-rate numbers, so plain append-with-exact-match-dedup grew the
+        live LLM prompt by one near-duplicate line per promotion cycle, without
+        bound. Replacing also self-heals a directive that already accumulated
+        duplicates. Returns the new directive record, or ``None`` when no store
+        is installed or the directive is already exactly this state."""
         store = get_prompt_store()
         if store is None:
             log_structured("warning", "challenger_promotion_no_prompt_store", strategy=strategy)
             return None
         current = await store.get_active_text(REASONING_NODE) or ""
-        if advisory in current:
-            return None  # already biased toward this strategy — idempotent
-        new_text = f"{current}\n{advisory}".strip() if current else advisory
+        # Drop every prior promotion advisory for this strategy (stable prefix),
+        # keep everything else (LLM-evolved guidance, other strategies' lines).
+        stale_prefix = f"Promoted strategy '{strategy}':"
+        kept = [ln for ln in current.splitlines() if not ln.strip().startswith(stale_prefix)]
+        new_text = "\n".join([*kept, advisory]).strip()
+        if new_text == current.strip():
+            return None  # already biased exactly this way — idempotent
         return await store.set_directive(
             REASONING_NODE,
             new_text,

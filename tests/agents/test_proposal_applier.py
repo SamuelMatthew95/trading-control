@@ -847,3 +847,55 @@ async def test_llm_call_delay_param_change_is_allowlisted(monkeypatch):
 
     pr_calls = [c for c in applier.bus.publish.await_args_list if c.args[0] == STREAM_GITHUB_PRS]
     assert len(pr_calls) == 1
+
+
+async def test_promotion_advisory_replaces_stale_lines_for_same_strategy(monkeypatch):
+    """Regression (directive bloat): advisories embed edge/win-rate numbers, so
+    append-with-exact-dedup grew the live LLM prompt by one near-duplicate line
+    per promotion cycle. A new promotion must REPLACE the strategy's previous
+    advisory lines (self-healing an already-bloated directive) while keeping
+    LLM-evolved guidance and other strategies' lines intact."""
+    from api.constants import REASONING_NODE
+    from api.services.prompt_store import set_prompt_store
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.STRATEGIES", {})
+    store = await _install_prompt_store()
+    try:
+        # A directive already bloated by the old append-only behavior.
+        await store.set_directive(
+            REASONING_NODE,
+            "\n".join(
+                [
+                    "Favor confluence-confirmed entries.",  # LLM-evolved guidance
+                    "Promoted strategy 'mean_reversion': favor mean_reversion-aligned setups (beat baseline by edge 7.4, shadow win-rate 0.77).",
+                    "Promoted strategy 'mean_reversion': favor mean_reversion-aligned setups (beat baseline by edge 87.8, shadow win-rate 0.68).",
+                    "Promoted strategy 'strong_only': favor strong_only-aligned setups (beat baseline by edge 890.7, shadow win-rate 0.28).",
+                ]
+            ),
+            rationale="seed",
+            source="test",
+        )
+        applier = _make_applier(_FakeRedis())
+        await applier.process(
+            "proposals",
+            "1-0",
+            {
+                FieldName.PROPOSAL_TYPE: ProposalType.CHALLENGER_PROMOTION,
+                FieldName.APPROVED: True,
+                FieldName.CONTENT: {
+                    FieldName.STRATEGY: "mean_reversion",
+                    FieldName.CONFIDENCE: 0.71,
+                    FieldName.SHADOW_EDGE: 12.3,
+                },
+                FieldName.TRACE_ID: "t-promo-replace",
+            },
+        )
+        text = (await store.get_directive(REASONING_NODE))[FieldName.TEXT]
+        assert text.count("Promoted strategy 'mean_reversion'") == 1  # collapsed
+        assert "edge 12.3" in text  # the NEW advisory won
+        assert "Favor confluence-confirmed entries." in text  # evolved guidance kept
+        assert text.count("Promoted strategy 'strong_only'") == 1  # other strategy kept
+    finally:
+        set_prompt_store(None)
