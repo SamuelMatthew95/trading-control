@@ -639,3 +639,65 @@ async def test_redelivered_proposal_applies_exactly_once(monkeypatch):
 
     pr_calls = [c for c in applier.bus.publish.await_args_list if c.args[0] == STREAM_GITHUB_PRS]
     assert len(pr_calls) == 1
+
+
+async def test_unsafe_parameter_change_emits_nothing(monkeypatch):
+    """Safe-bounds gate (param_evolution contract): an off-allowlist or
+    out-of-bounds PARAMETER_CHANGE emits no pr_request artifact, opens no PR,
+    and writes no 'applied' audit row — the queue can never claim the loop
+    acted on an unsafe change."""
+    from api.constants import STREAM_GITHUB_PRS
+
+    write_log_mock = AsyncMock()
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", write_log_mock)
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    applier = _make_applier(_FakeRedis())
+
+    for content in (
+        {  # not on the auto-editable allowlist
+            FieldName.PARAMETER: "REASONING_COOLDOWN_SECONDS",
+            FieldName.PREVIOUS_VALUE: 60,
+            FieldName.NEW_VALUE: 90,
+        },
+        {  # allowlisted but wildly out of bounds (500% risk per trade)
+            FieldName.PARAMETER: "MAX_RISK_PER_TRADE_PCT",
+            FieldName.PREVIOUS_VALUE: 0.02,
+            FieldName.NEW_VALUE: 5.0,
+        },
+    ):
+        await applier.process(
+            "proposals",
+            "1-0",
+            {FieldName.PROPOSAL_TYPE: ProposalType.PARAMETER_CHANGE, FieldName.CONTENT: content},
+        )
+
+    pr_calls = [c for c in applier.bus.publish.await_args_list if c.args[0] == STREAM_GITHUB_PRS]
+    assert pr_calls == []
+    write_log_mock.assert_not_awaited()
+
+
+async def test_llm_call_delay_param_change_is_allowlisted(monkeypatch):
+    """GradeAgent's rate-limit response (LLM_CALL_DELAY_MS) is a first-class
+    tunable: in-bounds changes pass the gate and emit the durable artifact."""
+    from api.constants import STREAM_GITHUB_PRS
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    applier = _make_applier(_FakeRedis())
+
+    await applier.process(
+        "proposals",
+        "1-0",
+        {
+            FieldName.PROPOSAL_TYPE: ProposalType.PARAMETER_CHANGE,
+            FieldName.CONTENT: {
+                FieldName.PARAMETER: "LLM_CALL_DELAY_MS",
+                FieldName.PREVIOUS_VALUE: 200,
+                FieldName.NEW_VALUE: 400,
+                FieldName.REASON: "rate-limited calls detected",
+            },
+        },
+    )
+
+    pr_calls = [c for c in applier.bus.publish.await_args_list if c.args[0] == STREAM_GITHUB_PRS]
+    assert len(pr_calls) == 1

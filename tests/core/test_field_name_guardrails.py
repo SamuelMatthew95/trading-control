@@ -168,7 +168,6 @@ CLEAN_FILES: frozenset[str] = frozenset(
         "api/services/execution/order_writer.py",
         "api/services/challenger_spawner.py",
         "api/services/cognitive_live.py",
-        "api/services/config_overrides.py",
         "api/services/execution/position_math.py",
         "api/services/execution/reconciler.py",
         "api/services/gitops_publisher.py",

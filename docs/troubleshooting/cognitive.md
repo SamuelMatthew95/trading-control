@@ -149,8 +149,9 @@ If `GROQ_MODEL` is pinned via an env var in the deployment, update it (and `GROQ
 
 **What:** When the learning loop approves a `PARAMETER_CHANGE`, `ProposalApplier`
 now opens a real pull request via `GitOpsPublisher` (`api/services/gitops_publisher.py`)
-that writes a JSON entry under `config/parameter_overrides/` — a **config file, never
-source code** — version-controlled and human-reviewed.
+that edits `config/param_overrides.json` — the same bounds-validated overrides
+document the GitHub Action path edits, loaded by `api/constants.py` at import — a
+**config file, never source code**, version-controlled and human-reviewed.
 
 **Safety:** Acts only when `GITHUB_AUTOPR_ENABLED` is set AND `GITHUB_TOKEN` (in Render)
 + `GITHUB_REPO` are present. Locally / in tests / CI (no token) every call is a dry-run

@@ -59,6 +59,7 @@ from api.services.agent_state import AgentStateRegistry
 from api.services.agents.base import MultiStreamAgent
 from api.services.agents.db_helpers import write_agent_log
 from api.services.gitops_publisher import GitOpsPublisher
+from api.services.param_evolution import validate_param_change
 from api.services.prompt_store import get_prompt_store
 from api.services.tool_registry import get_tool_registry
 from backtest.strategies import STRATEGIES
@@ -516,6 +517,20 @@ class ProposalApplier(MultiStreamAgent):
         previous_value = content.get(FieldName.PREVIOUS_VALUE)
         proposed_value = content.get(FieldName.NEW_VALUE)
         reason = content.get(FieldName.REASON, "")
+        # Safe-bounds gate (param_evolution contract: enforced BEFORE emitting a
+        # pr_request artifact). An off-allowlist or out-of-bounds change emits
+        # nothing — no artifact, no PR, no "applied" audit row — so the queue
+        # can never claim the loop acted on an unsafe change.
+        validation_error = validate_param_change(str(parameter), proposed_value)
+        if validation_error is not None:
+            log_structured(
+                "warning",
+                "param_change_rejected_unsafe",
+                parameter=parameter,
+                reason=validation_error,
+                trace_id=trace_id,
+            )
+            return None
         await self.bus.publish(
             STREAM_GITHUB_PRS,
             {
