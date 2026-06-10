@@ -23,7 +23,7 @@ describe('ProposalsSection', () => {
 
   it('shows the empty state when there are no proposals', () => {
     render(<ProposalsSection />)
-    expect(screen.getByText(/No proposals awaiting review/i)).toBeInTheDocument()
+    expect(screen.getByText(/No proposals yet/i)).toBeInTheDocument()
   })
 
   it('renders each proposal with its On-Approve routing badge', () => {
