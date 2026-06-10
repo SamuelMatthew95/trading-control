@@ -97,6 +97,15 @@ class Settings(BaseSettings):
     # the self-improving loop autonomously. Set False to require manual apply.
     PROMPT_EVOLUTION_AUTO_APPLY: bool = True
 
+    # When True an eligible challenger promotion (>= CHALLENGER_MIN_SHADOW_TRADES
+    # closed shadow trades AND beating the live baseline) applies WITHOUT waiting
+    # for an operator vote: the prompt directive is biased toward the winning
+    # strategy and a follow-up shadow candidate is spawned. Safe to automate —
+    # neither half places live orders or moves capital, both are versioned and
+    # reversible. Set False to restore the manual approval gate on the
+    # Proposals page.
+    CHALLENGER_PROMOTION_AUTO_APPLY: bool = True
+
     # Grade system
     GRADE_LOOKBACK_N: int = 20
     GRADE_WEIGHT_ACCURACY: float = 0.35

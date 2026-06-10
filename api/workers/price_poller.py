@@ -112,50 +112,47 @@ def _is_ssl_eof(exc: BaseException) -> bool:
     return False
 
 
-async def _fetch_crypto(client: httpx.AsyncClient, symbols: list[str]) -> dict[str, float]:
-    """Fetch latest crypto quotes from Alpaca data API.
+def _parse_quotes(data: dict, symbols: list[str]) -> dict[str, dict[str, float]]:
+    """Parse an Alpaca latest-quotes response into per-symbol L1 quotes.
 
-    Response keys "quotes", "bp", "ap" are Alpaca API contract strings —
-    not internal FieldName payload keys.
+    Returns ``{symbol: {price, bid, ask}}`` — the real best bid/ask are kept
+    (previously they were parsed and then discarded) so the dashboard can show
+    a true Level-1 quote. Response keys "quotes", "bp", "ap" are Alpaca API
+    contract strings — not internal FieldName payload keys.
     """
+    quotes: dict[str, dict[str, float]] = {}
+    for symbol in symbols:
+        quote = data.get("quotes", {}).get(symbol, {})
+        bid = float(quote.get("bp", 0) or 0)
+        ask = float(quote.get("ap", 0) or 0)
+        price = bid if bid > 0 else ask
+        if price > 0:
+            quotes[symbol] = {FieldName.PRICE: price, FieldName.BID: bid, FieldName.ASK: ask}
+    return quotes
+
+
+async def _fetch_crypto(
+    client: httpx.AsyncClient, symbols: list[str]
+) -> dict[str, dict[str, float]]:
+    """Fetch latest crypto L1 quotes ({price, bid, ask} per symbol) from Alpaca."""
     resp = await client.get(
         "/v1beta3/crypto/us/latest/quotes",
         params={"symbols": ",".join(symbols)},
     )
     resp.raise_for_status()
-    data = resp.json()
-    prices: dict[str, float] = {}
-    for symbol in symbols:
-        quote = data.get("quotes", {}).get(symbol, {})
-        bid = float(quote.get("bp", 0) or 0)
-        ask = float(quote.get("ap", 0) or 0)
-        price = bid if bid > 0 else ask
-        if price > 0:
-            prices[symbol] = price
-    return prices
+    return _parse_quotes(resp.json(), symbols)
 
 
-async def _fetch_stocks(client: httpx.AsyncClient, symbols: list[str]) -> dict[str, float]:
-    """Fetch latest stock quotes from Alpaca data API.
-
-    Response keys "quotes", "bp", "ap" are Alpaca API contract strings —
-    not internal FieldName payload keys.
-    """
+async def _fetch_stocks(
+    client: httpx.AsyncClient, symbols: list[str]
+) -> dict[str, dict[str, float]]:
+    """Fetch latest stock L1 quotes ({price, bid, ask} per symbol) from Alpaca."""
     resp = await client.get(
         "/v2/stocks/quotes/latest",
         params={"symbols": ",".join(symbols)},
     )
     resp.raise_for_status()
-    data = resp.json()
-    prices: dict[str, float] = {}
-    for symbol in symbols:
-        quote = data.get("quotes", {}).get(symbol, {})
-        bid = float(quote.get("bp", 0) or 0)
-        ask = float(quote.get("ap", 0) or 0)
-        price = bid if bid > 0 else ask
-        if price > 0:
-            prices[symbol] = price
-    return prices
+    return _parse_quotes(resp.json(), symbols)
 
 
 def _compute_symbol_payload(symbol: str, current_price: float, prev_data: dict | None) -> dict:
@@ -186,7 +183,11 @@ async def build_symbol_payload(redis_client, symbol: str, current_price: float) 
     return _compute_symbol_payload(symbol, current_price, prev_data)
 
 
-def build_symbol_payloads(prices: dict[str, float], prev_prices: dict[str, float]) -> list[dict]:
+def build_symbol_payloads(
+    prices: dict[str, float],
+    prev_prices: dict[str, float],
+    quotes: dict[str, dict[str, float]] | None = None,
+) -> list[dict]:
     """Build a payload per symbol for a poll cycle, deriving change/pct from ``prev_prices``.
 
     ``prev_prices`` is the poll loop's own in-memory previous-price map
@@ -196,6 +197,10 @@ def build_symbol_payloads(prices: dict[str, float], prev_prices: dict[str, float
     the next read, which pins pct to 0.0 and starves the momentum signal (every
     move looks like no move → NEUTRAL/LOW → hold → no buys). Pure — no IO, so a
     poll cycle reads Redis zero times for the delta (better than the old MGET).
+
+    ``quotes`` (optional) carries the real L1 best bid/ask per symbol; a payload
+    gains bid/ask only when the quote is two-sided (both > 0) — a one-sided or
+    missing quote must never render a fake $0.00 side on the dashboard.
     """
     if not prices:
         return []
@@ -203,7 +208,15 @@ def build_symbol_payloads(prices: dict[str, float], prev_prices: dict[str, float
     for symbol, current_price in prices.items():
         prev = prev_prices.get(symbol)
         prev_data = {FieldName.PRICE: prev} if prev else None
-        payloads.append(_compute_symbol_payload(symbol, current_price, prev_data))
+        payload = _compute_symbol_payload(symbol, current_price, prev_data)
+        quote = (quotes or {}).get(symbol)
+        if quote:
+            bid = float(quote.get(FieldName.BID, 0) or 0)
+            ask = float(quote.get(FieldName.ASK, 0) or 0)
+            if bid > 0 and ask > 0:
+                payload[FieldName.BID] = bid
+                payload[FieldName.ASK] = ask
+        payloads.append(payload)
     return payloads
 
 
@@ -212,14 +225,18 @@ async def publish_to_redis(redis_client, payloads: list[dict]) -> None:
     pipe = redis_client.pipeline()
     for p in payloads:
         symbol = p[FieldName.SYMBOL]
-        cache_val = json.dumps(
-            {
-                FieldName.PRICE: p[FieldName.PRICE],
-                "change": p[FieldName.CHANGE],
-                FieldName.PCT: p[FieldName.PCT],
-                FieldName.TS: p[FieldName.TS],
-            }
-        )
+        cache_payload = {
+            FieldName.PRICE: p[FieldName.PRICE],
+            "change": p[FieldName.CHANGE],
+            FieldName.PCT: p[FieldName.PCT],
+            FieldName.TS: p[FieldName.TS],
+        }
+        # Real L1 best bid/ask ride along in the REST cache only — the agent
+        # stream/pub-sub contracts below are deliberately unchanged.
+        if FieldName.BID in p and FieldName.ASK in p:
+            cache_payload[FieldName.BID] = p[FieldName.BID]
+            cache_payload[FieldName.ASK] = p[FieldName.ASK]
+        cache_val = json.dumps(cache_payload)
         pipe.set(REDIS_KEY_PRICES.format(symbol=symbol), cache_val, ex=REDIS_PRICES_TTL_SECONDS)
         pipe.xadd(
             STREAM_MARKET_EVENTS,
@@ -463,17 +480,22 @@ async def _run_poll_cycle(
         if state.consecutive_failures >= ALPACA_CIRCUIT_BREAKER_THRESHOLD:
             state.circuit_open_until = _open_circuit(state.consecutive_failures)
 
-    # Build the price map from whichever fetches succeeded (partial results OK).
-    all_prices: dict[str, float] = {}
+    # Build the quote map from whichever fetches succeeded (partial results OK).
+    all_quotes: dict[str, dict[str, float]] = {}
     for result in results_by_label.values():
         if not isinstance(result, Exception):
-            all_prices.update(result)
+            all_quotes.update(result)
 
-    if not all_prices:
+    if not all_quotes:
         log_structured("warning", "price_poller_no_prices_fetched")
         return
 
     state.consecutive_failures = 0  # any success resets the counter
+
+    # Scalar last-price view of the quotes — the momentum anchor and the
+    # stream/pub-sub payloads stay exactly as before; bid/ask only enrich the
+    # REST cache via build_symbol_payloads(quotes=...).
+    all_prices: dict[str, float] = {sym: float(q[FieldName.PRICE]) for sym, q in all_quotes.items()}
 
     # Derive change/pct against the poller's OWN previous-price memory, not the
     # Redis price cache. The cache (REDIS_PRICES_TTL_SECONDS = 30s) expires before
@@ -481,7 +503,7 @@ async def _run_poll_cycle(
     # AFTER the write), so a cache-derived prev was always missing → pct pinned to
     # 0.0 → every signal NEUTRAL/LOW → hold → no buys ever. The in-memory anchor
     # lives for the whole process, so deltas are correct from the second cycle on.
-    payloads = build_symbol_payloads(all_prices, state.last_prices)
+    payloads = build_symbol_payloads(all_prices, state.last_prices, all_quotes)
     await asyncio.gather(
         publish_to_redis(redis_client, payloads),
         flush_to_db(payloads),

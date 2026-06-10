@@ -24,7 +24,8 @@ function routingBadgeClass(kind: ProposalRouting["kind"]): string {
   if (kind === "unknown")
     return "border-slate-300/40 bg-slate-400/10 text-slate-600 dark:text-slate-400";
   if (kind === "review")
-    // operator promotion — nothing auto-applies; distinct from grey "unknown"
+    // challenger promotion — auto-applies by default (gate restorable via
+    // CHALLENGER_PROMOTION_AUTO_APPLY=false); distinct from grey "unknown"
     return "border-indigo-400/30 bg-indigo-400/10 text-indigo-700 dark:text-indigo-300";
   // control-plane / prompt / tool / mixed are all system-applied state changes
   return "border-teal-400/30 bg-teal-400/10 text-teal-700 dark:text-teal-300";
@@ -40,15 +41,42 @@ function proposalLabel(proposal: Proposal): string {
 
 function EmptyProposals() {
   return (
-    <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-8 text-center dark:border-slate-800 dark:bg-slate-950/60">
-      <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
+    <div className="rounded-lg border border-dashed border-slate-200 bg-white px-4 py-6 dark:border-slate-800 dark:bg-slate-950/60">
+      <p className="text-center text-sm font-semibold text-slate-600 dark:text-slate-300">
         No proposals awaiting review.
       </p>
-      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-        Proposals appear once the learning loop completes a cycle — closed
-        trades → grades → reflection → challenger review. None have been
-        generated yet.
+      <p className="mt-1 text-center text-xs text-slate-500 dark:text-slate-400">
+        An empty queue is normal — proposals only come from three places, each
+        with real thresholds:
       </p>
+      <ul className="mx-auto mt-3 max-w-xl space-y-1.5 text-left text-xs text-slate-500 dark:text-slate-400">
+        <li>
+          <span className="font-semibold text-slate-600 dark:text-slate-300">
+            Challenger shadows
+          </span>{" "}
+          — a rival strategy must close ≥25 shadow trades AND beat the live
+          baseline; its challenger_promotion then{" "}
+          <span className="font-semibold">applies automatically</span> (directive
+          bias + follow-up shadow — no live orders) and the applied record lands
+          here. Progress is on the Learning page; set
+          CHALLENGER_PROMOTION_AUTO_APPLY=false to gate on your approval.
+        </li>
+        <li>
+          <span className="font-semibold text-slate-600 dark:text-slate-300">
+            Reflection → Strategy Proposer
+          </span>{" "}
+          — hypotheses from graded trades with confidence ≥ 0.7, deduped and
+          capped per day. No closed trades → no reflections → nothing here.
+        </li>
+        <li>
+          <span className="font-semibold text-slate-600 dark:text-slate-300">
+            Grades C / D / F
+          </span>{" "}
+          — auto-applied control actions (weight cut, suspension, retirement).
+          These act immediately and are logged, so they never queue here. Good
+          grades (A/B) intentionally create no proposals.
+        </li>
+      </ul>
     </div>
   );
 }
@@ -203,8 +231,13 @@ export function ProposalsSection() {
                           "rounded border px-2 py-1 font-mono text-[10px] uppercase",
                           proposalStatusClass(proposal.status),
                         )}
+                        title={
+                          proposal.applied
+                            ? `Applied by the ProposalApplier${proposal.applied_at ? ` at ${proposal.applied_at}` : ""}`
+                            : undefined
+                        }
                       >
-                        {proposal.status}
+                        {proposal.applied ? "applied" : proposal.status}
                       </span>
                     </td>
                     <td className="px-3 py-2">

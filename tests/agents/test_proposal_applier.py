@@ -436,10 +436,9 @@ async def _install_prompt_store():
 
 
 async def test_challenger_promotion_pending_without_approval(monkeypatch):
-    """On first publish (no APPROVED flag) nothing is applied — it stays pending.
-
-    This is what makes "a human approves, never the system" true: the applier
-    leaves the proposal in the queue rather than auto-promoting."""
+    """With auto-apply OFF, first publish (no APPROVED flag) applies nothing —
+    the proposal stays pending until an operator approves. This is the manual
+    gate restored by CHALLENGER_PROMOTION_AUTO_APPLY=false."""
     from unittest.mock import AsyncMock as _AsyncMock
 
     from api.constants import REASONING_NODE  # noqa: PLC0415
@@ -450,6 +449,9 @@ async def test_challenger_promotion_pending_without_approval(monkeypatch):
     monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
     monkeypatch.setattr(
         "api.services.agents.proposal_applier.STRATEGIES", {"mean_reversion": object()}
+    )
+    monkeypatch.setattr(
+        "api.services.agents.proposal_applier.settings.CHALLENGER_PROMOTION_AUTO_APPLY", False
     )
     store = await _install_prompt_store()
     try:
@@ -544,6 +546,150 @@ async def test_challenger_promotion_approved_without_spawner_still_biases(monkey
         await applier.process("proposals", "1-0", proposal)
         directive = await store.get_active_text(REASONING_NODE)
         assert directive is not None and "mean_reversion" in directive
+    finally:
+        set_prompt_store(None)
+
+
+async def test_challenger_promotion_auto_applies_by_default(monkeypatch):
+    """REGRESSION (operator ask: "I don't need to press approve"): with the
+    default CHALLENGER_PROMOTION_AUTO_APPLY=True, an eligible promotion applies
+    on FIRST publish — no APPROVED flag, no vote: the directive is biased and
+    the candidate spawned, and the applied record is written."""
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    from api.constants import REASONING_NODE  # noqa: PLC0415
+    from api.services.prompt_store import set_prompt_store  # noqa: PLC0415
+
+    write_log = AsyncMock()
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", write_log)
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    monkeypatch.setattr(
+        "api.services.agents.proposal_applier.STRATEGIES", {"mean_reversion": object()}
+    )
+    store = await _install_prompt_store()
+    try:
+        applier = _make_applier(_FakeRedis())
+        spawner = _AsyncMock()
+        spawner.spawn = _AsyncMock(
+            return_value={FieldName.CHALLENGER_ID: "ch-auto", FieldName.STATUS: "spawned"}
+        )
+        applier.spawner = spawner
+
+        proposal = {
+            FieldName.PROPOSAL_TYPE: ProposalType.CHALLENGER_PROMOTION,
+            FieldName.REQUIRES_APPROVAL: True,  # no APPROVED flag — first publish
+            FieldName.CONTENT: {
+                FieldName.STRATEGY: "mean_reversion",
+                FieldName.SHADOW_EDGE: 1234.0,
+                FieldName.CONFIDENCE: 0.7,
+            },
+            FieldName.TRACE_ID: "t-auto-promo",
+        }
+        await applier.process("proposals", "1-0", proposal)
+
+        directive = await store.get_active_text(REASONING_NODE)
+        assert directive is not None and "mean_reversion" in directive
+        spawner.spawn.assert_awaited_once()
+        write_log.assert_awaited_once()
+    finally:
+        set_prompt_store(None)
+
+
+async def test_applied_proposal_pushes_dashboard_notification(monkeypatch):
+    """REGRESSION (operator: "auto-applied and not shown anywhere"): every
+    applied proposal must surface in the dashboard notification feed, so an
+    application the operator never voted on is impossible to miss."""
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    from api.services.prompt_store import set_prompt_store  # noqa: PLC0415
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.STRATEGIES", {})
+    notif_store = _AsyncMock()
+    notif_store.push_notification = _AsyncMock()
+    monkeypatch.setattr("api.services.agents.proposal_applier.get_redis_store", lambda: notif_store)
+    store = await _install_prompt_store()
+    try:
+        applier = _make_applier(_FakeRedis())
+        proposal = {
+            FieldName.PROPOSAL_TYPE: ProposalType.CHALLENGER_PROMOTION,
+            FieldName.APPROVED: True,
+            FieldName.CONTENT: {FieldName.STRATEGY: "mean_reversion", FieldName.CONFIDENCE: 0.7},
+            FieldName.TRACE_ID: "t-notif",
+        }
+        await applier.process("proposals", "1-0", proposal)
+
+        notif_store.push_notification.assert_awaited_once()
+        payload = notif_store.push_notification.await_args.args[0]
+        assert payload[FieldName.NOTIFICATION_TYPE] == "proposal.applied"
+        assert "mean_reversion" in payload[FieldName.MESSAGE]
+        assert store is not None
+    finally:
+        set_prompt_store(None)
+
+
+async def test_challenger_promotion_approved_always_leaves_a_trace(monkeypatch):
+    """REGRESSION: an APPROVED promotion must write an applied record even when
+    BOTH halves are skipped (no prompt store, no spawner). The old code returned
+    None here, so the operator saw "Approved" and then… nothing — no log, no
+    explanation. The record now states exactly what was skipped and why."""
+    from api.services.prompt_store import set_prompt_store  # noqa: PLC0415
+
+    write_log = AsyncMock()
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", write_log)
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.STRATEGIES", {})
+    set_prompt_store(None)  # no prompt store installed
+    applier = _make_applier(_FakeRedis())  # spawner stays None
+
+    proposal = {
+        FieldName.PROPOSAL_TYPE: ProposalType.CHALLENGER_PROMOTION,
+        FieldName.APPROVED: True,
+        FieldName.CONTENT: {FieldName.STRATEGY: "mean_reversion", FieldName.CONFIDENCE: 0.7},
+        FieldName.TRACE_ID: "t-promo4",
+    }
+    await applier.process("proposals", "1-0", proposal)
+
+    write_log.assert_awaited_once()
+    log_payload = write_log.await_args.args[2]
+    message = log_payload[FieldName.MESSAGE]
+    assert "directive skipped — no prompt store installed" in message
+    assert "spawn skipped — challenger spawner unavailable" in message
+
+
+async def test_challenger_promotion_trace_names_unknown_strategy(monkeypatch):
+    """When the strategy is not registered, the applied record names it so the
+    operator knows the spawn was skipped for a reason, not lost."""
+    from api.constants import REASONING_NODE  # noqa: PLC0415
+    from api.services.prompt_store import set_prompt_store  # noqa: PLC0415
+
+    write_log = AsyncMock()
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", write_log)
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.STRATEGIES", {})
+    store = await _install_prompt_store()
+    try:
+        from unittest.mock import AsyncMock as _AsyncMock
+
+        applier = _make_applier(_FakeRedis())
+        applier.spawner = _AsyncMock()
+        applier.spawner.spawn = _AsyncMock()
+
+        proposal = {
+            FieldName.PROPOSAL_TYPE: ProposalType.CHALLENGER_PROMOTION,
+            FieldName.APPROVED: True,
+            FieldName.CONTENT: {FieldName.STRATEGY: "novel_strategy", FieldName.CONFIDENCE: 0.8},
+            FieldName.TRACE_ID: "t-promo5",
+        }
+        await applier.process("proposals", "1-0", proposal)
+
+        applier.spawner.spawn.assert_not_awaited()
+        write_log.assert_awaited_once()
+        message = write_log.await_args.args[2][FieldName.MESSAGE]
+        assert "directive biased" in message
+        assert "strategy 'novel_strategy' not in backtest.strategies" in message
+        assert await store.get_active_text(REASONING_NODE) is not None
     finally:
         set_prompt_store(None)
 

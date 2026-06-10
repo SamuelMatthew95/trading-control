@@ -19,6 +19,7 @@ Each file covers one subsystem. When a bug is found and fixed, add it to the rig
 | [cognitive.md](cognitive.md) | Cognitive brain (`cognitive/`): event-stream loop, deterministic decision engine, learning/observations, proposal→backtest→challenger→PR evolution |
 | [proposals.md](proposals.md) | Strategy proposals: creation guardrails (dedup + daily cap), `/dashboard/learning/proposals` read path, queue ingestion/approve-reject/empty-state |
 | [tools.md](tools.md) | Tool Governance: registry telemetry (call_count / alpha / latency), durable persistence across restarts, `/dashboard/tools` panel |
+| [trading-terminal.md](trading-terminal.md) | Overview-page terminal: polled-universe watchlist, real price-history chart, L1 bid/ask, broker-truth account header |
 
 New subsystem → create `docs/troubleshooting/<subsystem>.md` and add a row above.
 

@@ -111,7 +111,12 @@ export function AgentScorecards() {
           {error ? (
             <span className="font-mono text-xs text-rose-500">err: {error}</span>
           ) : (
-            <span className="font-mono text-xs text-slate-400">{promoted} promoted</span>
+            <span
+              className="font-mono text-xs text-slate-400"
+              title="Trust-tier promotion of pipeline agents (sustained A grades). NOT challenger strategy promotion — that arrives as a challenger_promotion proposal on the Proposals page."
+            >
+              {promoted} promoted
+            </span>
           )}
           <button
             type="button"
@@ -133,7 +138,10 @@ export function AgentScorecards() {
         <span className="font-semibold">unrated</span> — no grade until it earns one. Click a card
         for the full breakdown. <span className="font-semibold">Apply promotions</span> rewards
         sustained <span className="font-semibold">A</span> agents (★ Promoted) with more influence
-        and trims weak ones — optional, and safe to click.
+        and trims weak ones — optional, and safe to click. This is{' '}
+        <span className="font-semibold">trust-tier promotion of pipeline agents</span> — separate
+        from <span className="font-semibold">challenger strategy promotion</span>, which arrives as
+        a voteable proposal on the Proposals page once a shadow challenger beats the live baseline.
       </p>
 
       {agents.length === 0 ? (
