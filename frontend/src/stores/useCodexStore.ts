@@ -134,6 +134,9 @@ export interface Proposal {
   confidence?: number
   timestamp: string
   status: ProposalStatus
+  /** True once the ProposalApplier has actually applied it (auto or approved). */
+  applied?: boolean
+  applied_at?: string | null
   // Our branch fields (from events table / WS proposals stream)
   symbol?: string | null
   action?: string | null
@@ -933,7 +936,13 @@ export const useCodexStore = create<CodexState>((set) => ({
               (p.strategy_name as string | undefined) ?? proposalStrategyName(p.content),
             grade_score: typeof p.grade_score === 'number' ? p.grade_score : null,
             timestamp: (p.timestamp as string) ?? new Date().toISOString(),
-            status: (p.status as ProposalStatus) ?? 'pending' as ProposalStatus,
+            // An applied record (ProposalApplier, same trace_id) means this is
+            // done — never show it as pending awaiting a vote.
+            status: p.applied === true
+              ? ('approved' as ProposalStatus)
+              : ((p.status as ProposalStatus) ?? ('pending' as ProposalStatus)),
+            applied: p.applied === true,
+            applied_at: (p.applied_at as string | null) ?? null,
           }))
         if (newProposals.length > 0) {
           updates.proposals = [...newProposals, ...currentState.proposals].slice(0, 50)
