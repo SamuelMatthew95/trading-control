@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useCodexStore, type ProposalStatus, type ProposalType } from '@/stores/useCodexStore'
+import { useDashboardStore, type ProposalStatus, type ProposalType } from '@/stores/useDashboardStore'
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { pricesFreshnessMs } from '@/lib/formatters'
 
@@ -104,7 +104,7 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
         const res = await fetch(api('/dashboard/state'))
         if (res.ok) {
           const data = await res.json()
-          useCodexStore.getState().hydrateDashboard(data)
+          useDashboardStore.getState().hydrateDashboard(data)
           setApiHealth((prev) => ({ ...prev, dashboardState: 'ok' }))
           if (typeof data.llm_available === 'boolean') setLlmAvailable(data.llm_available)
           if (typeof data.llm_provider === 'string') setLlmProvider(data.llm_provider)
@@ -121,7 +121,7 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
     }
 
     const fetchPrices = async () => {
-      await useCodexStore.getState().fetchPrices()
+      await useDashboardStore.getState().fetchPrices()
       setPricesFetched(true)
     }
 
@@ -130,8 +130,8 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
     // stay broker-truth on mount and after a WS reconnect — independent of the
     // /dashboard/state snapshot.
     const fetchPositionsAndPnl = () => {
-      useCodexStore.getState().fetchPositions()
-      useCodexStore.getState().fetchPnl()
+      useDashboardStore.getState().fetchPositions()
+      useDashboardStore.getState().fetchPnl()
     }
 
     fetchDashboardState()
@@ -148,9 +148,9 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
     // so prices (and all live P&L derived from them) never freeze on a stalled
     // stream — without clobbering fresh ticks during normal operation.
     const pw = setInterval(() => {
-      const age = pricesFreshnessMs(useCodexStore.getState().prices)
+      const age = pricesFreshnessMs(useDashboardStore.getState().prices)
       if (age == null || age > PRICE_STALE_REFETCH_MS) {
-        useCodexStore.getState().fetchPrices()
+        useDashboardStore.getState().fetchPrices()
       }
     }, PRICE_WATCHDOG_MS)
     return () => {
@@ -160,7 +160,7 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
   }
     const t = setInterval(() => {
       fetchDashboardState()
-      useCodexStore.getState().fetchPrices()
+      useDashboardStore.getState().fetchPrices()
       fetchPositionsAndPnl()
     }, POLL_FAST_MS)
     return () => clearInterval(t)
@@ -173,7 +173,7 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
         const res = await fetch(api(API_ENDPOINTS.LEARNING_PROPOSALS))
         if (!res.ok) return
         const data = await res.json()
-        const { addProposal } = useCodexStore.getState()
+        const { addProposal } = useDashboardStore.getState()
         // Upsert every proposal carrying its backend id — addProposal dedups on
         // it, so re-polling updates rows in place instead of duplicating them.
         // Oldest-first so the newest proposal ends up prepended at the front.
@@ -211,7 +211,7 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
         if (!res.ok) return
         const d = await res.json()
         const trades = d.trades ?? []
-        useCodexStore.getState().setTradeFeed(trades)
+        useDashboardStore.getState().setTradeFeed(trades)
         if (trades.length === 0) {
           setTradeFeedEmptyReason(d.empty_reason ?? null)
           setTradeFeedUpstream(d.upstream_activity ?? null)
@@ -236,7 +236,7 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
         const res = await fetch(api(API_ENDPOINTS.NOTIFICATIONS_RECENT))
         if (!res.ok) return
         const items = (await res.json()) as Array<Record<string, unknown>>
-        const { addNotification } = useCodexStore.getState()
+        const { addNotification } = useDashboardStore.getState()
         for (const raw of [...items].reverse()) {
           addNotification({ ...raw, stream_source: raw.stream_source ?? 'rest' })
         }
@@ -277,7 +277,7 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
         const res = await fetch(api(API_ENDPOINTS.DASHBOARD_PERFORMANCE_TRENDS))
         if (!res.ok) return
         const d = await res.json()
-        if (d.summary) useCodexStore.getState().setPerformanceSummary(d.summary)
+        if (d.summary) useDashboardStore.getState().setPerformanceSummary(d.summary)
       } catch {
         // non-fatal
       }
@@ -298,7 +298,7 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
           return
         }
         const d = await res.json()
-        useCodexStore.getState().setAgentInstances(d.instances ?? [])
+        useDashboardStore.getState().setAgentInstances(d.instances ?? [])
         setApiHealth((prev) => ({ ...prev, agentInstances: 'ok' }))
       } catch {
         setApiHealth((prev) => ({ ...prev, agentInstances: 'error' }))

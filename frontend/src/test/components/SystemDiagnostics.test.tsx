@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 
 import { SystemDiagnostics } from '@/components/dashboard/agents/SystemDiagnostics'
-import type { AgentLog, AgentStatus } from '@/stores/useCodexStore'
+import type { AgentLog, AgentStatus } from '@/stores/useDashboardStore'
 import type { ApiHealth } from '@/hooks/useRestPoll'
 
 const wiring = { heartbeatAgeMs: 5000, instanceAgeMs: null, logAgeMs: 1000 }

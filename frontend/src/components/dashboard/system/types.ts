@@ -1,4 +1,4 @@
-import type { AgentLog, AgentStatus, Notification, Order, Position, Proposal, TradeFeedItem } from '@/stores/useCodexStore'
+import type { AgentLog, AgentHeartbeat, Notification, Order, Position, Proposal, TradeFeedItem } from '@/stores/useDashboardStore'
 import type { ApiHealth, PersistedHistoryItem, PersistedStreamCount } from '@/hooks/useRestPoll'
 
 // Producer-owned REST types — defined once in useRestPoll, re-exported for
@@ -41,7 +41,7 @@ export interface SystemDashboardProps {
   wsDiagnostics: WsDiagnosticsLike
   streamStats: Record<string, StreamStat>
   recentEvents: RecentEventLike[]
-  agentStatuses: AgentStatus[]
+  agentStatuses: AgentHeartbeat[]
   prices: Record<string, unknown>
   positions: Position[]
   tradeFeed: TradeFeedItem[]

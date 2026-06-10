@@ -29,7 +29,7 @@ import {
   STREAM_EXECUTIONS,
 } from '@/constants/streams'
 import { parseTimestampMs } from '@/lib/formatters'
-import type { AgentLog, Notification, RecentEvent } from '@/stores/useCodexStore'
+import type { AgentLog, Notification, RecentEvent } from '@/stores/useDashboardStore'
 
 /** Pipeline stage an activity item belongs to — drives its colour + icon. */
 export type ActivityStage =

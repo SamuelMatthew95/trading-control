@@ -5,7 +5,7 @@ import { Activity, ArrowUpRight, Brain, Gauge, Lightbulb, TrendingDown, Trending
 
 import { cn } from '@/lib/utils'
 import { formatPercent, formatTimeAgo, signedUSD, toFiniteNum as toFiniteNumber } from '@/lib/formatters'
-import { useCodexStore, type AgentLog, type Proposal, type TradeFeedItem } from '@/stores/useCodexStore'
+import { useDashboardStore, type AgentLog, type Proposal, type TradeFeedItem } from '@/stores/useDashboardStore'
 import { cardClass, mutedClass, sectionTitleClass } from '@/lib/dashboard-styles'
 import { pnlColorClass, proposalStatusClass } from '@/lib/dashboard-helpers'
 // Reuse the shared learning-grade colour language (the Cognitive page uses the
@@ -131,10 +131,10 @@ function recentLearningLogs(logs: AgentLog[]): AgentLog[] {
 }
 
 export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: string | null) => void }) {
-  const tradeFeed = useCodexStore((state) => state.tradeFeed)
-  const proposals = useCodexStore((state) => state.proposals)
-  const agentLogs = useCodexStore((state) => state.agentLogs)
-  const performanceSummary = useCodexStore((state) => state.performanceSummary)
+  const tradeFeed = useDashboardStore((state) => state.tradeFeed)
+  const proposals = useDashboardStore((state) => state.proposals)
+  const agentLogs = useDashboardStore((state) => state.agentLogs)
+  const performanceSummary = useDashboardStore((state) => state.performanceSummary)
 
   const gradedTrades = tradeFeed.filter((trade) => trade.grade || trade.grade_score != null)
   const closedTrades = tradeFeed.filter((trade) => trade.pnl != null)

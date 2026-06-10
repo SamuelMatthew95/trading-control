@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
-import { useCodexStore } from '@/stores/useCodexStore'
+import { useDashboardStore } from '@/stores/useDashboardStore'
 import { cn } from '@/lib/utils'
 import { deriveActivityIndicator, ACTIVITY_FRESH_MS } from '@/lib/agent-activity'
 import { formatUSD, formatQuantity, formatTimeAgo, getField, getStr, isActivePosition, toFiniteNum as toNum } from '@/lib/formatters'
@@ -88,7 +88,7 @@ function TradeFeedPanel({
   upstream: { signal_events?: number; decisions_evaluated?: number; ee_last_status?: string | null } | null
   setActiveTraceId: (id: string) => void
 }) {
-  const { tradeFeed = [] } = useCodexStore()
+  const { tradeFeed = [] } = useDashboardStore()
 
   const emptyLabel = tradeFeedEmptyLabel(emptyReason)
 
@@ -222,7 +222,7 @@ function TradeFeedPanel({
 // ---------------------------------------------------------------------------
 
 function AgentActivityPanel({ setActiveTraceId }: { setActiveTraceId: (id: string) => void }) {
-  const { agentLogs = [], wsConnected = false } = useCodexStore()
+  const { agentLogs = [], wsConnected = false } = useDashboardStore()
 
   const logs = useMemo(() => agentLogs.slice(0, 25), [agentLogs])
 
@@ -344,7 +344,7 @@ export function TradingView({
     tradeFeed = [],
     performanceSummary = null,
     pnlSummary = null,
-  } = useCodexStore()
+  } = useDashboardStore()
 
   // Realized + live mark-to-market unrealized, re-valued against the price
   // stream every tick — the SAME canonical source as the header chip and the

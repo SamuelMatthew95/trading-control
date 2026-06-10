@@ -5,7 +5,7 @@ import { render, screen } from '@testing-library/react'
 // stream every tick, NOT freeze on the 30s REST `pnlSummary` snapshot. Seed a
 // position that is up live while the snapshot still reads a stale figure, then
 // assert the tile shows the live total and ignores the snapshot.
-const { mockUseCodexStore } = vi.hoisted(() => {
+const { mockUseDashboardStore } = vi.hoisted(() => {
   const store: Record<string, unknown> = {
     wsConnected: true,
     agentLogs: [],
@@ -24,11 +24,11 @@ const { mockUseCodexStore } = vi.hoisted(() => {
       typeof selector === 'function' ? selector(store) : store,
     { getState: () => store },
   )
-  return { mockStore: store, mockUseCodexStore: hook }
+  return { mockStore: store, mockUseDashboardStore: hook }
 })
 
-vi.mock('@/stores/useCodexStore', () => ({
-  useCodexStore: mockUseCodexStore,
+vi.mock('@/stores/useDashboardStore', () => ({
+  useDashboardStore: mockUseDashboardStore,
 }))
 
 import { TradingView } from '@/components/dashboard/TradingView'

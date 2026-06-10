@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import type { AgentInstance } from '@/stores/useCodexStore'
+import type { AgentInstance } from '@/stores/useDashboardStore'
 
-const { mockStore, mockUseCodexStore } = vi.hoisted(() => {
+const { mockStore, mockUseDashboardStore } = vi.hoisted(() => {
   const store: Record<string, unknown> = {
     wsConnected: false,
     killSwitchActive: false,
@@ -38,18 +38,18 @@ const { mockStore, mockUseCodexStore } = vi.hoisted(() => {
     hydrateDashboard: vi.fn(),
   }
   // Honour an optional selector so slice-reading consumers (useLivePnl /
-  // useLivePositions via useCodexStore((s) => s.orders)) get the slice, not the
+  // useLivePositions via useDashboardStore((s) => s.orders)) get the slice, not the
   // whole store — matches the real zustand hook and DashboardView.test.
   const hook = Object.assign(
     (selector?: (s: typeof store) => unknown) =>
       typeof selector === 'function' ? selector(store) : store,
     { getState: () => store },
   )
-  return { mockStore: store, mockUseCodexStore: hook }
+  return { mockStore: store, mockUseDashboardStore: hook }
 })
 
-vi.mock('@/stores/useCodexStore', () => ({
-  useCodexStore: mockUseCodexStore,
+vi.mock('@/stores/useDashboardStore', () => ({
+  useDashboardStore: mockUseDashboardStore,
 }))
 
 beforeAll(() => {

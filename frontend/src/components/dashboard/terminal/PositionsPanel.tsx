@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
 import { Panel } from './Panel'
 import { signClass } from './marketData'
 import { formatUSD, formatQuantity, getField, getStr, isActivePosition, positionQty, toFiniteNum } from '@/lib/formatters'
-import type { Position } from '@/stores/useCodexStore'
+import type { Position } from '@/stores/useDashboardStore'
 
 const COLS = ['Symbol', 'Side', 'Qty', 'Avg', 'Last', 'Mkt Value', 'P&L', 'P&L%'] as const
 

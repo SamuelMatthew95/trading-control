@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatTimeAgo, parseTimestampMs } from '@/lib/formatters'
-import type { Notification } from '@/stores/useCodexStore'
+import type { Notification } from '@/stores/useDashboardStore'
 import { NOTIFICATION_FALLBACKS } from '@/constants/notifications'
 import { groupNotifications } from '@/lib/notification-grouping'
 

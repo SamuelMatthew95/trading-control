@@ -1,4 +1,4 @@
-import type { AgentInstance } from '@/stores/useCodexStore'
+import type { AgentInstance } from '@/stores/useDashboardStore'
 import type { AgentSummary } from '@/lib/agent-pipeline'
 import { cn } from '@/lib/utils'
 import { formatTimeAgo } from '@/lib/formatters'

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { useCodexStore } from '@/stores/useCodexStore'
+import { useDashboardStore } from '@/stores/useDashboardStore'
 
 const baseTrade = {
   severity: 'INFO' as const,
@@ -21,34 +21,34 @@ const baseTrade = {
 
 describe('addNotification dedup by stable notification_id', () => {
   beforeEach(() => {
-    useCodexStore.setState({ notifications: [] })
+    useDashboardStore.setState({ notifications: [] })
     if (typeof window !== 'undefined') {
-      window.localStorage.removeItem('codex.notifications')
+      window.localStorage.removeItem('dashboard.notifications')
     }
   })
   afterEach(() => {
-    useCodexStore.setState({ notifications: [] })
+    useDashboardStore.setState({ notifications: [] })
   })
 
   it('dedups the same fill arriving twice (REST hydrate + WS broadcast)', () => {
     const stableId = 'trade:buy:BTC/USD:trace-1'
-    useCodexStore.getState().addNotification({ ...baseTrade, notification_id: stableId })
-    useCodexStore.getState().addNotification({ ...baseTrade, notification_id: stableId })
+    useDashboardStore.getState().addNotification({ ...baseTrade, notification_id: stableId })
+    useDashboardStore.getState().addNotification({ ...baseTrade, notification_id: stableId })
 
-    const list = useCodexStore.getState().notifications
+    const list = useDashboardStore.getState().notifications
     expect(list).toHaveLength(1)
     expect(list[0].id).toBe(stableId)
   })
 
   it('treats two distinct fills as distinct even when timestamps are close', () => {
-    useCodexStore
+    useDashboardStore
       .getState()
       .addNotification({ ...baseTrade, notification_id: 'trade:buy:BTC/USD:trace-1' })
-    useCodexStore
+    useDashboardStore
       .getState()
       .addNotification({ ...baseTrade, notification_id: 'trade:buy:BTC/USD:trace-2', message: 'BUY BTC/USD filled #2' })
 
-    const list = useCodexStore.getState().notifications
+    const list = useDashboardStore.getState().notifications
     expect(list).toHaveLength(2)
     expect(list.map((n) => n.id)).toEqual([
       'trade:buy:BTC/USD:trace-2',
@@ -57,8 +57,8 @@ describe('addNotification dedup by stable notification_id', () => {
   })
 
   it('falls back to a generated id when notification_id is absent', () => {
-    useCodexStore.getState().addNotification(baseTrade)
-    const list = useCodexStore.getState().notifications
+    useDashboardStore.getState().addNotification(baseTrade)
+    const list = useDashboardStore.getState().notifications
     expect(list).toHaveLength(1)
     expect(list[0].id).toMatch(/^\d+-/)
   })

@@ -21,11 +21,11 @@ import {
 } from "@/constants/agents";
 import type {
   AgentLog,
-  AgentStatus,
+  AgentHeartbeat,
   Notification,
   Order,
   Proposal,
-} from "@/stores/useCodexStore";
+} from "@/stores/useDashboardStore";
 
 import { computePipeline } from "./helpers";
 import type { StatusTone, SystemDashboardProps } from "./types";
@@ -52,7 +52,7 @@ type HealthIndicator = {
 type AgentActivityRow = {
   key: string;
   label: string;
-  status?: AgentStatus;
+  status?: AgentHeartbeat;
   relatedLog?: AgentLog;
 };
 
@@ -289,7 +289,7 @@ function deriveAgentActivity({
   agentStatuses,
   agentLogs,
 }: {
-  agentStatuses: AgentStatus[];
+  agentStatuses: AgentHeartbeat[];
   agentLogs: AgentLog[];
 }): AgentActivityRow[] {
   const canonicalStatuses = agentStatuses.map((status) => ({

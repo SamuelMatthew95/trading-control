@@ -1,19 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { useCodexStore } from '@/stores/useCodexStore'
+import { useDashboardStore } from '@/stores/useDashboardStore'
 
 const okJson = (body: unknown) =>
   ({ ok: true, json: async () => body }) as unknown as Response
 
 afterEach(() => {
   vi.restoreAllMocks()
-  useCodexStore.setState({ positions: [], pnlSummary: null })
+  useDashboardStore.setState({ positions: [], pnlSummary: null })
 })
 
 describe('fetchPositions', () => {
   it('replaces positions for symbols the endpoint covers (merge by symbol)', async () => {
     // A pre-existing WS-only position for a symbol the endpoint does NOT return.
-    useCodexStore.setState({
+    useDashboardStore.setState({
       positions: [
         { symbol: 'ETH/USD', side: 'long', quantity: 1, entry_price: 1, current_price: 1, pnl: 0 },
       ],
@@ -35,16 +35,16 @@ describe('fetchPositions', () => {
       }),
     ) as unknown as typeof fetch
 
-    await useCodexStore.getState().fetchPositions()
+    await useDashboardStore.getState().fetchPositions()
 
-    const symbols = useCodexStore.getState().positions.map((p) => p.symbol).sort()
+    const symbols = useDashboardStore.getState().positions.map((p) => p.symbol).sort()
     expect(symbols).toEqual(['BTC/USD', 'ETH/USD'])
   })
 
   it('does not throw and leaves state intact on a non-ok response', async () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: false } as Response) as unknown as typeof fetch
-    await expect(useCodexStore.getState().fetchPositions()).resolves.toBeUndefined()
-    expect(useCodexStore.getState().positions).toEqual([])
+    await expect(useDashboardStore.getState().fetchPositions()).resolves.toBeUndefined()
+    expect(useDashboardStore.getState().positions).toEqual([])
   })
 })
 
@@ -67,9 +67,9 @@ describe('fetchPnl', () => {
       }),
     ) as unknown as typeof fetch
 
-    await useCodexStore.getState().fetchPnl()
+    await useDashboardStore.getState().fetchPnl()
 
-    const summary = useCodexStore.getState().pnlSummary
+    const summary = useDashboardStore.getState().pnlSummary
     expect(summary?.total_pnl).toBe(20)
     expect(summary?.unrealized_pnl).toBe(7.5)
   })

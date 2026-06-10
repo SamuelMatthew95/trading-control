@@ -7,7 +7,7 @@ import {
 } from '@/lib/formatters'
 import { markPositionsToMarket } from '@/hooks/useLivePositions'
 import { computeLivePnl } from '@/hooks/useLivePnl'
-import type { Order, Position } from '@/stores/useCodexStore'
+import type { Order, Position } from '@/stores/useDashboardStore'
 
 const pos = (overrides: Record<string, unknown>): Position =>
   ({ symbol: 'BTC/USD', side: 'long', quantity: 1, entry_price: 100, current_price: 100, pnl: 0, ...overrides }) as unknown as Position

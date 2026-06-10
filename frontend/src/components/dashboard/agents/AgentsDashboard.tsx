@@ -3,15 +3,15 @@
 import { useEffect, useState } from 'react'
 
 import {
-  useCodexStore,
+  useDashboardStore,
   type AgentInstance,
   type AgentLog,
-  type AgentStatus,
+  type AgentHeartbeat,
   type Notification,
   type Proposal,
   type RecentEvent,
   type StreamStat,
-} from '@/stores/useCodexStore'
+} from '@/stores/useDashboardStore'
 import type { ApiHealth, DecisionStats } from '@/hooks/useRestPoll'
 import type { AgentSummary } from '@/lib/agent-pipeline'
 import { parseTimestampMs, sanitizeValue } from '@/lib/formatters'
@@ -46,7 +46,7 @@ const AGENT_DATA_TIMEOUT_MS = 10_000
 export interface AgentsDashboardProps {
   realAgents: AgentSummary[]
   wiringFreshness: WiringFreshness
-  agentStatuses: AgentStatus[]
+  agentStatuses: AgentHeartbeat[]
   agentInstances: AgentInstance[]
   agentLogs: AgentLog[]
   notifications: Notification[]
@@ -101,7 +101,7 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
       return
     }
     const timer = setTimeout(() => {
-      const state = useCodexStore.getState()
+      const state = useDashboardStore.getState()
       const hasAgentData =
         state.agentLogs.length > 0 || state.agentStatuses.length > 0 || state.agentInstances.length > 0
       if (!hasAgentData && state.wsConnected) setShowNoAgentDataMessage(true)

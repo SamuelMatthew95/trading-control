@@ -13,7 +13,7 @@ import {
 } from "@/lib/dashboard-styles";
 import { proposalRouting, type ProposalRouting } from "@/lib/proposal-routing";
 import { cn } from "@/lib/utils";
-import { useCodexStore, type Proposal } from "@/stores/useCodexStore";
+import { useDashboardStore, type Proposal } from "@/stores/useDashboardStore";
 import { ProposalDetailModal } from "@/components/dashboard/ProposalDetailModal";
 
 function routingBadgeClass(kind: ProposalRouting["kind"]): string {
@@ -82,8 +82,8 @@ function EmptyProposals() {
 }
 
 export function ProposalsSection() {
-  const proposals = useCodexStore((state) => state.proposals);
-  const updateProposalStatus = useCodexStore(
+  const proposals = useDashboardStore((state) => state.proposals);
+  const updateProposalStatus = useDashboardStore(
     (state) => state.updateProposalStatus,
   );
   const [pendingAction, setPendingAction] = useState<string | null>(null);

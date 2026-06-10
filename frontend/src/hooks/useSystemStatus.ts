@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
-import { useCodexStore } from '@/stores/useCodexStore'
+import { useDashboardStore } from '@/stores/useDashboardStore'
 
 export type SystemStatus = 'booting' | 'idle' | 'trading' | 'error'
 
@@ -12,10 +12,10 @@ export type SystemStatus = 'booting' | 'idle' | 'trading' | 'error'
  * states across pages (e.g. Overview = IDLE while Agents = BOOTING).
  */
 export function useSystemStatus(): SystemStatus {
-  const wsConnected = useCodexStore((s) => s.wsConnected)
-  const ordersLen = useCodexStore((s) => s.orders.length)
-  const positionsLen = useCodexStore((s) => s.positions.length)
-  const tradeFeedLen = useCodexStore((s) => s.tradeFeed.length)
+  const wsConnected = useDashboardStore((s) => s.wsConnected)
+  const ordersLen = useDashboardStore((s) => s.orders.length)
+  const positionsLen = useDashboardStore((s) => s.positions.length)
+  const tradeFeedLen = useDashboardStore((s) => s.tradeFeed.length)
 
   return useMemo<SystemStatus>(() => {
     if (!wsConnected) return 'booting'

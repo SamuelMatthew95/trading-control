@@ -1,409 +1,41 @@
 'use client'
 import { create } from 'zustand'
 import { createLogger } from '@/lib/logger'
-
-const log = createLogger('store')
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { coerceProposalContent, proposalStrategyName } from '@/lib/proposal-content'
-import { NOTIFICATION_FALLBACKS, NOTIFICATION_SEVERITIES, type NotificationSeverity } from '@/constants/notifications'
+import { normalizeStoredNotification, normalizeTradeFeedItem } from './normalizers'
+import type {
+  AgentHeartbeat,
+  AgentInstance,
+  AgentLog,
+  CachedPriceData,
+  DailyPnl,
+  DashboardData,
+  LearningEvent,
+  Notification,
+  Order,
+  PerformanceSummary,
+  PnlSummary,
+  Position,
+  PriceRecord,
+  Proposal,
+  ProposalStatus,
+  ProposalType,
+  RecentEvent,
+  StreamStat,
+  SystemMetric,
+  TradeFeedItem,
+  WsDiagnostics,
+} from './types'
 
-export type { NotificationSeverity } from '@/constants/notifications'
+// Single import surface: every consumer keeps importing domain types and
+// normalizers from this module.
+export * from './types'
+export { normalizeStoredNotification, normalizeTradeFeedItem } from './normalizers'
 
-export interface AgentLog {
-  agent_name: string
-  event_type?: string
-  message?: string
-  trace_id?: string
-  timestamp: string
-  confidence?: number
-  latency_ms?: number
-  primary_edge?: string
-  stream?: unknown
-  message_id?: unknown
-  data?: unknown
-  id?: string | number
-  agent?: string
-  action?: string
-  symbol?: string
-  [key: string]: unknown
-}
+const log = createLogger('store')
 
-export interface Order {
-  symbol: string
-  pnl: number
-  side: 'long' | 'short'
-  quantity: number
-  entry_price: number
-  current_price: number
-  timestamp: string
-  pnl_percent?: number
-  order_id?: string | number
-  [key: string]: unknown
-}
-
-export interface Position {
-  symbol: string
-  side: 'long' | 'short'
-  quantity: number
-  entry_price: number
-  current_price: number
-  pnl: number
-  pnl_percent?: number
-  [key: string]: unknown
-}
-
-export interface SystemMetric {
-  metric_name: string
-  value: number
-  id?: string | number
-  [key: string]: unknown
-}
-
-export interface LearningEvent {
-  type: string
-  timestamp: string
-  id?: string | number
-  [key: string]: unknown
-}
-
-export interface NotificationDisplayItem {
-  label: string
-  value: string
-  tone?: string
-}
-
-export interface NotificationDisplayBadge {
-  label: string
-  tone?: string
-}
-
-export interface NotificationDisplay {
-  kind?: string
-  tone?: string
-  icon?: string
-  title?: string
-  subtitle?: string
-  status_label?: string
-  badges?: NotificationDisplayBadge[]
-  facts?: NotificationDisplayItem[]
-  meta?: NotificationDisplayItem[]
-}
-
-export interface Notification {
-  id: string
-  severity: NotificationSeverity
-  title?: string
-  body?: string
-  message: string
-  notification_type: string
-  stream_source?: string
-  action?: string
-  symbol?: string
-  qty?: number | null
-  fill_price?: number | null
-  notional?: number | null
-  pnl?: number | null
-  pnl_percent?: number | null
-  order_id?: string | number | null
-  trace_id?: string
-  state?: 'open' | 'resolved'
-  delivery?: Record<string, unknown>
-  display?: NotificationDisplay
-  timestamp: string
-}
-
-export type ProposalStatus = 'pending' | 'approved' | 'rejected'
-// Mirrors backend api.constants.ProposalType plus the informational
-// "challenger_result" event (emitted as a raw type by ChallengerAgent).
-export type ProposalType =
-  | 'parameter_change'
-  | 'code_change'
-  | 'regime_adjustment'
-  | 'signal_weight_reduction'
-  | 'agent_suspension'
-  | 'agent_retirement'
-  | 'new_agent'
-  | 'tool_governance'
-  | 'prompt_evolution'
-  | 'challenger_result'
-  | 'challenger_promotion'
-
-export interface Proposal {
-  id: string
-  proposal_type: ProposalType
-  content: string
-  requires_approval: boolean
-  reflection_trace_id?: string
-  confidence?: number
-  timestamp: string
-  status: ProposalStatus
-  /** True once the ProposalApplier has actually applied it (auto or approved). */
-  applied?: boolean
-  applied_at?: string | null
-  // Our branch fields (from events table / WS proposals stream)
-  symbol?: string | null
-  action?: string | null
-  grade_score?: number | null
-  bias?: string | null
-  buys?: number | null
-  sells?: number | null
-  strategy_name?: string | null
-  trace_id?: string | null
-  created_at?: string | null
-  source?: string | null
-}
-
-export interface PriceData {
-  price: number
-  change: number
-  changePercent?: number
-  previousPrice?: number
-  updatedAt?: string
-  /** Real L1 best bid/ask from the poller cache (two-sided quotes only). */
-  bid?: number
-  ask?: number
-  [key: string]: unknown
-}
-
-export interface StreamStat {
-  count: number
-  lastMessageTimestamp: string | null
-}
-
-export interface AgentStatus {
-  name: string
-  status: string
-  event_count: number
-  last_event: string
-  last_seen: number
-  last_seen_at?: string
-  source?: string
-  seconds_ago: number
-  last_grade_score?: number
-}
-
-export interface WsDiagnostics {
-  reconnectAttempts: number
-  messageRate: number
-  lastError: string | null
-}
-
-export interface TradeFeedItem {
-  id: string
-  symbol: string
-  side: 'buy' | 'sell'
-  qty: number | null
-  entry_price: number | null
-  exit_price: number | null
-  pnl: number | null
-  pnl_percent: number | null
-  order_id: string | null
-  execution_trace_id: string | null
-  signal_trace_id: string | null
-  grade: string | null
-  grade_score: number | null
-  grade_label: string | null
-  status: string
-  filled_at: string | null
-  graded_at: string | null
-  reflected_at: string | null
-  created_at: string | null
-}
-
-/** Normalize a raw trade dict (from REST or WS) into a well-typed TradeFeedItem. */
-export function normalizeTradeFeedItem(raw: Record<string, unknown>): TradeFeedItem {
-  const toNum = (v: unknown): number | null => (typeof v === 'number' && isFinite(v) ? v : null)
-  const toStr = (v: unknown): string | null => (v != null ? String(v) : null)
-  return {
-    id: String(raw.id ?? Date.now()),
-    symbol: String(raw.symbol ?? ''),
-    side: raw.side === 'sell' ? 'sell' : 'buy',
-    qty: toNum(raw.qty),
-    entry_price: toNum(raw.entry_price),
-    exit_price: toNum(raw.exit_price),
-    pnl: toNum(raw.pnl),
-    pnl_percent: toNum(raw.pnl_percent),
-    order_id: toStr(raw.order_id),
-    execution_trace_id: toStr(raw.execution_trace_id),
-    signal_trace_id: toStr(raw.signal_trace_id),
-    grade: toStr(raw.grade),
-    grade_score: toNum(raw.grade_score),
-    grade_label: toStr(raw.grade_label),
-    status: String(raw.status ?? 'filled'),
-    filled_at: toStr(raw.filled_at),
-    graded_at: toStr(raw.graded_at),
-    reflected_at: toStr(raw.reflected_at),
-    created_at: String(raw.created_at ?? raw.timestamp ?? new Date().toISOString()),
-  }
-}
-
-export interface AgentInstance {
-  id: string
-  instance_key: string
-  pool_name: string
-  status: 'active' | 'retired'
-  started_at: string | null
-  retired_at: string | null
-  event_count: number
-  uptime_seconds: number
-}
-
-export interface PerformanceSummary {
-  total_pnl: number
-  total_trades: number
-  win_rate: number
-  avg_win: number
-  avg_loss: number
-  best_trade: number
-  worst_trade: number
-}
-
-// Live PnL breakdown from GET /pnl (PaperBroker-sourced). Distinct from
-// PerformanceSummary: this carries realized vs unrealized split + open-position
-// count straight from the broker, updated on every poll/reconnect.
-export interface PnlSummary {
-  realized_pnl: number
-  unrealized_pnl: number
-  total_pnl: number
-  closed_trades: number
-  winning_trades: number
-  win_rate_percent: number
-  open_positions: number
-}
-
-export interface DailyPnl {
-  day: string
-  pnl: number
-  trade_count: number
-  wins: number
-  losses: number
-  avg_pnl: number
-}
-
-export interface RecentEvent {
-  stream: string
-  msgId: string
-  timestamp: string
-  // What the event was *about* — carried through so the Live Activity feed can
-  // show "BTC/USD · $60,781.58" instead of a bare, indistinguishable row.
-  symbol?: string | null
-  price?: number | null
-  change?: number | null
-  eventType?: string | null
-}
-
-export type DashboardData = {
-  system_metrics?: SystemMetric[]
-  orders?: Order[]
-  agent_logs?: AgentLog[]
-  learning_events?: LearningEvent[]
-  risk_alerts?: Array<Record<string, unknown>>
-  signals?: Array<Record<string, unknown>>
-  positions?: Position[]
-  prices?: Record<string, PriceData>
-  proposals?: Array<Record<string, unknown>>
-  trade_feed?: TradeFeedItem[]
-  notifications?: Array<Record<string, unknown>>
-  ic_weights?: Record<string, number>
-  agent_statuses?: Array<Record<string, unknown>>
-  timestamp: string
-  /** Runtime persistence mode — "db" | "in_memory_fallback". Present when backend is in memory mode. */
-  mode?: string
-  /** True when DB is unavailable and the system is operating from in-memory state. */
-  degraded_mode?: boolean
-  /** Machine-readable reason: "db_unavailable" | "redis_unavailable" */
-  degraded_reason?: string
-}
-
-type PriceRecord = Record<string, PriceData>
-
-function normalizeNumber(value: unknown): number | null {
-  if (value === null || value === undefined || value === '') return null
-  const cast = Number(value)
-  return Number.isFinite(cast) ? cast : null
-}
-
-function buildDeterministicNotificationId(raw: Record<string, unknown>): string {
-  const basis = [
-    raw.notification_id,
-    raw.id,
-    raw.trace_id,
-    raw.timestamp,
-    raw.notification_type,
-    raw.title,
-    raw.message,
-    raw.body,
-    raw.symbol,
-    raw.action,
-  ]
-    .map((v) => String(v ?? ""))
-    .join("|")
-  if (!basis) return "0-unknown"
-  let hash = 5381
-  for (let i = 0; i < basis.length; i += 1) {
-    hash = ((hash << 5) + hash) ^ basis.charCodeAt(i)
-  }
-  return `${Math.abs(hash >>> 0)}-det`
-}
-
-export function normalizeStoredNotification(input: unknown): Notification | null {
-  if (!input || typeof input !== 'object') return null
-  const raw = input as Record<string, unknown>
-  const severity = String(raw.severity || NOTIFICATION_FALLBACKS.severity).toLowerCase()
-  const normalizedSeverity: NotificationSeverity = (
-    NOTIFICATION_SEVERITIES as readonly string[]
-  ).includes(severity)
-    ? (severity as NotificationSeverity)
-    : NOTIFICATION_FALLBACKS.severity
-
-  const display =
-    raw.display && typeof raw.display === 'object' && !Array.isArray(raw.display)
-      ? (raw.display as NotificationDisplay)
-      : undefined
-  const message = String(raw.message || raw.body || display?.subtitle || raw.title || '').trim()
-  if (!message) return null
-
-  // Prefer the backend's stable notification_id so the same fill survives a
-  // page reload without being treated as a new notification.
-  const stableId = raw.notification_id ?? raw.id ?? buildDeterministicNotificationId(raw)
-  const notification: Notification = {
-    id: String(stableId),
-    severity: normalizedSeverity,
-    title: raw.title ? String(raw.title) : (raw.body ? String(raw.body) : undefined),
-    message,
-    notification_type: String(raw.notification_type || NOTIFICATION_FALLBACKS.notificationType),
-    stream_source: raw.stream_source ? String(raw.stream_source) : undefined,
-    action: raw.action ? String(raw.action) : undefined,
-    symbol: raw.symbol ? String(raw.symbol) : undefined,
-    qty: normalizeNumber(raw.qty),
-    fill_price: normalizeNumber(raw.fill_price),
-    notional: normalizeNumber(raw.notional),
-    pnl: normalizeNumber(raw.pnl),
-    pnl_percent: normalizeNumber(raw.pnl_percent),
-    order_id: raw.order_id == null ? null : String(raw.order_id),
-    trace_id: raw.trace_id ? String(raw.trace_id) : undefined,
-    state: String(raw.state || 'open').toLowerCase() === 'resolved' ? 'resolved' : 'open',
-    delivery:
-      raw.delivery && typeof raw.delivery === 'object' && !Array.isArray(raw.delivery)
-        ? (raw.delivery as Record<string, unknown>)
-        : undefined,
-    display,
-    timestamp: String(raw.timestamp || new Date().toISOString()),
-  }
-
-  return notification
-}
-
-// Type for price data from API
-interface CachedPriceData {
-  price: string | number;
-  bid?: string | number;
-  ask?: string | number;
-  timestamp: string;
-  source?: string;
-}
-
-type CodexState = {
+type DashboardState = {
   prices: PriceRecord
   orders: Order[]
   positions: Position[]
@@ -431,9 +63,9 @@ type CodexState = {
   wsDiagnostics: WsDiagnostics
   streamStats: Record<string, StreamStat>
   recentEvents: RecentEvent[]
-  agentStatuses: AgentStatus[]
+  agentStatuses: AgentHeartbeat[]
   pipelineMetrics: Record<string, number>
-  setAgentStatuses: (agents: AgentStatus[]) => void
+  setAgentStatuses: (agents: AgentHeartbeat[]) => void
   setPipelineMetrics: (metrics: Record<string, number>) => void
   setTradeFeed: (trades: TradeFeedItem[]) => void
   addTradeFeedItem: (trade: TradeFeedItem) => void
@@ -470,11 +102,18 @@ type CodexState = {
   trackMarketTick: (symbol?: string | null) => void
   hydrateDashboard: (data: DashboardData) => void
   hydrateFromLocalStorage: () => void
-  bulkUpdate: (updates: Partial<CodexState>) => void
+  bulkUpdate: (updates: Partial<DashboardState>) => void
   fetchPrices: () => Promise<void>
   fetchPositions: () => Promise<void>
   fetchPnl: () => Promise<void>
 }
+
+/** localStorage keys for the client-side display cache (REST re-hydrates anyway). */
+const STORAGE_KEYS = {
+  orders: 'dashboard.orders',
+  positions: 'dashboard.positions',
+  notifications: 'dashboard.notifications',
+} as const
 
 const _loadFromStorage = <T>(key: string, limit: number): T[] => {
   if (typeof window === 'undefined') return []
@@ -501,7 +140,7 @@ const _saveToStorage = (key: string, data: unknown[]): void => {
 // hydration runs once on mount via `hydrateFromLocalStorage()` so the first
 // client render matches the server-rendered HTML — preventing React
 // hydration errors #418/#423/#425 that previously fired on every page load.
-export const useCodexStore = create<CodexState>((set) => ({
+export const useDashboardStore = create<DashboardState>((set) => ({
   prices: {},
   orders: [],
   positions: [],
@@ -641,7 +280,7 @@ export const useCodexStore = create<CodexState>((set) => ({
           ...incoming,
           ...state.positions.filter((p) => !restSymbols.has(p.symbol)),
         ]
-        _saveToStorage('codex.positions', merged)
+        _saveToStorage(STORAGE_KEYS.positions, merged)
         return { positions: merged }
       })
     } catch (error) {
@@ -669,14 +308,14 @@ export const useCodexStore = create<CodexState>((set) => ({
   })),
   addOrder: (order) => set((state) => {
     const next = [order, ...state.orders].slice(0, 100)
-    _saveToStorage('codex.orders', next)
+    _saveToStorage(STORAGE_KEYS.orders, next)
     return { orders: next }
   }),
   updateOrder: (order) => set((state) => {
     const next = state.orders.some((e) => e.order_id === order.order_id)
       ? state.orders.map((e) => e.order_id === order.order_id ? { ...e, ...order } : e)
       : [order, ...state.orders].slice(0, 100)
-    _saveToStorage('codex.orders', next)
+    _saveToStorage(STORAGE_KEYS.orders, next)
     return { orders: next }
   }),
   addAgentLog: (log) => set((state) => ({
@@ -693,7 +332,7 @@ export const useCodexStore = create<CodexState>((set) => ({
     // "max 20" label stays truthful and the list never grows unbounded.
     const next = [normalized, ...state.notifications].slice(0, 20)
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem('codex.notifications', JSON.stringify(next))
+      window.localStorage.setItem(STORAGE_KEYS.notifications, JSON.stringify(next))
     }
     return { notifications: next }
   }),
@@ -791,11 +430,11 @@ export const useCodexStore = create<CodexState>((set) => ({
 
   hydrateFromLocalStorage: () => {
     if (typeof window === 'undefined') return
-    const orders = _loadFromStorage<Order>('codex.orders', 100)
-    const positions = _loadFromStorage<Position>('codex.positions', 50)
+    const orders = _loadFromStorage<Order>(STORAGE_KEYS.orders, 100)
+    const positions = _loadFromStorage<Position>(STORAGE_KEYS.positions, 50)
     let notifications: Notification[] = []
     try {
-      const raw = window.localStorage.getItem('codex.notifications')
+      const raw = window.localStorage.getItem(STORAGE_KEYS.notifications)
       if (raw) {
         const parsed = JSON.parse(raw)
         if (Array.isArray(parsed)) {
@@ -816,7 +455,7 @@ export const useCodexStore = create<CodexState>((set) => ({
   },
   hydrateDashboard: (data: DashboardData) => {
     set((currentState) => {
-      const updates: Partial<CodexState> = {
+      const updates: Partial<DashboardState> = {
         dashboardData: data,
         isLoading: false
       }
@@ -842,7 +481,7 @@ export const useCodexStore = create<CodexState>((set) => ({
             !restOrders.some((newOrder) => newOrder.order_id === order.order_id)
           )
         ].slice(0, 100)
-        _saveToStorage('codex.orders', updates.orders)
+        _saveToStorage(STORAGE_KEYS.orders, updates.orders)
       }
 
       if (data.agent_logs) {
@@ -913,7 +552,7 @@ export const useCodexStore = create<CodexState>((set) => ({
           ...currentState.positions.filter((p) => !restSymbols.has(p.symbol)),
         ]
         updates.positions = merged
-        _saveToStorage('codex.positions', merged)
+        _saveToStorage(STORAGE_KEYS.positions, merged)
       }
 
       if (data.prices) {
@@ -980,21 +619,21 @@ export const useCodexStore = create<CodexState>((set) => ({
           const next = merged.slice(0, 200)
           updates.notifications = next
           if (typeof window !== 'undefined') {
-            window.localStorage.setItem('codex.notifications', JSON.stringify(next))
+            window.localStorage.setItem(STORAGE_KEYS.notifications, JSON.stringify(next))
           }
         }
       }
 
       if (Array.isArray(data.agent_statuses)) {
         updates.agentStatuses = (data.agent_statuses as Array<Record<string, unknown>>)
-          .filter((item) => typeof item?.name === 'string' && typeof item?.status === 'string') as unknown as AgentStatus[]
+          .filter((item) => typeof item?.name === 'string' && typeof item?.status === 'string') as unknown as AgentHeartbeat[]
       }
 
       return updates
     })
   },
 
-  bulkUpdate: (updates: Partial<CodexState>) => {
+  bulkUpdate: (updates: Partial<DashboardState>) => {
     set(updates)
   }
 }))

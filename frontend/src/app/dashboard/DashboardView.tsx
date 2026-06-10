@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { useCodexStore, type AgentStatus } from '@/stores/useCodexStore'
+import { useDashboardStore, type AgentHeartbeat } from '@/stores/useDashboardStore'
 import { useSystemStatus } from '@/hooks/useSystemStatus'
 import { useRestPoll } from '@/hooks/useRestPoll'
 import { useLivePositions } from '@/hooks/useLivePositions'
@@ -111,7 +111,7 @@ function parseTimestamp(value: unknown): Date | null {
   return d
 }
 
-function parseHeartbeatTimestamp(status: AgentStatus): Date | null {
+function parseHeartbeatTimestamp(status: AgentHeartbeat): Date | null {
   const fromIsoField = parseTimestamp(status.last_seen_at)
   if (fromIsoField) return fromIsoField
   const fromEpochField = parseTimestamp(status.last_seen)
@@ -157,7 +157,7 @@ export function DashboardView({ section }: { section: Section }) {
     wsDiagnostics,
     recentEvents = [],
     agentStatuses = [],
-  } = useCodexStore()
+  } = useDashboardStore()
 
   const [activeTraceId, setActiveTraceId] = useState<string | null>(null)
 

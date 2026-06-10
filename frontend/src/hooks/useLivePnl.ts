@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
-import { useCodexStore, type Order, type Position } from '@/stores/useCodexStore'
+import { useDashboardStore, type Order, type Position } from '@/stores/useDashboardStore'
 import { getField, isActivePosition, positionLivePnl, toFiniteNum } from '@/lib/formatters'
 
 export interface LivePnl {
@@ -33,8 +33,8 @@ export function computeLivePnl(
 }
 
 export function useLivePnl(): LivePnl {
-  const orders = useCodexStore((s) => s.orders)
-  const positions = useCodexStore((s) => s.positions)
-  const prices = useCodexStore((s) => s.prices)
+  const orders = useDashboardStore((s) => s.orders)
+  const positions = useDashboardStore((s) => s.positions)
+  const prices = useDashboardStore((s) => s.prices)
   return useMemo(() => computeLivePnl(orders, positions, prices), [orders, positions, prices])
 }

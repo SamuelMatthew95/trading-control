@@ -15,7 +15,7 @@ import {
   Power,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useCodexStore } from '@/stores/useCodexStore'
+import { useDashboardStore } from '@/stores/useDashboardStore'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { useGlobalWebSocket } from '@/hooks/useGlobalWebSocket'
 import { api } from '@/lib/apiClient'
@@ -78,7 +78,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [killSwitchPending, setKillSwitchPending] = useState(false)
   const [killConfirm, setKillConfirm] = useState(false)
   const [mounted, setMounted] = useState(false)
-  const { killSwitchActive, wsConnected, setKillSwitch, hydrateFromLocalStorage } = useCodexStore()
+  const { killSwitchActive, wsConnected, setKillSwitch, hydrateFromLocalStorage } = useDashboardStore()
 
   // Real account stats — broker-truth cash with live-marked positions on top
   // (see useTerminalAccount). P&L is lifetime paper P&L vs starting capital.

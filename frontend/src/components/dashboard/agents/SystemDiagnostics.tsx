@@ -1,4 +1,4 @@
-import type { AgentInstance, AgentLog, AgentStatus } from '@/stores/useCodexStore'
+import type { AgentInstance, AgentLog, AgentHeartbeat } from '@/stores/useDashboardStore'
 import type { ApiHealth } from '@/hooks/useRestPoll'
 import { cn } from '@/lib/utils'
 import { cardClass, sectionTitleClass, mutedClass } from '@/lib/dashboard-styles'
@@ -13,7 +13,7 @@ function formatWiringAge(ageMs: number | null): string {
 
 export interface SystemDiagnosticsProps {
   isInMemoryMode: boolean
-  agentStatuses: AgentStatus[]
+  agentStatuses: AgentHeartbeat[]
   agentInstances: AgentInstance[]
   agentLogs: AgentLog[]
   wiringFreshness: WiringFreshness

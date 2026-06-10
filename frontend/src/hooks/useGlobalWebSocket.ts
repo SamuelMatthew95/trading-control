@@ -1,13 +1,13 @@
 'use client'
 import { useEffect, useRef } from 'react'
 import {
-  useCodexStore,
+  useDashboardStore,
   normalizeTradeFeedItem,
   type AgentLog,
-  type AgentStatus,
+  type AgentHeartbeat,
   type DashboardData,
   type SystemMetric,
-} from '@/stores/useCodexStore'
+} from '@/stores/useDashboardStore'
 import { coerceProposalContent, proposalStrategyName } from '@/lib/proposal-content'
 import { createLogger } from '@/lib/logger'
 
@@ -207,7 +207,7 @@ class WebSocketManager {
     if (this._retry >= this.MAX_RETRIES) {
       log.error('Max retries reached — giving up. Check NEXT_PUBLIC_WS_URL / NEXT_PUBLIC_API_URL env vars.')
       this._state = ConnectionState.ERROR
-      useCodexStore.getState().setWsDiagnostics({
+      useDashboardStore.getState().setWsDiagnostics({
         reconnectAttempts: this._retry,
         lastError: 'Max reconnect attempts reached',
       })
@@ -218,7 +218,7 @@ class WebSocketManager {
     this._retry++
     const delay = this._getRetryDelay(this._retry)
     log.info('Reconnecting in', delay, 'ms (attempt', this._retry, '/', this.MAX_RETRIES, ')')
-    useCodexStore.getState().setWsDiagnostics({ reconnectAttempts: this._retry })
+    useDashboardStore.getState().setWsDiagnostics({ reconnectAttempts: this._retry })
     this._reconnectTimer = setTimeout(() => {
       // connect() bails out while state is RECONNECTING, so flip to
       // DISCONNECTED here or the timer can never reopen the socket.
@@ -259,7 +259,7 @@ class WebSocketManager {
       if (this._connTimeout) clearTimeout(this._connTimeout)
       this._connTimeout = null
       this._updateStoreState()
-      useCodexStore.getState().setWsDiagnostics({
+      useDashboardStore.getState().setWsDiagnostics({
         reconnectAttempts: this._retry,
         lastError: null,
       })
@@ -273,7 +273,7 @@ class WebSocketManager {
       try { msg = JSON.parse(event.data) } catch {}
       if (!msg) return
       this.dispatch('ws-message', msg)
-      const store = useCodexStore.getState()
+      const store = useDashboardStore.getState()
 
       if (msg.type === 'agent_status_update') {
         this._handleAgentStatusUpdate(msg, store)
@@ -342,7 +342,7 @@ class WebSocketManager {
     }
     this._socket.onerror = (event) => {
       log.error('Socket error — state was:', this._state, event)
-      useCodexStore.getState().setWsDiagnostics({
+      useDashboardStore.getState().setWsDiagnostics({
         lastError: 'WebSocket error',
         reconnectAttempts: this._retry,
       })
@@ -354,9 +354,9 @@ class WebSocketManager {
   }
 
   // --- Message Handlers ---
-  private _handleAgentStatusUpdate(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>): void {
+  private _handleAgentStatusUpdate(msg: WebSocketMessage, store: ReturnType<typeof useDashboardStore.getState>): void {
     if (Array.isArray((msg as unknown as Record<string, unknown>).agents)) {
-      store.setAgentStatuses((msg as unknown as { agents: AgentStatus[] }).agents)
+      store.setAgentStatuses((msg as unknown as { agents: AgentHeartbeat[] }).agents)
     }
     const metricsRaw = (msg as unknown as Record<string, unknown>).metrics
     if (metricsRaw && typeof metricsRaw === 'object' && !Array.isArray(metricsRaw)) {
@@ -364,7 +364,7 @@ class WebSocketManager {
     }
   }
 
-  private _handleDashboardUpdate(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>): void {
+  private _handleDashboardUpdate(msg: WebSocketMessage, store: ReturnType<typeof useDashboardStore.getState>): void {
     try {
       store.hydrateDashboard(this._normalizeDashboardData(msg.data))
     } catch (error) {
@@ -372,7 +372,7 @@ class WebSocketManager {
     }
   }
 
-  private _handleMarketTick(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>): void {
+  private _handleMarketTick(msg: WebSocketMessage, store: ReturnType<typeof useDashboardStore.getState>): void {
     const price = Number(msg.price)
     const symbol = msg.symbol || 'UNKNOWN'
     const previousPrice = store.prices[symbol]?.price ?? price
@@ -381,7 +381,7 @@ class WebSocketManager {
     store.trackMarketTick(symbol)
   }
 
-  private _handlePriceUpdate(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>): void {
+  private _handlePriceUpdate(msg: WebSocketMessage, store: ReturnType<typeof useDashboardStore.getState>): void {
     const price = Number(msg.price)
     const symbol = msg.symbol
     if (!symbol) return
@@ -397,7 +397,7 @@ class WebSocketManager {
     }
   }
 
-  private _handleTradeNotification(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>): void {
+  private _handleTradeNotification(msg: WebSocketMessage, store: ReturnType<typeof useDashboardStore.getState>): void {
     const raw = msg as unknown as Record<string, unknown>
     const side = String(raw.side || 'buy')
     const fillPrice = Number(raw.fill_price ?? 0)
@@ -418,10 +418,10 @@ class WebSocketManager {
       status: 'filled',
       trace_id: raw.trace_id as string,
       source: raw.source as string,
-    } as import('@/stores/useCodexStore').Order)
+    } as import('@/stores/useDashboardStore').Order)
   }
 
-  private _handleNotification(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>): void {
+  private _handleNotification(msg: WebSocketMessage, store: ReturnType<typeof useDashboardStore.getState>): void {
     const messageRaw = msg as unknown as Record<string, unknown>
     const payloadRaw = this._coerceObject(messageRaw.payload)
     const raw = msg.type === 'event' && payloadRaw
@@ -430,14 +430,14 @@ class WebSocketManager {
     store.addNotification(raw)
   }
 
-  private _handleProposal(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>): void {
+  private _handleProposal(msg: WebSocketMessage, store: ReturnType<typeof useDashboardStore.getState>): void {
     const raw = msg as unknown as Record<string, unknown>
     // Preserve the backend id (trace_id / msg_id) so this proposal dedups
     // against the REST-polled copy and the approve/reject PATCH can match it.
     const stableId = raw.id ?? raw.trace_id ?? raw.msg_id
     store.addProposal({
       id: stableId != null ? String(stableId) : undefined,
-      proposal_type: (raw.proposal_type || 'parameter_change') as import('@/stores/useCodexStore').ProposalType,
+      proposal_type: (raw.proposal_type || 'parameter_change') as import('@/stores/useDashboardStore').ProposalType,
       // `content` may be a structured object (challenger promotions carry
       // { strategy, shadow_edge, reason }) — coerce so it never renders as
       // "[object Object]" in the proposal queue.
@@ -448,17 +448,17 @@ class WebSocketManager {
       reflection_trace_id: raw.reflection_trace_id as string | undefined,
       trace_id: (raw.trace_id as string | undefined) ?? undefined,
       confidence: typeof raw.confidence === 'number' ? raw.confidence : undefined,
-      status: (raw.status as import('@/stores/useCodexStore').ProposalStatus) ?? 'pending',
+      status: (raw.status as import('@/stores/useDashboardStore').ProposalStatus) ?? 'pending',
       timestamp: msg.timestamp || new Date().toISOString(),
     })
   }
 
-  private _handleTradeFeed(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>): void {
+  private _handleTradeFeed(msg: WebSocketMessage, store: ReturnType<typeof useDashboardStore.getState>): void {
     const raw = { ...(msg as unknown as Record<string, unknown>), created_at: msg.timestamp }
     store.addTradeFeedItem(normalizeTradeFeedItem(raw))
   }
 
-  private _handleLearningEvent(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>): void {
+  private _handleLearningEvent(msg: WebSocketMessage, store: ReturnType<typeof useDashboardStore.getState>): void {
     store.addLearningEvent({
       type: msg.stream === 'agent_grades' ? 'trade_evaluated' : 'reflection',
       timestamp: msg.timestamp || new Date().toISOString(),
@@ -466,7 +466,7 @@ class WebSocketManager {
     })
   }
 
-  private _handleAgentEvent(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>, payload: unknown): void {
+  private _handleAgentEvent(msg: WebSocketMessage, store: ReturnType<typeof useDashboardStore.getState>, payload: unknown): void {
     const normalizedPayload = msg.type === 'agent_status'
       ? {
           agent_name: (payload as Record<string, unknown>).name,
@@ -479,7 +479,7 @@ class WebSocketManager {
     if (norm) store.addAgentLog(norm)
   }
 
-  private _handleGenericEvent(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>, payload: unknown): void {
+  private _handleGenericEvent(msg: WebSocketMessage, store: ReturnType<typeof useDashboardStore.getState>, payload: unknown): void {
     const unwrapped = ((payload as Record<string, unknown>).payload as Record<string, unknown> | undefined) ?? (payload as Record<string, unknown>)
     const coerced = this._coerceObject(unwrapped)
     if (!coerced) return
@@ -499,7 +499,7 @@ class WebSocketManager {
     }
   }
 
-  private _handleAgentLog(msg: WebSocketMessage, store: ReturnType<typeof useCodexStore.getState>): void {
+  private _handleAgentLog(msg: WebSocketMessage, store: ReturnType<typeof useDashboardStore.getState>): void {
     const source = msg as unknown as Record<string, unknown>
     const payloadObj = (source.payload as Record<string, unknown> | undefined) ?? {}
     const norm = this._normalizeAgentEvent({
@@ -625,8 +625,8 @@ class WebSocketManager {
 
 // --- Hook ---
 export function useGlobalWebSocket() {
-  const setWsConnected = useCodexStore((state) => state.setWsConnected)
-  const wsConnected = useCodexStore((state) => state.wsConnected)
+  const setWsConnected = useDashboardStore((state) => state.setWsConnected)
+  const wsConnected = useDashboardStore((state) => state.wsConnected)
   const manager = WebSocketManager.instance
   const initialized = useRef(false)
 

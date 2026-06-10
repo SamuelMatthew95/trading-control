@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 
 import { AgentStatusTable } from '@/components/dashboard/agents/AgentStatusTable'
 import type { AgentSummary } from '@/lib/agent-pipeline'
-import type { AgentInstance } from '@/stores/useCodexStore'
+import type { AgentInstance } from '@/stores/useDashboardStore'
 
 const agents: AgentSummary[] = [
   {
