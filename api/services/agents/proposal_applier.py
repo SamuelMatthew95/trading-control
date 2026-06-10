@@ -58,6 +58,7 @@ from api.services.agents.base import MultiStreamAgent
 from api.services.agents.db_helpers import write_agent_log
 from api.services.gitops_publisher import GitOpsPublisher
 from api.services.prompt_store import get_prompt_store
+from api.services.redis_store import get_redis_store
 from api.services.tool_registry import get_tool_registry
 from backtest.strategies import STRATEGIES
 
@@ -194,6 +195,30 @@ class ProposalApplier(MultiStreamAgent):
             trace_id=trace_id,
             applied=applied,
         )
+
+        # Surface every application in the dashboard notification feed — an
+        # auto-applied proposal the operator never voted on must still be
+        # impossible to miss. Best-effort: a missing store never blocks the loop.
+        notif_store = get_redis_store()
+        if notif_store is not None:
+            try:
+                await notif_store.push_notification(
+                    {
+                        FieldName.SEVERITY: "info",
+                        FieldName.TITLE: f"Proposal applied: {proposal_type}",
+                        FieldName.MESSAGE: applied.get(FieldName.MESSAGE, ""),
+                        FieldName.NOTIFICATION_TYPE: "proposal.applied",
+                        FieldName.TRACE_ID: trace_id,
+                        FieldName.TIMESTAMP: applied_at,
+                    }
+                )
+            except Exception:
+                log_structured(
+                    "warning",
+                    "proposal_applier_notification_failed",
+                    trace_id=trace_id,
+                    exc_info=True,
+                )
 
         # Heartbeat so the dashboard sees ProposalApplier as alive
         try:
