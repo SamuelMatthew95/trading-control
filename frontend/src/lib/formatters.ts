@@ -182,23 +182,42 @@ export function signedUSD(value: number | null | undefined): string {
 }
 
 /**
- * Format a timestamp as a human-readable relative age ("3m ago", "2h ago").
+ * Format an age in milliseconds as a compact duration ("5s", "3m", "2h", "4d").
  *
- * Accepts an ISO string, a Date, or null/undefined. Returns an empty string
- * for invalid or missing input so callers can use it in template expressions
- * without a separate null-guard.
+ * Returns '--' for null, negative, or non-finite input so stale/unknown ages
+ * never render as a misleading "0s".
  */
-export function formatTimeAgo(v: string | Date | null | undefined): string {
-  if (!v) return ''
-  const d = typeof v === 'string' ? new Date(v) : v
-  if (isNaN(d.getTime())) return ''
-  const seconds = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000))
-  if (seconds < 60) return `${seconds}s ago`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  return `${Math.floor(hours / 24)}d ago`
+export function formatAgeFromMs(ageMs: number | null | undefined): string {
+  if (ageMs == null || ageMs < 0 || !Number.isFinite(ageMs)) return '--'
+  const sec = Math.floor(ageMs / 1000)
+  if (sec < 60) return `${sec}s`
+  const min = Math.floor(sec / 60)
+  if (min < 60) return `${min}m`
+  const hr = Math.floor(min / 60)
+  if (hr < 24) return `${hr}h`
+  return `${Math.floor(hr / 24)}d`
+}
+
+/**
+ * Format a timestamp as a human-readable relative age ("just now", "30s ago",
+ * "3m ago", "2h ago", "4d ago").
+ *
+ * The single canonical time-ago formatter. Routes through `parseTimestampMs`,
+ * so epoch-seconds, epoch-ms, numeric strings, ISO strings, and Date objects
+ * all parse (a hand-rolled `Date.parse` predecessor could not read a float
+ * epoch-seconds string like "1780634112.77" and leaked the raw value into the
+ * UI). Missing/unparseable input collapses to '--', never the raw value.
+ * Future timestamps clamp to "just now". `now` is injectable for tests.
+ */
+export function formatTimeAgo(
+  value: string | number | Date | null | undefined,
+  now: () => number = Date.now,
+): string {
+  const ts = parseTimestampMs(value)
+  if (ts == null) return '--'
+  const ageMs = Math.max(0, now() - ts)
+  if (ageMs < 5_000) return 'just now'
+  return `${formatAgeFromMs(ageMs)} ago`
 }
 
 /**

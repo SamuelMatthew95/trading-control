@@ -13,7 +13,7 @@ import {
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { parseTimestampMs } from '@/lib/formatters'
+import { formatTimeAgo, parseTimestampMs } from '@/lib/formatters'
 import type { Notification } from '@/stores/useCodexStore'
 import { NOTIFICATION_FALLBACKS } from '@/constants/notifications'
 import { groupNotifications } from '@/lib/notification-grouping'
@@ -131,29 +131,6 @@ function displayValue(value: unknown, fallback = '--'): string {
   return String(value)
 }
 
-/**
- * Relative-time label for a notification timestamp.
- *
- * Exported for regression testing. Routes through the shared `parseTimestampMs`
- * so epoch-seconds, epoch-ms, numeric strings, and ISO strings all parse. The
- * previous hand-rolled `Date.parse` could not parse a float epoch-seconds string
- * ("1780634112.7714157") and fell back to RETURNING THE RAW VALUE — which then
- * rendered verbatim as a broken-looking number in the panel header and rows.
- * Unparseable / missing now collapses to the '--' fallback instead.
- */
-export function formatRelativeTime(value?: string | number | null): string {
-  const ts = parseTimestampMs(value)
-  if (ts == null) return NOTIFICATION_FALLBACKS.emptyTimestamp
-  const diffSec = Math.floor((Date.now() - ts) / 1000)
-  if (diffSec < 5) return 'just now'
-  if (diffSec < 60) return `${diffSec}s ago`
-  const diffMin = Math.floor(diffSec / 60)
-  if (diffMin < 60) return `${diffMin}m ago`
-  const diffHr = Math.floor(diffMin / 60)
-  if (diffHr < 24) return `${diffHr}h ago`
-  return `${Math.floor(diffHr / 24)}d ago`
-}
-
 function NotificationEmptyState({ message }: { message: string }) {
   return <EmptyState message={message} />
 }
@@ -191,7 +168,7 @@ export function NotificationFeed({
         </div>
         <div className="flex items-center gap-3">
           {lastTimestamp && (
-            <p className={mutedClass}>{formatRelativeTime(lastTimestamp)}</p>
+            <p className={mutedClass}>{formatTimeAgo(lastTimestamp)}</p>
           )}
           {onClearAll && liveNotifications.length > 0 && (
             <button
@@ -263,7 +240,7 @@ export function NotificationFeed({
                         </span>
                       )}
                       <time className={cn(mutedClass, 'shrink-0 tabular-nums')} title={notification.timestamp ?? undefined}>
-                        {formatRelativeTime(notification.timestamp)}
+                        {formatTimeAgo(notification.timestamp)}
                       </time>
                       {notification.trace_id && onSelectTrace && (
                         <button

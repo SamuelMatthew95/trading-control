@@ -3,7 +3,7 @@ import type { ApiHealth } from '@/hooks/useRestPoll'
 import { cn } from '@/lib/utils'
 import { cardClass, sectionTitleClass, mutedClass } from '@/lib/dashboard-styles'
 import { apiHealthBadgeClass } from '@/lib/dashboard-helpers'
-import { formatAgeFromMs } from '@/components/dashboard/system/helpers'
+import { formatAgeFromMs } from '@/lib/formatters'
 import type { WiringFreshness } from './shared'
 
 function formatWiringAge(ageMs: number | null): string {
