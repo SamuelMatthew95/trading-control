@@ -83,8 +83,11 @@ async def register_proposal_creation(redis: Any, proposal: dict[str, Any]) -> bo
         # dedup set.
         current = int(await redis.get(count_key) or 0)
         if current >= cap:
+            # Warning, not info: from here until midnight UTC every genuine
+            # proposal is silently swallowed — the operator sees a quiet queue
+            # and assumes the learning loop is idle. Make the cap loud.
             log_structured(
-                "info",
+                "warning",
                 "proposal_skipped_daily_cap",
                 cap=cap,
                 daily_count=current,
