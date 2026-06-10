@@ -21,10 +21,13 @@ def _flow_status_memory_payload() -> dict[str, Any]:
         FieldName.DEGRADED_REASON: "db_unavailable",
         FieldName.COUNTS: {
             FieldName.AGENT_RUNS: mem_runs,
-            FieldName.AGENT_LOGS: len(store.event_history),
+            FieldName.AGENT_LOGS: len(store.agent_logs),
             FieldName.AGENT_GRADES: len(store.grade_history),
-            FieldName.ORDERS: 0,
-            FieldName.TRADE_LIFECYCLE: 0,
+            # Report the real in-memory counts — this is the operator's
+            # "is data flowing?" panel and must not claim zero orders while
+            # trades are visibly happening in memory mode.
+            FieldName.ORDERS: len(store.orders),
+            FieldName.TRADE_LIFECYCLE: len(store.trade_feed),
         },
         FieldName.REALTIME_EVENT_COUNT: mem_runs,
         FieldName.PERSISTED_EVENT_COUNT: 0,

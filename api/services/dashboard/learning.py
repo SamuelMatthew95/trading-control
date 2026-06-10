@@ -27,13 +27,28 @@ from api.services.dashboard.utils import _as_dict, _timestamp_to_iso
 def _in_memory_reflections(limit: int = 20) -> list[dict[str, Any]]:
     """Return reflection logs from memory in the learning endpoint shape."""
     safe_limit = max(1, min(limit, 200))
-    rows = [
+    store = get_runtime_store()
+    candidates = [
         row
-        for row in reversed(
-            get_runtime_store().agent_logs[-200:] + get_runtime_store().event_history[-200:]
-        )
+        for row in reversed(store.agent_logs[-200:] + store.event_history[-200:])
         if row.get(FieldName.LOG_TYPE) == LogType.REFLECTION
-    ][:safe_limit]
+    ]
+    # write_agent_log dual-writes each reflection in memory mode: a
+    # payload-bearing row in event_history plus a payload-less mirror in
+    # agent_logs. Collapse to one row per trace, preferring the copy that
+    # carries the payload, so the dashboard doesn't list every reflection
+    # twice with one of them empty.
+    best_by_key: dict[str, dict[str, Any]] = {}
+    ordered_keys: list[str] = []
+    for i, row in enumerate(candidates):
+        key = str(row.get(FieldName.TRACE_ID) or f"row-{i}")
+        existing = best_by_key.get(key)
+        if existing is None:
+            best_by_key[key] = row
+            ordered_keys.append(key)
+        elif not _as_dict(existing.get(FieldName.PAYLOAD)) and _as_dict(row.get(FieldName.PAYLOAD)):
+            best_by_key[key] = row
+    rows = [best_by_key[key] for key in ordered_keys][:safe_limit]
     reflections = []
     for row in rows:
         payload = _as_dict(row.get(FieldName.PAYLOAD))

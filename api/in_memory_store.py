@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections import deque
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -40,6 +41,9 @@ DEFAULT_AGENTS: dict[str, dict[str, Any]] = {
 }
 DEFAULT_TRADE_NOTIONAL: float = float(getattr(settings, "EQUITY_PER_TRADE", 1000.0) or 1000.0)
 POSITION_EPSILON: float = 1e-9
+# Max retained decision-dedup keys (4× the decision list cap so keys outlive
+# their decisions long enough to still dedup stream re-deliveries).
+DECISION_KEY_CAP: int = 2000
 
 
 @dataclass(slots=True)
@@ -65,6 +69,10 @@ class InMemoryStore:
     closed_trades: list[dict[str, Any]] = field(default_factory=list)
     equity_curve: list[dict[str, Any]] = field(default_factory=list)
     applied_decision_keys: set[str] = field(default_factory=set)
+    # Insertion order companion for applied_decision_keys so the dedup set can
+    # be pruned oldest-first — it was the only unbounded collection here (one
+    # key per decision ever seen, fed on every /dashboard/state hydration).
+    decision_key_order: deque[str] = field(default_factory=deque)
     rejected_sells: list[dict[str, Any]] = field(default_factory=list)
 
     @staticmethod
@@ -545,6 +553,9 @@ class InMemoryStore:
                 FieldName.DEDUPLICATED: True,
             }
         self.applied_decision_keys.add(decision_key)
+        self.decision_key_order.append(decision_key)
+        while len(self.decision_key_order) > DECISION_KEY_CAP:
+            self.applied_decision_keys.discard(self.decision_key_order.popleft())
         action = str(payload.get(FieldName.ACTION, "hold")).upper()
         symbol = str(payload.get(FieldName.SYMBOL) or "").strip()
         price = self._safe_float(payload.get(FieldName.PRICE)) or 0.0
