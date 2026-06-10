@@ -105,6 +105,17 @@ describe('DashboardView — overview (trading terminal)', () => {
     expect(screen.getAllByText('BTC/USD').length).toBeGreaterThan(0)
     expect(screen.getAllByText('AAPL').length).toBeGreaterThan(0)
     expect(screen.getAllByText('SOL/USD').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('TSLA').length).toBeGreaterThan(0)
+  })
+
+  it('does not list symbols the price poller never polls', () => {
+    // REGRESSION: NVDA/MSFT/GOOGL are in VALID_SYMBOLS (broker-side validation)
+    // but have no price feed — showing them pinned a fabricated constant price
+    // at +0.00% forever. The watchlist universe is exactly the polled set.
+    render(<DashboardView section="overview" />)
+    expect(screen.queryByText('NVDA')).not.toBeInTheDocument()
+    expect(screen.queryByText('MSFT')).not.toBeInTheDocument()
+    expect(screen.queryByText('GOOGL')).not.toBeInTheDocument()
   })
 
   it('shows honest empty states when the account is flat', () => {
