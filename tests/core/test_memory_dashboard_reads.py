@@ -127,3 +127,25 @@ def test_memory_proposals_have_unique_ids_and_applied_rows_are_not_pending():
     assert len(ids) == len(set(ids)), "each proposal must have its own identity"
     audit = next(r for r in rows if r[FieldName.ID] == "msg-audit")
     assert audit["status"] == ProposalStatus.APPLIED
+
+
+def test_grade_history_views_exclude_signal_accuracy_rows():
+    """Memory mode must apply the same grade-history filter as the DB path:
+    SignalGenerator's per-signal accuracy rows share grade_history but are not
+    trade grades, and leaked into /dashboard/grades and the learning panel."""
+    from api.constants import GradeType
+
+    store = InMemoryStore()
+    store.add_grade({FieldName.TRACE_ID: "g-overall", FieldName.SCORE: 0.8})
+    store.add_grade(
+        {
+            FieldName.TRACE_ID: "g-signal",
+            FieldName.GRADE_TYPE: GradeType.ACCURACY,
+            FieldName.SCORE: 0.6,
+        }
+    )
+
+    overall = store.get_overall_grades(limit=10)
+    assert [g[FieldName.TRACE_ID] for g in overall] == ["g-overall"]
+    snapshot = store.dashboard_fallback_snapshot()
+    assert [g[FieldName.TRACE_ID] for g in snapshot[FieldName.LEARNING_EVENTS]] == ["g-overall"]

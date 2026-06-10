@@ -94,25 +94,13 @@ class MetricsAggregator:
         }
 
     def _memory_paired_pnl(self) -> dict[str, Any]:
-        store = get_runtime_store()
-        closed_trades = list(reversed(store.trade_feed[-100:]))
-        stats = closed_trade_stats(closed_trades)
-        open_positions = list(store.positions.values())
-        unrealized_pnl = sum(
-            float(position.get(FieldName.UNREALIZED_PNL) or 0.0) for position in open_positions
-        )
+        # Delegate to the store's canonical computation — it marks open
+        # positions to market and windows closed trades the same way every
+        # other memory-mode PnL read path does. A private re-implementation
+        # here used the stale fill-time unrealized PnL and a different trade
+        # source, so this endpoint disagreed with /pnl whenever it was hit.
         return {
-            FieldName.CLOSED_TRADES: closed_trades,
-            FieldName.OPEN_POSITIONS: open_positions,
-            "summary": {
-                FieldName.REALIZED_PNL: round(stats.realized_pnl, 8),
-                "unrealized_pnl": round(unrealized_pnl, 8),
-                FieldName.TOTAL_PNL: round(stats.realized_pnl + unrealized_pnl, 8),
-                FieldName.CLOSED_TRADES: stats.closed,
-                FieldName.WINNING_TRADES: stats.winning,
-                FieldName.WIN_RATE_PERCENT: round(stats.win_rate * 100, 2),
-                FieldName.OPEN_POSITIONS: len(open_positions),
-            },
+            **get_runtime_store().paired_pnl_payload(),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": Source.IN_MEMORY,
         }

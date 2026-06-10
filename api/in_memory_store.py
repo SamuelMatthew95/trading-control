@@ -22,6 +22,7 @@ from api.constants import (
     AGENT_STRATEGY_PROPOSER,
     DEFAULT_PAPER_CASH,
     FieldName,
+    GradeType,
     LogType,
 )
 from api.services.metrics_calc import closed_trade_stats, win_rate_from_counts
@@ -323,6 +324,23 @@ class InMemoryStore:
         safe_limit = max(1, min(limit, 200))
         return list(reversed(self.grade_history[-safe_limit:]))
 
+    def get_overall_grades(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Grade rows for the grade-history / learning views — overall/untyped only.
+
+        SignalGenerator writes per-signal ``GradeType.ACCURACY`` rows into the
+        same ``grade_history`` list. The DB read path filters those out
+        (``log_type=GRADE`` rows are GradeAgent-only), so the memory path must
+        apply the same rule or the two modes show different "grade history"
+        semantics. Single source for that filter.
+        """
+        safe_limit = max(1, min(limit, 200))
+        rows = [
+            g
+            for g in self.grade_history
+            if g.get(FieldName.GRADE_TYPE) in (None, GradeType.OVERALL)
+        ]
+        return list(reversed(rows[-safe_limit:]))
+
     def add_event(self, event_payload: dict[str, Any]) -> dict[str, Any]:
         payload = dict(event_payload)
         payload.setdefault(FieldName.TIMESTAMP, time.time())
@@ -510,7 +528,7 @@ class InMemoryStore:
             FieldName.DAILY_PNL: round(realized_pnl, 2),
             FieldName.DAILY_CHANGE_PCT: daily_change_pct,
             FieldName.AGENT_LOGS: list(reversed(self.agent_logs[-50:])),
-            FieldName.LEARNING_EVENTS: list(reversed(self.grade_history[-20:])),
+            FieldName.LEARNING_EVENTS: self.get_overall_grades(limit=20),
             FieldName.PROPOSALS: [
                 e
                 for e in reversed(self.event_history[-100:])

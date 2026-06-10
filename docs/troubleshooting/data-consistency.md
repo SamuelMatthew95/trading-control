@@ -289,3 +289,22 @@ payload-bearing event_history row + a payload-less agent_logs mirror), and
 
 **Regression tests:** `tests/core/test_memory_dashboard_reads.py`,
 `tests/core/test_in_memory_store.py::test_decision_dedup_keys_are_bounded`
+
+## Stale duplicate read paths removed (proposals payloads, paired PnL, grade filter)
+
+**Symptoms / fixes (one sweep):**
+- `api/services/dashboard/proposals.py` carried near-verbatim dead copies of
+  `get_learning_proposals_payload` / `update_proposal_status_payload` missing
+  the approve→republish bridge and the events-table fallback — one wrong
+  import away from silently regressing approval. Deleted; `prompt_os.py` now
+  imports the routed implementation from `dashboard/learning.py`.
+- `MetricsAggregator._memory_paired_pnl` re-implemented paired PnL from
+  `trade_feed` with the stale fill-time unrealized value, disagreeing with
+  every other memory PnL path. Now delegates to the canonical
+  `InMemoryStore.paired_pnl_payload()`.
+- Memory-mode grade history mixed SignalGenerator's per-signal ACCURACY rows
+  into `/dashboard/grades` and the learning-events panel (the DB path filters
+  to GradeAgent rows). New single-source filter
+  `InMemoryStore.get_overall_grades()` applies the same rule in memory mode.
+
+**Regression test:** `tests/core/test_memory_dashboard_reads.py::test_grade_history_views_exclude_signal_accuracy_rows`

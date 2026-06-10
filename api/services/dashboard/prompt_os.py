@@ -30,7 +30,7 @@ from api.constants import (
 from api.observability import log_structured
 from api.services.agents.prompts import DECISION_OUTPUT_CONTRACT, SYSTEM_CONSTITUTION_PROMPT
 from api.services.dashboard.control import list_challengers_payload
-from api.services.dashboard.proposals import get_learning_proposals_payload
+from api.services.dashboard.learning import get_learning_proposals_payload
 from api.services.prompt_assembly import build_runtime_prompt
 from api.services.strategy_registry import get_strategy_registry
 from api.services.tool_registry import ToolMetadata, get_tool_registry

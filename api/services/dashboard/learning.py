@@ -76,7 +76,7 @@ async def get_grade_history_payload(limit: int) -> dict[str, Any]:
     """Get recent agent grade history from agent_grades table and agent_logs."""
     if not is_db_available():
         store = get_runtime_store()
-        grades = store.get_grades(limit=limit)
+        grades = store.get_overall_grades(limit=limit)
         return {
             FieldName.GRADES: grades,
             FieldName.TOTAL: len(grades),
@@ -149,7 +149,7 @@ async def get_grade_history_payload(limit: int) -> dict[str, Any]:
         if is_db_available():
             raise HTTPException(status_code=500, detail="Internal server error") from None
         store = get_runtime_store()
-        grades = store.get_grades(limit=limit)
+        grades = store.get_overall_grades(limit=limit)
         return {
             FieldName.GRADES: grades,
             FieldName.TOTAL: len(grades),
