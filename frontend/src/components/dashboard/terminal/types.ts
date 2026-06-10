@@ -4,12 +4,14 @@ export interface PricePoint {
   p: number
 }
 
-/** A watchlist row built from real prices + accumulated history. */
+/** A watchlist row built from real prices + real stream history.
+ *  price/changePct are null until live data exists — rendered as '--',
+ *  never a fabricated number. */
 export interface WatchRow {
   sym: string
   name: string
-  price: number
-  changePct: number
+  price: number | null
+  changePct: number | null
   spark: number[]
 }
 
@@ -23,6 +25,9 @@ export interface SymbolView {
   low: number
   changeAbs: number
   changePct: number
+  /** Real L1 best bid/ask (two-sided only); null when no live quote. */
+  bid: number | null
+  ask: number | null
   points: PricePoint[]
 }
 
