@@ -3,31 +3,30 @@
  *
  * Everything the terminal shows is real: prices come from the live price stream
  * (the PricePoller, via the Zustand store), positions/P&L come from the paper
- * broker the agents trade through, and the chart/sparklines are built from the
- * real price history accumulated this session (see usePriceHistory).
+ * broker the agents trade through, and the chart/sparklines render the real
+ * price history from the market_events stream.
  *
- * There is no synthetic market data and no manual order entry — the autonomous
- * agents place orders, and this screen observes them.
+ * There is no synthetic market data, no fallback prices, and no manual order
+ * entry — the autonomous agents place orders, and this screen observes them.
+ * A symbol with no live data shows '--', never a fabricated number.
  */
 
 export interface UniverseSymbol {
   sym: string
   name: string
-  /** Display fallback shown only until the first live price streams in. */
-  base: number
 }
 
-/** The symbols the platform actually monitors (api.constants.VALID_SYMBOLS):
- *  crypto + equities. Order matches the trading universe. */
+/** Exactly the symbols the price poller streams (api/workers/price_poller.py
+ *  SYMBOLS): crypto 24/7 + equities during market hours. Never list a symbol
+ *  here that has no feed — a row pinned to a made-up constant price is worse
+ *  than no row at all. */
 export const REAL_UNIVERSE: UniverseSymbol[] = [
-  { sym: 'BTC/USD', name: 'Bitcoin', base: 67000 },
-  { sym: 'ETH/USD', name: 'Ethereum', base: 3500 },
-  { sym: 'SOL/USD', name: 'Solana', base: 145 },
-  { sym: 'SPY', name: 'S&P 500 ETF', base: 510 },
-  { sym: 'AAPL', name: 'Apple Inc.', base: 178 },
-  { sym: 'NVDA', name: 'NVIDIA Corp.', base: 875 },
-  { sym: 'MSFT', name: 'Microsoft Corp.', base: 430 },
-  { sym: 'GOOGL', name: 'Alphabet Inc.', base: 178 },
+  { sym: 'BTC/USD', name: 'Bitcoin' },
+  { sym: 'ETH/USD', name: 'Ethereum' },
+  { sym: 'SOL/USD', name: 'Solana' },
+  { sym: 'AAPL', name: 'Apple Inc.' },
+  { sym: 'TSLA', name: 'Tesla Inc.' },
+  { sym: 'SPY', name: 'S&P 500 ETF' },
 ]
 
 export const UNIVERSE_SYMBOLS: string[] = REAL_UNIVERSE.map((u) => u.sym)
@@ -38,10 +37,6 @@ export function universeName(sym: string): string {
   return BY_SYMBOL.get(sym)?.name ?? sym
 }
 
-export function universeBasePrice(sym: string): number {
-  return BY_SYMBOL.get(sym)?.base ?? 0
-}
-
 /** Live price for a symbol from the store, or null when none has streamed yet. */
 export function liveStorePrice(prices: Record<string, unknown> | undefined, sym: string): number | null {
   const row = prices?.[sym] as { price?: unknown } | undefined
@@ -49,16 +44,16 @@ export function liveStorePrice(prices: Record<string, unknown> | undefined, sym:
   return Number.isFinite(v) && v > 0 ? v : null
 }
 
-/** Live price if streamed, else the symbol's display base. */
-export function resolvePrice(prices: Record<string, unknown> | undefined, sym: string): number {
-  return liveStorePrice(prices, sym) ?? universeBasePrice(sym)
-}
-
-/** Previous-poll price for a symbol, used to seed an initial chart segment. */
-export function previousStorePrice(prices: Record<string, unknown> | undefined, sym: string): number | null {
-  const row = prices?.[sym] as { previousPrice?: unknown } | undefined
-  const v = typeof row?.previousPrice === 'number' ? row.previousPrice : Number(row?.previousPrice)
-  return Number.isFinite(v) && v > 0 ? v : null
+/** Real L1 best bid/ask for a symbol, or null unless the quote is two-sided. */
+export function liveStoreQuote(
+  prices: Record<string, unknown> | undefined,
+  sym: string,
+): { bid: number; ask: number } | null {
+  const row = prices?.[sym] as { bid?: unknown; ask?: unknown } | undefined
+  const bid = Number(row?.bid)
+  const ask = Number(row?.ask)
+  if (Number.isFinite(bid) && bid > 0 && Number.isFinite(ask) && ask > 0) return { bid, ask }
+  return null
 }
 
 // ── Formatters (numeric display is always tabular mono) ──────────────────────
