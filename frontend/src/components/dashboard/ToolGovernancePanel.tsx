@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 
 import { API_ENDPOINTS, apiFetch } from '@/lib/apiClient'
 import { LEARNING_REFRESH_MS } from '@/lib/grade-colors'
-import { cardClass, sectionTitleClass, mutedClass } from '@/lib/dashboard-styles'
+import { cardClass, errorTextClass, mutedClass, sectionTitleClass } from '@/lib/dashboard-styles'
 import { sentimentTextClass } from '@/lib/design/sentiment'
 import { cn } from '@/lib/utils'
 
@@ -250,7 +250,7 @@ export function ToolGovernancePanel() {
       <div className="mb-1 flex items-center justify-between">
         <p className={sectionTitleClass}>Tool Governance · Runtime Registry</p>
         {error ? (
-          <span className="font-mono text-xs text-danger">err: {error}</span>
+          <span className={errorTextClass}>err: {error}</span>
         ) : (
           <span className="font-mono text-xs text-slate-400">
             {enabledCount}/{tools.length} enabled

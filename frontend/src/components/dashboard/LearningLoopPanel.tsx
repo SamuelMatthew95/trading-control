@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 
 import { API_ENDPOINTS, apiFetch } from '@/lib/apiClient'
+import { errorTextClass } from '@/lib/dashboard-styles'
 import { LEARNING_REFRESH_MS, gradeColor } from '@/lib/grade-colors'
 import { agentDisplayName } from '@/constants/agents'
 
@@ -190,7 +191,7 @@ export function LearningLoopPanel() {
           Learning Loop
         </p>
         {error ? (
-          <span className="text-xs font-mono text-danger">err: {error}</span>
+          <span className={errorTextClass}>err: {error}</span>
         ) : (
           <span className="text-xs text-slate-400">
             {state?.timestamp ? new Date(state.timestamp).toLocaleTimeString() : '--'}

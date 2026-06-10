@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 
 import { API_ENDPOINTS, apiFetch } from '@/lib/apiClient'
 import { LEARNING_REFRESH_MS } from '@/lib/grade-colors'
-import { cardClass, sectionTitleClass, mutedClass } from '@/lib/dashboard-styles'
+import { cardClass, errorTextClass, mutedClass, sectionTitleClass } from '@/lib/dashboard-styles'
 import { sentimentTextClass } from '@/lib/design/sentiment'
 import { cn } from '@/lib/utils'
 
@@ -242,7 +242,7 @@ export function LiveReasoningPanel() {
       <div className="mb-1 flex items-center justify-between">
         <p className={sectionTitleClass}>Live Reasoning</p>
         {error ? (
-          <span className="font-mono text-xs text-danger">err: {error}</span>
+          <span className={errorTextClass}>err: {error}</span>
         ) : (
           <span className={cn('flex items-center gap-1.5 font-mono text-xs', indicator.text)}>
             <span className="relative flex h-2 w-2">

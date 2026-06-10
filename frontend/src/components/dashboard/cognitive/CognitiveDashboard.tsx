@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
-import { cardClass } from '@/lib/dashboard-styles'
+import { cardClass, chipClass, sectionTitleClass } from '@/lib/dashboard-styles'
 import { PromptEvolutionPanel } from '@/components/dashboard/PromptEvolutionPanel'
 import { ToolGovernancePanel } from '@/components/dashboard/ToolGovernancePanel'
 import {
@@ -63,9 +63,8 @@ type TabId = (typeof TABS)[number]['id']
 
 // Shared dual-theme surface (light base + dark "console" variant).
 const card = cardClass
-const chip =
-  'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium'
-const label = 'text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400'
+const chip = chipClass
+const label = sectionTitleClass
 const pageShell =
   'min-h-screen bg-slate-100 px-3 py-4 text-slate-900 dark:bg-slate-950 dark:text-slate-100 sm:px-4'
 

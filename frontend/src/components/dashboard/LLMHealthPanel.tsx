@@ -1,6 +1,7 @@
 'use client'
 
 import { TONE_DOT, TONE_TEXT, type Tone } from '@/lib/design/sentiment'
+import { cardClass, monoValueClass, mutedClass, sectionTitleClass } from '@/lib/dashboard-styles'
 import {
   LLMCallResult,
   LLMStatus,
@@ -75,10 +76,11 @@ function CallDot({ call }: { call: CallRecord }) {
   )
 }
 
-const CARD = 'rounded-xl border border-slate-300 bg-white p-4 text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100'
-const MUTED = 'text-xs text-slate-500 dark:text-slate-400'
-const LABEL = 'text-xs font-semibold uppercase tracking-widest font-sans text-slate-500 dark:text-slate-400'
-const VALUE = 'font-mono text-slate-700 dark:text-slate-300'
+// Shared dashboard recipes (single source in lib/dashboard-styles).
+const CARD = cardClass
+const MUTED = mutedClass
+const LABEL = sectionTitleClass
+const VALUE = monoValueClass
 
 function successRateColor(pct: number): string {
   if (pct >= 80) return 'font-semibold text-success'
