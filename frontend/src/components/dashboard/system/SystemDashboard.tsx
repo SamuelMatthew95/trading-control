@@ -14,371 +14,29 @@ import {
   consolePanelClass,
   sectionTitleClass,
 } from "@/lib/dashboard-styles";
-import {
-  ALL_AGENT_NAMES,
-  agentDisplayName,
-  canonicalAgentKey,
-} from "@/constants/agents";
-import type {
-  AgentLog,
-  AgentHeartbeat,
-  Notification,
-  Order,
-  Proposal,
-} from "@/stores/useDashboardStore";
-
 import { computePipeline } from "./helpers";
-import type { StatusTone, SystemDashboardProps } from "./types";
+import type { SystemDashboardProps } from "./types";
 
-type DecisionAction = "BUY" | "SELL" | "SKIP" | "HOLD";
-
-type DecisionFeedItem = {
-  id: string;
-  timestamp: string | null;
-  action: DecisionAction;
-  symbol: string;
-  confidence: number | null;
-  reason: string[];
-  traceId: string | null;
-  source: "decision" | "order" | "notification";
-};
-
-type HealthIndicator = {
-  label: string;
-  tone: StatusTone;
-  value: string;
-};
-
-type AgentActivityRow = {
-  key: string;
-  label: string;
-  status?: AgentHeartbeat;
-  relatedLog?: AgentLog;
-};
-
-const SURFACED_DECISION_LIMIT = 48;
-const TRACE_COLUMNS = [
-  "Signal",
-  "Reasoning",
-  "Risk Evaluation",
-  "Position Sizing",
-  "Execution",
-  "Outcome",
-] as const;
-
-// Dual-theme surface classes shared with the rest of the dashboard. Light is the
-// base utility; the dark "operator console" look is the `dark:` variant so the
-// System page renders coherently in either theme (next-themes / ThemeToggle).
-const PANEL_CLASS = consolePanelClass;
-const PANEL_HEADER_CLASS = consoleHeaderClass;
-const PANEL_TITLE_CLASS = sectionTitleClass;
-const LABEL_CLASS =
-  "text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400";
-const VALUE_CLASS =
-  "font-mono text-sm tabular-nums text-slate-900 dark:text-slate-100";
-const ROW_DIVIDER_CLASS = "border-slate-200 dark:border-slate-800/70";
-
-function parseTimestamp(value: unknown): Date | null {
-  if (value == null) return null;
-  if (value instanceof Date)
-    return Number.isNaN(value.getTime()) ? null : value;
-  if (typeof value === "number") {
-    if (!Number.isFinite(value) || value <= 0) return null;
-    const date = new Date(value > 10_000_000_000 ? value : value * 1000);
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-  const raw = String(value).trim();
-  if (!raw) return null;
-  const date = new Date(raw);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function timestampMs(value: unknown): number {
-  return parseTimestamp(value)?.getTime() ?? 0;
-}
-
-// Start of the current UTC trading day. Used to scope the Daily PnL headline to
-// today's orders instead of summing the whole recent-orders window.
-function startOfUtcDayMs(now: number): number {
-  const date = new Date(now);
-  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-}
-
-function formatClock(value: string | null): string {
-  const date = parseTimestamp(value);
-  if (!date) return "--:--:--";
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).format(date);
-}
-
-function formatAge(secondsAgo: number | null | undefined): string {
-  const seconds = toFiniteNumber(secondsAgo);
-  if (seconds == null || seconds < 0) return "--";
-  if (seconds < 60) return `${Math.round(seconds)}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  return `${Math.floor(minutes / 60)}h ago`;
-}
-
-function normalizeAction(value: unknown): DecisionAction {
-  const raw = String(value ?? "").toUpperCase();
-  if (raw === "BUY" || raw === "LONG") return "BUY";
-  if (raw === "SELL" || raw === "SHORT" || raw === "EXIT") return "SELL";
-  if (raw === "SKIP" || raw === "REJECT") return "SKIP";
-  return "HOLD";
-}
-
-function compactReason(value: unknown, fallback: string): string[] {
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => String(item).trim())
-      .filter(Boolean)
-      .slice(0, 4);
-  }
-  const text = String(value ?? "").trim();
-  if (!text) return [fallback];
-  return text
-    .split(/\n|;|•|\. /)
-    .map((part) => part.replace(/^-\s*/, "").trim())
-    .filter(Boolean)
-    .slice(0, 4);
-}
-
-function statusToneClass(tone: StatusTone): string {
-  switch (tone) {
-    case "ok":
-      return "bg-success ring-success/30";
-    case "warn":
-      return "bg-warning ring-warning/30";
-    case "err":
-      return "bg-danger ring-danger/30";
-    default:
-      return "bg-slate-400 ring-slate-400/30 dark:bg-slate-500 dark:ring-slate-500/30";
-  }
-}
-
-function actionClass(action: DecisionAction): string {
-  switch (action) {
-    case "BUY":
-      return "text-success bg-success/10 ring-success/30";
-    case "SELL":
-      return "text-danger bg-danger/10 ring-danger/30";
-    case "SKIP":
-      return "text-warning bg-warning/10 ring-warning/30";
-    default:
-      return "text-slate-600 bg-slate-400/10 ring-slate-400/30 dark:text-slate-300 dark:bg-slate-400/10";
-  }
-}
-
-function resolveHealthTone(status: string | null | undefined): StatusTone {
-  const value = String(status ?? "").toLowerCase();
-  if (
-    ["running", "live", "active", "ok", "healthy", "connected"].some((token) =>
-      value.includes(token),
-    )
-  )
-    return "ok";
-  if (
-    ["failed", "error", "down", "offline"].some((token) =>
-      value.includes(token),
-    )
-  )
-    return "err";
-  if (
-    ["stale", "warn", "degraded", "idle"].some((token) => value.includes(token))
-  )
-    return "warn";
-  return "neutral";
-}
-
-function deriveDecisionFeed({
-  agentLogs,
-  notifications,
-  orders,
-}: {
-  agentLogs: AgentLog[];
-  notifications: Notification[];
-  orders: Order[];
-}): DecisionFeedItem[] {
-  const fromLogs = agentLogs
-    .filter((log) => {
-      const event = String(log.event_type ?? log.stream ?? "").toLowerCase();
-      return (
-        event.includes("decision") ||
-        log.action != null ||
-        log.symbol != null ||
-        log.primary_edge != null
-      );
-    })
-    .map(
-      (log, index): DecisionFeedItem => ({
-        id: `log-${String(log.id ?? log.trace_id ?? index)}`,
-        timestamp: String(log.timestamp ?? log.created_at ?? ""),
-        action: normalizeAction(log.action ?? log.event_type),
-        symbol: String(
-          log.symbol ??
-            (log.data as Record<string, unknown> | null)?.symbol ??
-            "SYSTEM",
-        ),
-        confidence: toFiniteNumber(log.confidence),
-        reason: compactReason(
-          log.primary_edge ?? log.message,
-          "Agent recorded a decision event.",
-        ),
-        traceId: log.trace_id ? String(log.trace_id) : null,
-        source: "decision",
-      }),
-    );
-
-  const fromOrders = orders.map(
-    (order, index): DecisionFeedItem => ({
-      id: `order-${String(order.order_id ?? index)}`,
-      timestamp: String(
-        order.timestamp ?? order.filled_at ?? order.created_at ?? "",
-      ),
-      action: normalizeAction(order.side === "short" ? "SELL" : order.side),
-      symbol: String(order.symbol ?? "ORDER"),
-      confidence: toFiniteNumber(order.confidence),
-      reason: compactReason(
-        order.reason ?? order.primary_edge,
-        order.pnl != null
-          ? `Execution updated P&L to ${signedUSD(order.pnl)}.`
-          : "Execution state changed.",
-      ),
-      traceId: order.trace_id ? String(order.trace_id) : null,
-      source: "order",
-    }),
-  );
-
-  const fromNotifications = notifications
-    .filter(
-      (notification) =>
-        notification.action || notification.symbol || notification.trace_id,
-    )
-    .map(
-      (notification): DecisionFeedItem => ({
-        id: `notification-${notification.id}`,
-        timestamp: notification.timestamp,
-        action: normalizeAction(
-          notification.action ?? notification.notification_type,
-        ),
-        symbol: notification.symbol ?? "SYSTEM",
-        confidence: null,
-        reason: compactReason(
-          notification.message,
-          "Operator notification emitted.",
-        ),
-        traceId: notification.trace_id ?? null,
-        source: "notification",
-      }),
-    );
-
-  return [...fromLogs, ...fromOrders, ...fromNotifications]
-    .sort((a, b) => timestampMs(b.timestamp) - timestampMs(a.timestamp))
-    .slice(0, SURFACED_DECISION_LIMIT);
-}
-
-// Build one activity row per canonical agent (plus any extra agent seen in live
-// statuses), matched to heartbeats and logs by canonical key. This replaces the
-// previous hardcoded news/macro/proposal/risk labels that matched no real agent.
-function deriveAgentActivity({
-  agentStatuses,
-  agentLogs,
-}: {
-  agentStatuses: AgentHeartbeat[];
-  agentLogs: AgentLog[];
-}): AgentActivityRow[] {
-  const canonicalStatuses = agentStatuses.map((status) => ({
-    key: canonicalAgentKey(String(status.name ?? "")),
-    status,
-  }));
-
-  const keys: string[] = [...ALL_AGENT_NAMES];
-  canonicalStatuses.forEach(({ key }) => {
-    if (key && !keys.includes(key)) keys.push(key);
-  });
-
-  return keys.map((key) => {
-    const status = canonicalStatuses.find((entry) => entry.key === key)?.status;
-    const relatedLog = agentLogs.find(
-      (log) =>
-        canonicalAgentKey(String(log.agent_name ?? log.agent ?? "")) === key,
-    );
-    return {
-      key,
-      label: agentDisplayName(key),
-      status,
-      relatedLog,
-    };
-  });
-}
-
-function proposalLabel(proposal: Proposal): string {
-  return (
-    proposal.content ||
-    proposal.strategy_name ||
-    proposal.proposal_type.replace(/_/g, " ")
-  );
-}
-
-function KpiStrip({
-  label,
-  value,
-  tone = "neutral",
-}: {
-  label: string;
-  value: string;
-  tone?: StatusTone;
-}) {
-  return (
-    <div
-      className={cn(
-        "border-b px-3 py-2 last:border-b-0",
-        ROW_DIVIDER_CLASS,
-      )}
-    >
-      <p className={LABEL_CLASS}>{label}</p>
-      <p
-        className={cn(
-          VALUE_CLASS,
-          tone === "ok" && "text-success",
-          tone === "warn" && "text-warning",
-          tone === "err" && "text-danger",
-        )}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function StatePill({ label, tone, value }: HealthIndicator) {
-  return (
-    <div
-      className={cn(
-        "flex items-center justify-between gap-3 border-b px-3 py-2 last:border-b-0",
-        ROW_DIVIDER_CLASS,
-      )}
-    >
-      <div className="flex items-center gap-2">
-        <span
-          className={cn("h-2 w-2 rounded-full ring-4", statusToneClass(tone))}
-          aria-hidden="true"
-        />
-        <span className="text-xs font-medium text-slate-700 dark:text-slate-200">
-          {label}
-        </span>
-      </div>
-      <span className="font-mono text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        {value}
-      </span>
-    </div>
-  );
-}
+import {
+  TRACE_COLUMNS,
+  deriveAgentActivity,
+  deriveDecisionFeed,
+  formatAge,
+  formatClock,
+  proposalLabel,
+  resolveHealthTone,
+  startOfUtcDayMs,
+  timestampMs,
+} from "./derive";
+import {
+  KpiStrip,
+  LABEL_CLASS,
+  ROW_DIVIDER_CLASS,
+  StatePill,
+  type HealthIndicator,
+  actionClass,
+  statusToneClass,
+} from "./primitives";
 
 export function SystemDashboard(props: SystemDashboardProps) {
   const pipeline = useMemo(
@@ -586,11 +244,11 @@ export function SystemDashboard(props: SystemDashboardProps) {
         {/* self-start: size this card to its single KPI row instead of letting
             the grid stretch it to match the taller Operator Controls panel,
             which left a large empty band of card below the metrics. */}
-        <div className={cn(PANEL_CLASS, "self-start")}>
-          <div className={PANEL_HEADER_CLASS}>
+        <div className={cn(consolePanelClass, "self-start")}>
+          <div className={consoleHeaderClass}>
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className={PANEL_TITLE_CLASS}>Command Center</p>
+                <p className={sectionTitleClass}>Command Center</p>
                 <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-900 dark:text-white">
                   Decisions, risk, execution
                 </h1>
@@ -634,9 +292,9 @@ export function SystemDashboard(props: SystemDashboardProps) {
             />
           </div>
         </div>
-        <div className={PANEL_CLASS} aria-label="Operational controls">
-          <div className={PANEL_HEADER_CLASS}>
-            <p className={PANEL_TITLE_CLASS}>Operator controls</p>
+        <div className={consolePanelClass} aria-label="Operational controls">
+          <div className={consoleHeaderClass}>
+            <p className={sectionTitleClass}>Operator controls</p>
           </div>
           <div>
             {healthIndicators.map((indicator) => (
@@ -647,14 +305,14 @@ export function SystemDashboard(props: SystemDashboardProps) {
       </section>
 
       <section className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(420px,0.85fr)]">
-        <div className={PANEL_CLASS}>
+        <div className={consolePanelClass}>
           <div
             className={cn(
-              PANEL_HEADER_CLASS,
+              consoleHeaderClass,
               "flex items-center justify-between gap-2",
             )}
           >
-            <p className={PANEL_TITLE_CLASS}>Live Decision Feed</p>
+            <p className={sectionTitleClass}>Live Decision Feed</p>
             <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
               Windowed {decisionFeed.length}
             </span>
@@ -725,9 +383,9 @@ export function SystemDashboard(props: SystemDashboardProps) {
           </div>
         </div>
 
-        <div className={PANEL_CLASS}>
-          <div className={PANEL_HEADER_CLASS}>
-            <p className={PANEL_TITLE_CLASS}>Trace Explorer</p>
+        <div className={consolePanelClass}>
+          <div className={consoleHeaderClass}>
+            <p className={sectionTitleClass}>Trace Explorer</p>
           </div>
           <div className="p-3">
             {selectedDecision ? (
@@ -788,9 +446,9 @@ export function SystemDashboard(props: SystemDashboardProps) {
       </section>
 
       <section className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-        <div className={PANEL_CLASS}>
-          <div className={PANEL_HEADER_CLASS}>
-            <p className={PANEL_TITLE_CLASS}>Cognitive Evolution</p>
+        <div className={consolePanelClass}>
+          <div className={consoleHeaderClass}>
+            <p className={sectionTitleClass}>Cognitive Evolution</p>
           </div>
           <div className={cn("divide-y", "divide-slate-200 dark:divide-slate-800/70")}>
             <KpiStrip
@@ -840,9 +498,9 @@ export function SystemDashboard(props: SystemDashboardProps) {
           </div>
         </div>
 
-        <div className={PANEL_CLASS}>
-          <div className={PANEL_HEADER_CLASS}>
-            <p className={PANEL_TITLE_CLASS}>Agent Activity</p>
+        <div className={consolePanelClass}>
+          <div className={consoleHeaderClass}>
+            <p className={sectionTitleClass}>Agent Activity</p>
           </div>
           <div
             className={cn(
@@ -902,9 +560,9 @@ export function SystemDashboard(props: SystemDashboardProps) {
           </div>
         </div>
 
-        <div className={PANEL_CLASS}>
-          <div className={PANEL_HEADER_CLASS}>
-            <p className={PANEL_TITLE_CLASS}>System Health</p>
+        <div className={consolePanelClass}>
+          <div className={consoleHeaderClass}>
+            <p className={sectionTitleClass}>System Health</p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1">
             {systemHealth.map((indicator) => (
