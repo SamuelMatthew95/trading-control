@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import type { TradeFeedItem } from '@/stores/useCodexStore'
+import type { TradeFeedItem } from '@/stores/useDashboardStore'
 
-const { mockStore, mockUseCodexStore } = vi.hoisted(() => {
+const { mockStore, mockUseDashboardStore } = vi.hoisted(() => {
   const store: Record<string, unknown> = {
     wsConnected: false,
     killSwitchActive: false,
@@ -38,18 +38,18 @@ const { mockStore, mockUseCodexStore } = vi.hoisted(() => {
     hydrateDashboard: vi.fn(),
   }
   // Honour an optional selector so slice-reading consumers (useLivePnl /
-  // useLivePositions via useCodexStore((s) => s.orders)) get the slice, not the
+  // useLivePositions via useDashboardStore((s) => s.orders)) get the slice, not the
   // whole store — matches the real zustand hook and DashboardView.test.
   const hook = Object.assign(
     (selector?: (s: typeof store) => unknown) =>
       typeof selector === 'function' ? selector(store) : store,
     { getState: () => store },
   )
-  return { mockStore: store, mockUseCodexStore: hook }
+  return { mockStore: store, mockUseDashboardStore: hook }
 })
 
-vi.mock('@/stores/useCodexStore', () => ({
-  useCodexStore: mockUseCodexStore,
+vi.mock('@/stores/useDashboardStore', () => ({
+  useDashboardStore: mockUseDashboardStore,
 }))
 
 beforeAll(() => {
@@ -111,20 +111,20 @@ describe('TradeFeed panel', () => {
     expect(screen.getByText('BUY')).toBeInTheDocument()
   })
 
-  it('shows positive P&L with green styling', () => {
+  it('shows positive P&L with the success token', () => {
     mockStore.tradeFeed = [makeTrade({ pnl: 50, pnl_percent: 1.16, side: 'buy' })]
     render(<DashboardView section="trading" />)
     const pnlEl = screen.getByText(/\+\$50\.00/)
     expect(pnlEl).toBeInTheDocument()
-    expect(pnlEl.className).toMatch(/emerald/)
+    expect(pnlEl.className).toMatch(/text-success/)
   })
 
-  it('shows negative P&L with red styling', () => {
+  it('shows negative P&L with the danger token', () => {
     mockStore.tradeFeed = [makeTrade({ pnl: -20, pnl_percent: -0.47, side: 'sell' })]
     render(<DashboardView section="trading" />)
     const pnlEl = screen.getByText(/-\$20\.00/)
     expect(pnlEl).toBeInTheDocument()
-    expect(pnlEl.className).toMatch(/rose/)
+    expect(pnlEl.className).toMatch(/text-danger/)
   })
 
   it('renders grade badge when grade is set', () => {

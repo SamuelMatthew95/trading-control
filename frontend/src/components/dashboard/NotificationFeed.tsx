@@ -13,15 +13,15 @@ import {
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { parseTimestampMs } from '@/lib/formatters'
-import type { Notification } from '@/stores/useCodexStore'
+import { mutedClass } from '@/lib/dashboard-styles'
+import { formatTimeAgo, parseTimestampMs } from '@/lib/formatters'
+import type { Notification } from '@/stores/useDashboardStore'
 import { NOTIFICATION_FALLBACKS } from '@/constants/notifications'
 import { groupNotifications } from '@/lib/notification-grouping'
 
 const cardClass =
   'rounded-lg border border-slate-300 bg-white p-4 transition-colors duration-150 hover:border-slate-400 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5'
 const sectionTitleClass = 'text-xs font-semibold uppercase font-sans text-slate-500 dark:text-slate-400'
-const mutedClass = 'text-xs font-sans text-slate-500 dark:text-slate-400'
 
 // The Redis-backed notifications list survives restarts, so without an age cap a
 // 3-day-old fill sits at the top of the feed and makes a live system look stale.
@@ -44,73 +44,75 @@ const iconByName: Record<string, ComponentType<{ className?: string }>> = {
   warning: AlertTriangle,
 }
 
-const toneStyles: Record<
-  string,
-  {
-    card: string
-    icon: string
-    badge: string
-    text: string
-    dot: string
-    border: string
-  }
-> = {
-  buy: {
-    card: 'border-emerald-500/40 bg-emerald-500/5 dark:border-emerald-500/30 dark:bg-emerald-500/5',
-    icon: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
-    badge: 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-    text: 'text-emerald-700 dark:text-emerald-300',
-    dot: 'bg-emerald-500',
-    border: 'border-l-emerald-500',
-  },
-  sell: {
-    card: 'border-rose-500/40 bg-rose-500/5 dark:border-rose-500/30 dark:bg-rose-500/5',
-    icon: 'bg-rose-500/15 text-rose-600 dark:text-rose-400',
-    badge: 'border border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300',
-    text: 'text-rose-700 dark:text-rose-300',
-    dot: 'bg-rose-500',
-    border: 'border-l-rose-500',
-  },
-  gain: {
-    card: 'border-emerald-500/40 bg-emerald-500/5 dark:border-emerald-500/30',
-    icon: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
-    badge: 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-    text: 'text-emerald-700 dark:text-emerald-300',
-    dot: 'bg-emerald-500',
-    border: 'border-l-emerald-500',
-  },
-  loss: {
-    card: 'border-rose-500/40 bg-rose-500/5 dark:border-rose-500/30',
-    icon: 'bg-rose-500/15 text-rose-600 dark:text-rose-400',
-    badge: 'border border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300',
-    text: 'text-rose-700 dark:text-rose-300',
-    dot: 'bg-rose-500',
-    border: 'border-l-rose-500',
-  },
-  critical: {
-    card: 'border-rose-600/50 bg-rose-500/8 dark:border-rose-600/40',
-    icon: 'bg-rose-500/15 text-rose-600 dark:text-rose-400',
-    badge: 'border border-rose-500/40 bg-rose-500/15 text-rose-700 dark:text-rose-300',
-    text: 'text-rose-700 dark:text-rose-300',
-    dot: 'bg-rose-600',
-    border: 'border-l-rose-600',
-  },
-  urgent: {
-    card: 'border-orange-500/40 bg-orange-500/5 dark:border-orange-500/30',
-    icon: 'bg-orange-500/15 text-orange-600 dark:text-orange-400',
-    badge: 'border border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300',
-    text: 'text-orange-700 dark:text-orange-300',
-    dot: 'bg-orange-500',
-    border: 'border-l-orange-500',
-  },
-  warning: {
-    card: 'border-amber-500/40 bg-amber-500/5 dark:border-amber-500/30',
-    icon: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
-    badge: 'border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300',
-    text: 'text-amber-700 dark:text-amber-300',
-    dot: 'bg-amber-500',
-    border: 'border-l-amber-500',
-  },
+interface NotificationToneStyle {
+  card: string
+  icon: string
+  badge: string
+  text: string
+  dot: string
+  border: string
+}
+
+/**
+ * Notification style recipes built on the semantic design tokens (class
+ * strings stay static literals so Tailwind's JIT can see them). The "strong"
+ * variants raise fill/border alpha one step so the severity ladder stays
+ * visually ranked (warning < urgent < critical) without leaving the token
+ * palette — light/dark parity comes from the tokens themselves.
+ */
+const SUCCESS_STYLE: NotificationToneStyle = {
+  card: 'border-success/40 bg-success/5',
+  icon: 'bg-success/15 text-success',
+  badge: 'border border-success/30 bg-success/10 text-success',
+  text: 'text-success',
+  dot: 'bg-success',
+  border: 'border-l-success',
+}
+
+const DANGER_STYLE: NotificationToneStyle = {
+  card: 'border-danger/40 bg-danger/5',
+  icon: 'bg-danger/15 text-danger',
+  badge: 'border border-danger/30 bg-danger/10 text-danger',
+  text: 'text-danger',
+  dot: 'bg-danger',
+  border: 'border-l-danger',
+}
+
+const DANGER_STRONG_STYLE: NotificationToneStyle = {
+  card: 'border-danger/50 bg-danger/15',
+  icon: 'bg-danger/15 text-danger',
+  badge: 'border border-danger/40 bg-danger/10 text-danger',
+  text: 'text-danger',
+  dot: 'bg-danger',
+  border: 'border-l-danger',
+}
+
+const WARNING_STYLE: NotificationToneStyle = {
+  card: 'border-warning/40 bg-warning/5',
+  icon: 'bg-warning/15 text-warning',
+  badge: 'border border-warning/30 bg-warning/10 text-warning',
+  text: 'text-warning',
+  dot: 'bg-warning',
+  border: 'border-l-warning',
+}
+
+const WARNING_STRONG_STYLE: NotificationToneStyle = {
+  card: 'border-warning/50 bg-warning/15',
+  icon: 'bg-warning/15 text-warning',
+  badge: 'border border-warning/40 bg-warning/10 text-warning',
+  text: 'text-warning',
+  dot: 'bg-warning',
+  border: 'border-l-warning',
+}
+
+const toneStyles: Record<string, NotificationToneStyle> = {
+  buy: SUCCESS_STYLE,
+  gain: SUCCESS_STYLE,
+  sell: DANGER_STYLE,
+  loss: DANGER_STYLE,
+  critical: DANGER_STRONG_STYLE,
+  urgent: WARNING_STRONG_STYLE,
+  warning: WARNING_STYLE,
   info: {
     card: 'border-slate-200 dark:border-slate-800',
     icon: 'bg-slate-500/10 text-slate-500',
@@ -129,29 +131,6 @@ function normalizeTone(value: unknown): string {
 function displayValue(value: unknown, fallback = '--'): string {
   if (value === null || value === undefined || value === '') return fallback
   return String(value)
-}
-
-/**
- * Relative-time label for a notification timestamp.
- *
- * Exported for regression testing. Routes through the shared `parseTimestampMs`
- * so epoch-seconds, epoch-ms, numeric strings, and ISO strings all parse. The
- * previous hand-rolled `Date.parse` could not parse a float epoch-seconds string
- * ("1780634112.7714157") and fell back to RETURNING THE RAW VALUE — which then
- * rendered verbatim as a broken-looking number in the panel header and rows.
- * Unparseable / missing now collapses to the '--' fallback instead.
- */
-export function formatRelativeTime(value?: string | number | null): string {
-  const ts = parseTimestampMs(value)
-  if (ts == null) return NOTIFICATION_FALLBACKS.emptyTimestamp
-  const diffSec = Math.floor((Date.now() - ts) / 1000)
-  if (diffSec < 5) return 'just now'
-  if (diffSec < 60) return `${diffSec}s ago`
-  const diffMin = Math.floor(diffSec / 60)
-  if (diffMin < 60) return `${diffMin}m ago`
-  const diffHr = Math.floor(diffMin / 60)
-  if (diffHr < 24) return `${diffHr}h ago`
-  return `${Math.floor(diffHr / 24)}d ago`
 }
 
 function NotificationEmptyState({ message }: { message: string }) {
@@ -191,7 +170,7 @@ export function NotificationFeed({
         </div>
         <div className="flex items-center gap-3">
           {lastTimestamp && (
-            <p className={mutedClass}>{formatRelativeTime(lastTimestamp)}</p>
+            <p className={mutedClass}>{formatTimeAgo(lastTimestamp)}</p>
           )}
           {onClearAll && liveNotifications.length > 0 && (
             <button
@@ -263,7 +242,7 @@ export function NotificationFeed({
                         </span>
                       )}
                       <time className={cn(mutedClass, 'shrink-0 tabular-nums')} title={notification.timestamp ?? undefined}>
-                        {formatRelativeTime(notification.timestamp)}
+                        {formatTimeAgo(notification.timestamp)}
                       </time>
                       {notification.trace_id && onSelectTrace && (
                         <button

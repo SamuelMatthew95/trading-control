@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 
 import { buildActivityTimeline } from '@/lib/activity-timeline'
 import { STREAM_EXECUTIONS, STREAM_MARKET_TICKS, STREAM_SIGNALS } from '@/constants/streams'
-import type { AgentLog, Notification, RecentEvent } from '@/stores/useCodexStore'
+import type { AgentLog, Notification, RecentEvent } from '@/stores/useDashboardStore'
 
 const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString()
 

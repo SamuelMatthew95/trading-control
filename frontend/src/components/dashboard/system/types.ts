@@ -1,4 +1,9 @@
-import type { AgentLog, AgentStatus, Notification, Order, Position, Proposal, TradeFeedItem } from '@/stores/useCodexStore'
+import type { AgentLog, AgentHeartbeat, Notification, Order, Position, Proposal, TradeFeedItem } from '@/stores/useDashboardStore'
+import type { ApiHealth, PersistedHistoryItem, PersistedStreamCount } from '@/hooks/useRestPoll'
+
+// Producer-owned REST types — defined once in useRestPoll, re-exported for
+// existing './types' importers.
+export type { ApiHealth, PersistedHistoryItem, PersistedStreamCount }
 
 export interface RecentEventLike {
   stream?: string | null
@@ -9,26 +14,6 @@ export interface RecentEventLike {
 export interface StreamStat {
   count: number
   lastMessageTimestamp: string | null
-}
-
-export interface PersistedHistoryItem {
-  id: string
-  kind: string
-  source?: string | null
-  trace_id?: string | null
-  created_at: string | null
-}
-
-export interface PersistedStreamCount {
-  stream: string
-  processed_count: number
-  last_processed_at: string | null
-}
-
-export interface ApiHealth {
-  dashboardState: 'pending' | 'ok' | 'error'
-  agentInstances: 'pending' | 'ok' | 'error'
-  eventHistory: 'pending' | 'ok' | 'error'
 }
 
 export interface PerformanceSummaryLike {
@@ -45,7 +30,6 @@ export interface WsDiagnosticsLike {
 }
 
 export type StatusTone = 'ok' | 'warn' | 'err' | 'neutral'
-export type StageStatus = 'live' | 'idle' | 'stalled' | 'flowing'
 export type AlertVariant = 'ok' | 'warn' | 'err' | 'info'
 
 export type PipelineStatus = 'Healthy' | 'Degraded' | 'Stalled'
@@ -57,7 +41,7 @@ export interface SystemDashboardProps {
   wsDiagnostics: WsDiagnosticsLike
   streamStats: Record<string, StreamStat>
   recentEvents: RecentEventLike[]
-  agentStatuses: AgentStatus[]
+  agentStatuses: AgentHeartbeat[]
   prices: Record<string, unknown>
   positions: Position[]
   tradeFeed: TradeFeedItem[]

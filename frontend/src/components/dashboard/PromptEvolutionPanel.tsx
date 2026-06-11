@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import { API_ENDPOINTS, apiFetch } from '@/lib/apiClient'
 import { formatTimeAgo } from '@/lib/formatters'
 import { LEARNING_REFRESH_MS } from '@/lib/grade-colors'
-import { cardClass, sectionTitleClass, mutedClass } from '@/lib/dashboard-styles'
+import { cardClass, errorTextClass, mutedClass, sectionTitleClass } from '@/lib/dashboard-styles'
 import { cn } from '@/lib/utils'
 
 // Mirrors api.services.prompt_store.PromptStore directive records.
@@ -89,14 +89,14 @@ export function PromptEvolutionPanel() {
       <div className="mb-1 flex items-center justify-between">
         <p className={sectionTitleClass}>Self-Evolving Prompt · Reasoning Directive</p>
         {error ? (
-          <span className="font-mono text-xs text-rose-500">err: {error}</span>
+          <span className={errorTextClass}>err: {error}</span>
         ) : (
           <span className="flex items-center gap-2 font-mono text-xs text-slate-400">
             <span
               className={cn(
                 'rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase',
                 data?.enabled
-                  ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                  ? 'bg-success/15 text-success'
                   : 'bg-slate-500/15 text-slate-500',
               )}
             >

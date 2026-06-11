@@ -19,3 +19,13 @@ export const consolePanelClass =
 
 export const consoleHeaderClass =
   'border-b border-slate-200 px-3 py-2 dark:border-slate-800/80'
+
+/** Inline panel error label — `err: <message>` in a panel header. */
+export const errorTextClass = 'font-mono text-xs text-danger'
+
+/** Monospace data value inside body copy (counts, ids, provider names). */
+export const monoValueClass = 'font-mono text-slate-700 dark:text-slate-300'
+
+/** Chip shape — compose colour with a Tone map (e.g. TONE_BADGE_OUTLINED). */
+export const chipClass =
+  'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium'

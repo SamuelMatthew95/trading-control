@@ -5,12 +5,12 @@ import { useState } from 'react'
 import type {
   AgentInstance,
   AgentLog,
-  AgentStatus,
+  AgentHeartbeat,
   Notification,
   Proposal,
   RecentEvent,
   StreamStat,
-} from '@/stores/useCodexStore'
+} from '@/stores/useDashboardStore'
 import type { ApiHealth, DecisionStats } from '@/hooks/useRestPoll'
 import type { AgentSummary } from '@/lib/agent-pipeline'
 import { parseTimestampMs, sanitizeValue } from '@/lib/formatters'
@@ -42,7 +42,7 @@ const NOTIFICATION_RECENT_WINDOW_MS = 3_600_000 // 1 hour
 export interface AgentsDashboardProps {
   realAgents: AgentSummary[]
   wiringFreshness: WiringFreshness
-  agentStatuses: AgentStatus[]
+  agentStatuses: AgentHeartbeat[]
   agentInstances: AgentInstance[]
   agentLogs: AgentLog[]
   notifications: Notification[]

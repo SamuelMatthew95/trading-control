@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 
 import { API_ENDPOINTS, apiFetch } from '@/lib/apiClient'
 import { LEARNING_REFRESH_MS } from '@/lib/grade-colors'
-import { cardClass, sectionTitleClass, mutedClass } from '@/lib/dashboard-styles'
+import { cardClass, errorTextClass, mutedClass, sectionTitleClass } from '@/lib/dashboard-styles'
 import { sentimentTextClass } from '@/lib/design/sentiment'
 import { cn } from '@/lib/utils'
 
@@ -63,9 +63,9 @@ function coerceLlmStatus(value: unknown): LlmStatus {
 // strategy below is still the configured one, but decisions are rule-based
 // fallbacks — so the dot must stop claiming a healthy green "live".
 const LLM_INDICATOR: Record<LlmStatus, { label: string; text: string; dot: string; pulse: boolean }> = {
-  live: { label: 'live', text: 'text-emerald-500', dot: 'bg-emerald-500', pulse: true },
-  degraded: { label: 'LLM degraded', text: 'text-amber-500', dot: 'bg-amber-500', pulse: false },
-  down: { label: 'LLM down · fallback', text: 'text-rose-500', dot: 'bg-rose-500', pulse: false },
+  live: { label: 'live', text: 'text-success', dot: 'bg-success', pulse: true },
+  degraded: { label: 'LLM degraded', text: 'text-warning', dot: 'bg-warning', pulse: false },
+  down: { label: 'LLM down · fallback', text: 'text-danger', dot: 'bg-danger', pulse: false },
   unknown: { label: 'awaiting LLM', text: 'text-slate-400', dot: 'bg-slate-400', pulse: false },
 }
 
@@ -120,7 +120,7 @@ function ChallengerCard({ ch }: { ch: ChallengerView }) {
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span
-            className={cn('h-2 w-2 rounded-full', ch.running ? 'bg-emerald-500' : 'bg-slate-400')}
+            className={cn('h-2 w-2 rounded-full', ch.running ? 'bg-success' : 'bg-slate-400')}
           />
           <span className="font-mono text-xs text-slate-800 dark:text-slate-200">
             challenger {ch.challenger_id}
@@ -149,7 +149,7 @@ function ChallengerCard({ ch }: { ch: ChallengerView }) {
       </div>
 
       {ch.variant && (
-        <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-400">
+        <p className="mt-2 rounded border border-warning/30 bg-warning/10 px-2 py-1 text-[11px] text-warning">
           prompt variant: {ch.variant}
         </p>
       )}
@@ -183,9 +183,9 @@ function ChallengerCard({ ch }: { ch: ChallengerView }) {
 function ProposalRow({ p }: { p: ProposalView }) {
   const statusClass =
     p.status === 'approved'
-      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+      ? 'bg-success/15 text-success'
       : p.status === 'rejected'
-        ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
+        ? 'bg-danger/15 text-danger'
         : 'bg-slate-500/15 text-slate-500'
   return (
     <div className="rounded-lg border border-slate-200 p-2.5 dark:border-slate-800">
@@ -265,12 +265,12 @@ export function LiveReasoningPanel() {
       <div className="mb-1 flex items-center justify-between">
         <p className={sectionTitleClass}>Live Reasoning</p>
         {error ? (
-          <span className="font-mono text-xs text-rose-500">err: {error}</span>
+          <span className={errorTextClass}>err: {error}</span>
         ) : (
           <span className={cn('flex items-center gap-1.5 font-mono text-xs', indicator.text)}>
             <span className="relative flex h-2 w-2">
               {indicator.pulse && (
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-60" />
               )}
               <span className={cn('relative inline-flex h-2 w-2 rounded-full', indicator.dot)} />
             </span>
@@ -284,7 +284,7 @@ export function LiveReasoningPanel() {
       </p>
 
       {llmDegraded && (
-        <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] leading-snug text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-400">
+        <div className="mb-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] leading-snug text-warning">
           LLM provider is {llmStatus === 'down' ? 'unavailable' : 'degraded'} right now — live
           decisions are <strong>rule-based fallbacks</strong>, not model reasoning. The prompt and
           tools below are still the configured strategy.
@@ -295,7 +295,7 @@ export function LiveReasoningPanel() {
       <div className="rounded-lg border border-slate-200 bg-slate-50/40 p-3 dark:border-slate-800 dark:bg-slate-900/30">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span className="rounded bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+            <span className="rounded bg-success/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-success">
               live
             </span>
             <span className="font-mono text-xs text-slate-600 dark:text-slate-300">

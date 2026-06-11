@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { UI_COPY } from '@/constants/copy'
 
 import { cn } from '@/lib/utils'
 import { cardClass, sectionTitleClass } from '@/lib/dashboard-styles'
@@ -20,7 +21,7 @@ function isFallbackDecision(d: Record<string, unknown>): boolean {
 }
 
 function EmptyDecisions() {
-  return <EmptyState message="No buy/sell decisions yet" />
+  return <EmptyState message={UI_COPY.empty.decisions} />
 }
 
 export function RecentDecisionsPanel({
@@ -50,7 +51,7 @@ export function RecentDecisionsPanel({
           {fallbackCount > 0 && (
             <span
               title="LLM unavailable — these are rule-based fallback decisions, not model reasoning."
-              className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400"
+              className="rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning"
             >
               {fallbackCount}/{actionable.length} rule-based
             </span>
@@ -61,10 +62,10 @@ export function RecentDecisionsPanel({
             <span className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600">
               last 1h
             </span>
-            <span className="text-emerald-600 dark:text-emerald-400">
+            <span className="text-success">
               Buys: {stats.last_hour.buys}
             </span>
-            <span className="text-rose-600 dark:text-rose-400">
+            <span className="text-danger">
               Sells: {stats.last_hour.sells}
             </span>
             <span>Holds: {stats.last_hour.holds}</span>
@@ -98,8 +99,8 @@ export function RecentDecisionsPanel({
             const ts = formatTimestamp(d.timestamp ? String(d.timestamp) : null)
             const badgeClass =
               action === 'buy'
-                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                : 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
+                ? 'bg-success/15 text-success'
+                : 'bg-danger/15 text-danger'
             const decisionId = `${String(d.id ?? d.trace_id ?? index)}-${index}`
             const traceId = d.trace_id ? String(d.trace_id) : null
             const tools = extractToolInvocations(d)
@@ -120,7 +121,7 @@ export function RecentDecisionsPanel({
                     {isFallbackDecision(d) && (
                       <span
                         title="LLM unavailable — rule-based fallback, not model reasoning."
-                        className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400"
+                        className="rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning"
                       >
                         rule-based
                       </span>
@@ -168,7 +169,7 @@ export function RecentDecisionsPanel({
                           className="flex items-center gap-2 font-mono text-[11px] tabular-nums"
                         >
                           <span
-                            className={tool.success === false ? 'text-rose-500' : 'text-emerald-500'}
+                            className={tool.success === false ? 'text-danger' : 'text-success'}
                             aria-hidden
                           >
                             {tool.success === false ? '✗' : '✓'}

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 
 import { API_ENDPOINTS, apiFetch } from '@/lib/apiClient'
+import { errorTextClass } from '@/lib/dashboard-styles'
 import { LEARNING_REFRESH_MS, gradeColor } from '@/lib/grade-colors'
 import { agentDisplayName } from '@/constants/agents'
 import type { ChallengerInfo } from '@/components/dashboard/ChallengersPanel'
@@ -127,7 +128,7 @@ export function LearningLoopPanel() {
           Learning Loop
         </p>
         {error ? (
-          <span className="text-xs font-mono text-rose-500">err: {error}</span>
+          <span className={errorTextClass}>err: {error}</span>
         ) : (
           <span className="text-xs text-slate-400">
             {state?.timestamp ? new Date(state.timestamp).toLocaleTimeString() : '--'}
@@ -149,7 +150,7 @@ export function LearningLoopPanel() {
         <div className="rounded-lg border border-slate-300 p-3 dark:border-slate-800">
           <p className="text-xs text-slate-500 dark:text-slate-400">Trading Paused</p>
           <p
-            className={`text-lg font-mono font-bold ${cp?.trading_paused ? 'text-rose-500' : 'text-emerald-500'}`}
+            className={`text-lg font-mono font-bold ${cp?.trading_paused ? 'text-danger' : 'text-success'}`}
           >
             {cp?.trading_paused ? 'PAUSED' : 'LIVE'}
           </p>
@@ -171,9 +172,9 @@ export function LearningLoopPanel() {
         <div className="rounded-lg border border-slate-300 p-3 dark:border-slate-800">
           <p className="text-xs text-slate-500 dark:text-slate-400">Proposals</p>
           <p className="text-lg font-mono font-bold tabular-nums">
-            <span className="text-emerald-500">{appliedCount}</span>
+            <span className="text-success">{appliedCount}</span>
             <span className="text-slate-400"> / </span>
-            <span className="text-amber-500">{pendingCount}</span>
+            <span className="text-warning">{pendingCount}</span>
           </p>
           <p className="text-xs text-slate-500">applied / pending</p>
         </div>
@@ -189,7 +190,7 @@ export function LearningLoopPanel() {
             {cp.suspended_agents.map((s) => (
               <span
                 key={s.agent_name}
-                className="rounded-full border border-rose-300 bg-rose-50 px-2 py-0.5 text-xs font-mono text-rose-600 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-400"
+                className="rounded-full border border-danger/30 bg-danger/10 px-2 py-0.5 text-xs font-mono text-danger"
               >
                 {agentDisplayName(s.agent_name)}
               </span>
@@ -223,9 +224,9 @@ export function LearningLoopPanel() {
                     <td className="p-2 text-slate-500">{p.action ?? p.message ?? '--'}</td>
                     <td className="p-2">
                       {p.applied ? (
-                        <span className="text-emerald-500">applied</span>
+                        <span className="text-success">applied</span>
                       ) : (
-                        <span className="text-amber-500">pending</span>
+                        <span className="text-warning">pending</span>
                       )}
                     </td>
                     <td className="p-2 text-slate-500">
@@ -274,12 +275,12 @@ export function LearningLoopPanel() {
                       <td className="p-2 text-right">{row.trades}</td>
                       <td className="p-2 text-right">{row.losses}</td>
                       <td
-                        className={`p-2 text-right ${negative ? 'text-rose-500' : 'text-emerald-500'}`}
+                        className={`p-2 text-right ${negative ? 'text-danger' : 'text-success'}`}
                       >
                         {fmtUSD(row.total_pnl)}
                       </td>
                       <td
-                        className={`p-2 text-right ${row.avg_pnl < 0 ? 'text-rose-500' : 'text-emerald-500'}`}
+                        className={`p-2 text-right ${row.avg_pnl < 0 ? 'text-danger' : 'text-success'}`}
                       >
                         {fmtUSD(row.avg_pnl)}
                       </td>
@@ -306,7 +307,7 @@ export function LearningLoopPanel() {
           </span>
           <Link
             href="/dashboard/challengers"
-            className="text-xs font-semibold text-[var(--accent)] hover:underline"
+            className="text-xs font-semibold text-[var(--brand)] hover:underline"
           >
             Follow challengers →
           </Link>
@@ -342,7 +343,7 @@ export function LearningLoopPanel() {
                   >
                     <td className="p-2">{p.parameter}</td>
                     <td className="p-2 text-right text-slate-500">{p.previous_value ?? '--'}</td>
-                    <td className="p-2 text-right text-amber-500">{p.proposed_value ?? '--'}</td>
+                    <td className="p-2 text-right text-warning">{p.proposed_value ?? '--'}</td>
                     <td className="p-2 text-slate-500 truncate" title={p.reason}>
                       {p.reason || '--'}
                     </td>

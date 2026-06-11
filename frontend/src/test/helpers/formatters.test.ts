@@ -5,6 +5,7 @@ import { describe, it, expect } from 'vitest'
 import {
   formatUSD,
   signedUSD,
+  formatAgeFromMs,
   formatTimeAgo,
   formatPercent,
   formatQuantity,
@@ -109,27 +110,58 @@ describe('signedUSD', () => {
   })
 })
 
+describe('formatAgeFromMs', () => {
+  it('returns -- for null/negative/non-finite', () => {
+    expect(formatAgeFromMs(null)).toBe('--')
+    expect(formatAgeFromMs(-1)).toBe('--')
+    expect(formatAgeFromMs(Number.POSITIVE_INFINITY)).toBe('--')
+    expect(formatAgeFromMs(Number.NaN)).toBe('--')
+  })
+
+  it('formats seconds, minutes, hours, and days', () => {
+    expect(formatAgeFromMs(0)).toBe('0s')
+    expect(formatAgeFromMs(59_000)).toBe('59s')
+    expect(formatAgeFromMs(60_000)).toBe('1m')
+    expect(formatAgeFromMs(3_540_000)).toBe('59m')
+    expect(formatAgeFromMs(3_600_000)).toBe('1h')
+    expect(formatAgeFromMs(36_000_000)).toBe('10h')
+    expect(formatAgeFromMs(2 * 86_400_000)).toBe('2d')
+  })
+})
+
 describe('formatTimeAgo', () => {
-  it('returns empty string for null', () => {
-    expect(formatTimeAgo(null)).toBe('')
+  const FIXED_NOW = 1_780_000_000_000
+  const at = (ageMs: number) => new Date(FIXED_NOW - ageMs).toISOString()
+
+  it('returns -- for missing or unparseable values (never the raw string)', () => {
+    expect(formatTimeAgo(null, () => FIXED_NOW)).toBe('--')
+    expect(formatTimeAgo(undefined, () => FIXED_NOW)).toBe('--')
+    expect(formatTimeAgo('', () => FIXED_NOW)).toBe('--')
+    expect(formatTimeAgo('not-a-date', () => FIXED_NOW)).toBe('--')
   })
 
-  it('returns empty string for undefined', () => {
-    expect(formatTimeAgo(undefined)).toBe('')
+  it('returns "just now" for sub-5s ages and clamps future timestamps', () => {
+    expect(formatTimeAgo(at(250), () => FIXED_NOW)).toBe('just now')
+    expect(formatTimeAgo(at(-5_000), () => FIXED_NOW)).toBe('just now')
   })
 
-  it('returns empty string for invalid string', () => {
-    expect(formatTimeAgo('not-a-date')).toBe('')
+  it('formats second / minute / hour / day scale ages', () => {
+    expect(formatTimeAgo(at(30_000), () => FIXED_NOW)).toBe('30s ago')
+    expect(formatTimeAgo(at(3 * 60_000), () => FIXED_NOW)).toBe('3m ago')
+    expect(formatTimeAgo(at(2 * 3_600_000), () => FIXED_NOW)).toBe('2h ago')
+    expect(formatTimeAgo(at(3 * 86_400_000), () => FIXED_NOW)).toBe('3d ago')
   })
 
-  it('handles a recent timestamp as seconds', () => {
-    const ts = new Date(Date.now() - 30_000).toISOString()
-    expect(formatTimeAgo(ts)).toBe('30s ago')
+  it('handles Date objects and epoch-ms numbers', () => {
+    expect(formatTimeAgo(new Date(FIXED_NOW - 90_000), () => FIXED_NOW)).toBe('1m ago')
+    expect(formatTimeAgo(FIXED_NOW - 90_000, () => FIXED_NOW)).toBe('1m ago')
   })
 
-  it('handles a Date object', () => {
-    const d = new Date(Date.now() - 90_000)
-    expect(formatTimeAgo(d)).toBe('1m ago')
+  it('parses a float epoch-seconds string as relative time, not the raw value', () => {
+    // Regression: "1780634112.7714157" rendered verbatim in the notification
+    // panel because Date.parse could not read a float epoch-seconds string.
+    const epochSeconds = String((FIXED_NOW - 30_000) / 1000)
+    expect(formatTimeAgo(epochSeconds, () => FIXED_NOW)).toBe('30s ago')
   })
 })
 

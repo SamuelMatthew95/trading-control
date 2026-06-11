@@ -3,6 +3,13 @@
  *
  * Centralising here ensures all panels use the same colour palette and
  * grade-to-badge mapping. Import from here; never re-define locally.
+ *
+ * CATEGORICAL PALETTE EXCEPTION: this module is the one sanctioned home for
+ * hue literals on the grade axis. Grades are a five-way categorical scale, so
+ * adjacent tiers need visually distinct hues (emerald/green/sky/amber/orange/
+ * rose) that the four semantic Tone tokens cannot express. Every other
+ * surface maps state to a Tone token (src/lib/design/sentiment.ts) — the
+ * design-token guardrail test allowlists exactly this file.
  */
 
 /** How often learning panels re-fetch data from the REST API. */
@@ -78,4 +85,27 @@ export function tierLabel(tier: string): string {
     .split('_')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ')
+}
+
+/**
+ * Outlined chip classes for a letter grade, tolerant of +/- modifiers and
+ * non-grades ("A+", "C-", "NR", null all resolve). Translucent fill + toned
+ * border, for dense chip rows (cognitive dashboard, learning console).
+ */
+export function gradeTone(grade: string | null | undefined): string {
+  const letter = (grade ?? '').trim().charAt(0).toUpperCase()
+  switch (letter) {
+    case 'A':
+      return 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+    case 'B':
+      return 'bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/30'
+    case 'C':
+      return 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
+    case 'D':
+      return 'bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/30'
+    case 'F':
+      return 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30'
+    default:
+      return 'bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20'
+  }
 }

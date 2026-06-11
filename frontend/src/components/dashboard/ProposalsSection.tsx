@@ -13,7 +13,7 @@ import {
 } from "@/lib/dashboard-styles";
 import { proposalRouting, type ProposalRouting } from "@/lib/proposal-routing";
 import { cn } from "@/lib/utils";
-import { useCodexStore, type Proposal } from "@/stores/useCodexStore";
+import { useDashboardStore, type Proposal } from "@/stores/useDashboardStore";
 import { ProposalDetailModal } from "@/components/dashboard/ProposalDetailModal";
 
 function routingBadgeClass(kind: ProposalRouting["kind"]): string {
@@ -82,8 +82,8 @@ function EmptyProposals() {
 }
 
 export function ProposalsSection() {
-  const proposals = useCodexStore((state) => state.proposals);
-  const updateProposalStatus = useCodexStore(
+  const proposals = useDashboardStore((state) => state.proposals);
+  const updateProposalStatus = useDashboardStore(
     (state) => state.updateProposalStatus,
   );
   const [pendingAction, setPendingAction] = useState<string | null>(null);
@@ -134,13 +134,13 @@ export function ProposalsSection() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2 font-mono text-[10px] uppercase tracking-[0.14em]">
-          <span className="rounded border border-amber-400/30 bg-amber-400/10 px-2 py-1 text-amber-700 dark:text-amber-300">
+          <span className="rounded border border-warning/30 bg-warning/10 px-2 py-1 text-warning">
             Pending {summary.pending}
           </span>
-          <span className="rounded border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-emerald-700 dark:text-emerald-300">
+          <span className="rounded border border-success/30 bg-success/10 px-2 py-1 text-success">
             Approved {summary.approved}
           </span>
-          <span className="rounded border border-rose-400/30 bg-rose-400/10 px-2 py-1 text-rose-700 dark:text-rose-300">
+          <span className="rounded border border-danger/30 bg-danger/10 px-2 py-1 text-danger">
             Rejected {summary.rejected}
           </span>
         </div>
@@ -247,7 +247,7 @@ export function ProposalsSection() {
                             type="button"
                             disabled={pendingAction === proposal.id}
                             onClick={() => handleVote(proposal.id, "approve")}
-                            className="inline-flex items-center gap-1 rounded border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-400/20 disabled:opacity-50 dark:text-emerald-300"
+                            className="inline-flex items-center gap-1 rounded border border-success/30 bg-success/10 px-2 py-1 text-[11px] font-semibold text-success hover:bg-success/20 disabled:opacity-50"
                           >
                             <Check className="h-3 w-3" /> Approve
                           </button>
@@ -255,7 +255,7 @@ export function ProposalsSection() {
                             type="button"
                             disabled={pendingAction === proposal.id}
                             onClick={() => handleVote(proposal.id, "reject")}
-                            className="inline-flex items-center gap-1 rounded border border-rose-400/30 bg-rose-400/10 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-400/20 disabled:opacity-50 dark:text-rose-300"
+                            className="inline-flex items-center gap-1 rounded border border-danger/30 bg-danger/10 px-2 py-1 text-[11px] font-semibold text-danger hover:bg-danger/20 disabled:opacity-50"
                           >
                             <X className="h-3 w-3" /> Reject
                           </button>

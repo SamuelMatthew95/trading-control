@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { useCodexStore } from '@/stores/useCodexStore'
+import { useDashboardStore } from '@/stores/useDashboardStore'
 import { useLivePositions } from '@/hooks/useLivePositions'
 import {
   REAL_UNIVERSE,
@@ -31,8 +31,8 @@ export function TradingTerminal({
 }: {
   recentDecisions?: Array<Record<string, unknown>>
 }) {
-  const prices = useCodexStore((s) => s.prices)
-  const tradeFeed = useCodexStore((s) => s.tradeFeed)
+  const prices = useDashboardStore((s) => s.prices)
+  const tradeFeed = useDashboardStore((s) => s.tradeFeed)
   const positions = useLivePositions()
   const history = usePriceHistory()
 

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 
 import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
-import type { Notification } from '@/stores/useCodexStore'
+import type { Notification } from '@/stores/useDashboardStore'
 
 const now = Date.now()
 const minutesAgo = (m: number) => new Date(now - m * 60_000).toISOString()

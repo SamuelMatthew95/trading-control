@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
-import { useCodexStore } from '@/stores/useCodexStore'
+import { useDashboardStore } from '@/stores/useDashboardStore'
 import { cn } from '@/lib/utils'
 import { deriveActivityIndicator, ACTIVITY_FRESH_MS } from '@/lib/agent-activity'
 import { formatUSD, formatQuantity, formatTimeAgo, getField, getStr, isActivePosition, toFiniteNum as toNum } from '@/lib/formatters'
@@ -59,9 +59,9 @@ function StatTile({
 }) {
   const valueColor =
     sign === 'positive'
-      ? 'text-emerald-500'
+      ? 'text-success'
       : sign === 'negative'
-        ? 'text-rose-500'
+        ? 'text-danger'
         : 'text-slate-900 dark:text-slate-100'
 
   return (
@@ -91,7 +91,7 @@ function TradeFeedPanel({
   upstream: { signal_events?: number; decisions_evaluated?: number; ee_last_status?: string | null } | null
   setActiveTraceId: (id: string) => void
 }) {
-  const { tradeFeed = [] } = useCodexStore()
+  const { tradeFeed = [] } = useDashboardStore()
 
   const emptyLabel = tradeFeedEmptyLabel(emptyReason)
 
@@ -140,7 +140,7 @@ function TradeFeedPanel({
                   'group flex items-center gap-3 px-5 py-3 transition-colors',
                   'hover:bg-slate-50 dark:hover:bg-slate-800/40',
                   'border-l-[3px]',
-                  isBuy ? 'border-l-emerald-500' : 'border-l-rose-500',
+                  isBuy ? 'border-l-success' : 'border-l-danger',
                 )}
               >
                 {/* Direction badge */}
@@ -148,8 +148,8 @@ function TradeFeedPanel({
                   className={cn(
                     'shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold tracking-wide',
                     isBuy
-                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-                      : 'bg-rose-500/15 text-rose-500',
+                      ? 'bg-success/15 text-success'
+                      : 'bg-danger/15 text-danger',
                   )}
                 >
                   {isBuy ? 'BUY' : 'SELL'}
@@ -179,11 +179,11 @@ function TradeFeedPanel({
                 {/* P&L */}
                 {pnl != null && (
                   <div className="shrink-0 text-right">
-                    <p className={cn('font-semibold font-mono tabular-nums text-sm', pnlPos ? 'text-emerald-500' : 'text-rose-500')}>
+                    <p className={cn('font-semibold font-mono tabular-nums text-sm', pnlPos ? 'text-success' : 'text-danger')}>
                       {pnlPos ? '+' : '-'}{formatUSD(pnl)}
                     </p>
                     {pnlPct != null && (
-                      <p className={cn('text-[11px] font-mono tabular-nums', pnlPos ? 'text-emerald-400' : 'text-rose-400')}>
+                      <p className={cn('text-[11px] font-mono tabular-nums', pnlPos ? 'text-success' : 'text-danger')}>
                         {pnlPos ? '+' : ''}{pnlPct.toFixed(1)}%
                       </p>
                     )}
@@ -230,7 +230,7 @@ function TradeFeedPanel({
  * so the operator can reconcile the header P&L against actual past trades.
  */
 function ClosedTradesPanel() {
-  const { closedTrades = [] } = useCodexStore()
+  const { closedTrades = [] } = useDashboardStore()
 
   return (
     <div className="flex flex-col rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
@@ -312,7 +312,7 @@ function ClosedTradesPanel() {
 // ---------------------------------------------------------------------------
 
 function AgentActivityPanel({ setActiveTraceId }: { setActiveTraceId: (id: string) => void }) {
-  const { agentLogs = [], wsConnected = false } = useCodexStore()
+  const { agentLogs = [], wsConnected = false } = useDashboardStore()
 
   const logs = useMemo(() => agentLogs.slice(0, 25), [agentLogs])
 
@@ -434,7 +434,7 @@ export function TradingView({
     tradeFeed = [],
     performanceSummary = null,
     pnlSummary = null,
-  } = useCodexStore()
+  } = useDashboardStore()
 
   // Realized + live mark-to-market unrealized, re-valued against the price
   // stream every tick — the SAME canonical source as the header chip and the

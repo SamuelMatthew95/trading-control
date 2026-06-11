@@ -5,7 +5,7 @@ import { proposalStatusClass } from '@/lib/dashboard-helpers'
 import { sectionTitleClass, mutedClass } from '@/lib/dashboard-styles'
 import { proposalRouting } from '@/lib/proposal-routing'
 import { cn } from '@/lib/utils'
-import type { Proposal } from '@/stores/useCodexStore'
+import type { Proposal } from '@/stores/useDashboardStore'
 
 /**
  * Proposal drill-in — the full candidate change, what happens on approve, the

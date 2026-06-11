@@ -1,9 +1,9 @@
-import type { AgentInstance, AgentLog, AgentStatus } from '@/stores/useCodexStore'
+import type { AgentInstance, AgentLog, AgentHeartbeat } from '@/stores/useDashboardStore'
 import type { ApiHealth } from '@/hooks/useRestPoll'
 import { cn } from '@/lib/utils'
 import { cardClass, sectionTitleClass, mutedClass } from '@/lib/dashboard-styles'
 import { apiHealthBadgeClass } from '@/lib/dashboard-helpers'
-import { formatAgeFromMs } from '@/components/dashboard/system/helpers'
+import { formatAgeFromMs } from '@/lib/formatters'
 import type { WiringFreshness } from './shared'
 
 function formatWiringAge(ageMs: number | null): string {
@@ -13,7 +13,7 @@ function formatWiringAge(ageMs: number | null): string {
 
 export interface SystemDiagnosticsProps {
   isInMemoryMode: boolean
-  agentStatuses: AgentStatus[]
+  agentStatuses: AgentHeartbeat[]
   agentInstances: AgentInstance[]
   agentLogs: AgentLog[]
   wiringFreshness: WiringFreshness
@@ -44,11 +44,11 @@ export function SystemDiagnostics({
         <span
           className={cn(
             'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold',
-            isInMemoryMode ? 'bg-amber-400/10 text-amber-500' : 'bg-emerald-500/10 text-emerald-500',
+            isInMemoryMode ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success',
           )}
         >
           <span
-            className={cn('inline-block h-2 w-2 rounded-full', isInMemoryMode ? 'bg-amber-400' : 'bg-emerald-500')}
+            className={cn('inline-block h-2 w-2 rounded-full', isInMemoryMode ? 'bg-warning' : 'bg-success')}
           />
           {isInMemoryMode ? 'DB: In-Memory Fallback' : 'DB: Connected'}
         </span>

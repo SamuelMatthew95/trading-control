@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest'
 import { render, screen } from '@testing-library/react'
 
-const { mockStore, mockUseCodexStore } = vi.hoisted(() => {
+const { mockStore, mockUseDashboardStore } = vi.hoisted(() => {
   const store: Record<string, unknown> = {
     wsConnected: false,
     killSwitchActive: false,
@@ -44,16 +44,12 @@ const { mockStore, mockUseCodexStore } = vi.hoisted(() => {
       typeof selector === 'function' ? selector(store) : store,
     { getState: () => store },
   )
-  return { mockStore: store, mockUseCodexStore: hook }
+  return { mockStore: store, mockUseDashboardStore: hook }
 })
 
-vi.mock('@/stores/useCodexStore', () => ({
-  useCodexStore: mockUseCodexStore
+vi.mock('@/stores/useDashboardStore', () => ({
+  useDashboardStore: mockUseDashboardStore
 }))
-
-vi.mock('@/components/EquityCurve', () => ({
-  EquityCurve: () => null
-}), { virtual: true })
 
 vi.mock('@/components/MobileNavigation', () => ({
   MobileNavigation: () => null

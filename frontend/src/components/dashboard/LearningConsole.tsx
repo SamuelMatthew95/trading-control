@@ -1,16 +1,18 @@
 'use client'
 
 import type { ReactNode } from 'react'
+import { UI_COPY } from '@/constants/copy'
 import { Activity, ArrowUpRight, Brain, Gauge, Lightbulb, TrendingDown, TrendingUp, type LucideIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { formatPercent, formatTimeAgo, signedUSD, toFiniteNum as toFiniteNumber } from '@/lib/formatters'
-import { useCodexStore, type AgentLog, type Proposal, type TradeFeedItem } from '@/stores/useCodexStore'
+import { useDashboardStore, type AgentLog, type Proposal, type TradeFeedItem } from '@/stores/useDashboardStore'
 import { cardClass, mutedClass, sectionTitleClass } from '@/lib/dashboard-styles'
 import { pnlColorClass, proposalStatusClass } from '@/lib/dashboard-helpers'
 // Reuse the shared learning-grade colour language (the Cognitive page uses the
 // same A/B/C/D/F scale) instead of re-deriving hardcoded emerald/rose classes.
-import { actionTone, gradeTone } from '@/lib/cognitive'
+import { actionTone } from '@/lib/cognitive'
+import { gradeTone } from '@/lib/grade-colors'
 import { EmptyState } from '@/components/ui/empty-state'
 
 // Decorative icon-chip tints. Neutral uses the slate chrome scale; the rest map
@@ -130,10 +132,10 @@ function recentLearningLogs(logs: AgentLog[]): AgentLog[] {
 }
 
 export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: string | null) => void }) {
-  const tradeFeed = useCodexStore((state) => state.tradeFeed)
-  const proposals = useCodexStore((state) => state.proposals)
-  const agentLogs = useCodexStore((state) => state.agentLogs)
-  const performanceSummary = useCodexStore((state) => state.performanceSummary)
+  const tradeFeed = useDashboardStore((state) => state.tradeFeed)
+  const proposals = useDashboardStore((state) => state.proposals)
+  const agentLogs = useDashboardStore((state) => state.agentLogs)
+  const performanceSummary = useDashboardStore((state) => state.performanceSummary)
 
   const gradedTrades = tradeFeed.filter((trade) => trade.grade || trade.grade_score != null)
   const closedTrades = tradeFeed.filter((trade) => trade.pnl != null)
@@ -232,7 +234,7 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
               }
             />
             {tradeFeed.length === 0 ? (
-              <EmptyState icon={Activity} message="No fills yet — learning outcomes appear after execution and grading." />
+              <EmptyState icon={Activity} message={UI_COPY.empty.learningOutcomes} />
             ) : (
               <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
                 <table className="w-full min-w-[760px] text-left text-xs">
@@ -310,7 +312,7 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
               right={<span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">{proposals.length} total</span>}
             />
             {proposals.length === 0 ? (
-              <EmptyState icon={Lightbulb} message="No strategy proposals yet — evidence appears here after reflection." />
+              <EmptyState icon={Lightbulb} message={UI_COPY.empty.proposals} />
             ) : (
               <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
                 <table className="w-full min-w-[680px] text-left text-xs">
@@ -389,7 +391,7 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
               right={<span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">{learningLogs.length} events</span>}
             />
             {learningLogs.length === 0 ? (
-              <EmptyState icon={Activity} message="No learning-agent events have streamed yet." />
+              <EmptyState icon={Activity} message={UI_COPY.empty.learningEvents} />
             ) : (
               <div className="divide-y divide-slate-200 dark:divide-slate-800/80">
                 {learningLogs.map((log, index) => (

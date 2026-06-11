@@ -37,7 +37,7 @@ describe('LLMDegradedBanner', () => {
     mockedUseLlmHealth.mockReturnValue(health({ status: 'degraded' }))
     render(<LLMDegradedBanner />)
     const alert = screen.getByRole('alert')
-    expect(alert.className).toContain('amber')
+    expect(alert.className).toContain('warning')
     expect(alert.textContent).toContain('degraded')
     expect(alert.textContent).toContain('fails closed')
   })
@@ -46,7 +46,7 @@ describe('LLMDegradedBanner', () => {
     mockedUseLlmHealth.mockReturnValue(health({ status: 'down' }))
     render(<LLMDegradedBanner />)
     const alert = screen.getByRole('alert')
-    expect(alert.className).toContain('rose')
+    expect(alert.className).toContain('danger')
     expect(alert.textContent).toContain('fallback mode')
   })
 

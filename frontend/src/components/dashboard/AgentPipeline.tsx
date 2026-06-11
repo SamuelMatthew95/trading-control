@@ -28,27 +28,27 @@ const STAGE_ICONS: Record<PipelineStageKey, ComponentType<{ className?: string }
 
 const TONE_STYLES: Record<StageTone, { dot: string; text: string; ring: string; label: string }> = {
   live: {
-    dot: 'bg-emerald-500 animate-pulse',
-    text: 'text-emerald-600 dark:text-emerald-400',
-    ring: 'border-emerald-300 bg-emerald-50/40 dark:border-emerald-800/50 dark:bg-emerald-950/20',
+    dot: 'bg-success animate-pulse',
+    text: 'text-success',
+    ring: 'border-success/40 bg-success/5',
     label: 'Live',
   },
   idle: {
-    dot: 'bg-amber-400',
-    text: 'text-amber-600 dark:text-amber-400',
+    dot: 'bg-warning',
+    text: 'text-warning',
     ring: 'border-slate-200 dark:border-slate-800',
     label: 'Idle',
   },
   stale: {
-    dot: 'bg-amber-400',
-    text: 'text-amber-600 dark:text-amber-400',
-    ring: 'border-amber-300/60 bg-amber-50/30 dark:border-amber-900/40 dark:bg-amber-950/10',
+    dot: 'bg-warning',
+    text: 'text-warning',
+    ring: 'border-warning/40 bg-warning/5',
     label: 'Stale',
   },
   error: {
-    dot: 'bg-rose-500',
-    text: 'text-rose-600 dark:text-rose-400',
-    ring: 'border-rose-300 bg-rose-50/30 dark:border-rose-900/40 dark:bg-rose-950/10',
+    dot: 'bg-danger',
+    text: 'text-danger',
+    ring: 'border-danger/40 bg-danger/5',
     label: 'Error',
   },
   none: {

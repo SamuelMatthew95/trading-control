@@ -66,6 +66,19 @@ export const TONE_BADGE: Record<Tone, string> = {
   neutral: 'bg-muted-foreground/10 text-muted-foreground',
 }
 
+/**
+ * Canonical outlined chip/banner classes per Tone — translucent fill plus a
+ * matching toned border and text. Shape (padding, radius, border width) stays
+ * at the call site; this map owns only the colour recipe so chips and banners
+ * read identically across every surface and both themes.
+ */
+export const TONE_BADGE_OUTLINED: Record<Tone, string> = {
+  success: 'bg-success/10 text-success border-success/30',
+  danger: 'bg-danger/10 text-danger border-danger/30',
+  warning: 'bg-warning/10 text-warning border-warning/30',
+  neutral: 'bg-muted-foreground/10 text-muted-foreground border-muted-foreground/20',
+}
+
 /** Directional text colour — the directional subset of {@link TONE_TEXT}. */
 export const SENTIMENT_TEXT: Record<Sentiment, string> = {
   positive: TONE_TEXT.success,

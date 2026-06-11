@@ -4,12 +4,27 @@
     "next/typescript"
   ],
   "rules": {
-    "no-console": ["warn", { "allow": ["info", "warn", "error"] }],
-    "@typescript-eslint/no-explicit-any": "warn",
+    "no-console": "error",
+    "@typescript-eslint/no-explicit-any": "error",
     "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
     "react-hooks/exhaustive-deps": "warn",
     "react/no-unescaped-entities": "error",
     "prefer-const": "error",
     "no-var": "error"
-  }
+  },
+  "overrides": [
+    {
+      "files": ["src/lib/logger.ts"],
+      "rules": {
+        "no-console": "off"
+      }
+    },
+    {
+      "files": ["src/test/**"],
+      "rules": {
+        "no-console": "off",
+        "@typescript-eslint/no-explicit-any": "off"
+      }
+    }
+  ]
 }

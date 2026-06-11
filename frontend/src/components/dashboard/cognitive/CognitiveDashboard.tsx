@@ -12,17 +12,17 @@ import {
 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
-import { cardClass } from '@/lib/dashboard-styles'
+import { cardClass, chipClass, sectionTitleClass } from '@/lib/dashboard-styles'
 import { PromptEvolutionPanel } from '@/components/dashboard/PromptEvolutionPanel'
 import { ToolGovernancePanel } from '@/components/dashboard/ToolGovernancePanel'
 import {
   actionTone,
   fetchCognitiveEvents,
   fetchCognitiveState,
-  gradeTone,
   signed,
   statusTone,
 } from '@/lib/cognitive'
+import { gradeTone } from '@/lib/grade-colors'
 import type {
   CognitiveEvent,
   CognitiveSnapshot,
@@ -63,9 +63,8 @@ type TabId = (typeof TABS)[number]['id']
 
 // Shared dual-theme surface (light base + dark "console" variant).
 const card = cardClass
-const chip =
-  'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium'
-const label = 'text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400'
+const chip = chipClass
+const label = sectionTitleClass
 const pageShell =
   'min-h-screen bg-slate-100 px-3 py-4 text-slate-900 dark:bg-slate-950 dark:text-slate-100 sm:px-4'
 
@@ -99,7 +98,7 @@ export function CognitiveDashboard() {
   if (error && !snap) {
     return (
       <div className={pageShell}>
-        <div className={cn(card, 'mx-auto max-w-screen-2xl text-sm text-rose-600 dark:text-rose-400')}>
+        <div className={cn(card, 'mx-auto max-w-screen-2xl text-sm text-danger')}>
           Could not reach the cognitive API: {error}
         </div>
       </div>
@@ -177,7 +176,7 @@ function CommandCenter({ snap }: { snap: CognitiveSnapshot }) {
           <div
             className={cn(
               'mt-1 text-lg font-semibold',
-              systemHealthy ? 'text-emerald-600 dark:text-emerald-500' : 'text-amber-600 dark:text-amber-500',
+              systemHealthy ? 'text-success' : 'text-warning',
             )}
           >
             {systemHealthy ? 'Healthy' : 'Warming up'}
@@ -227,7 +226,7 @@ function CommandCenter({ snap }: { snap: CognitiveSnapshot }) {
               className={cn(
                 chip,
                 info.status === 'healthy'
-                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                  ? 'border-success/30 bg-success/10 text-success'
                   : 'border-slate-500/20 bg-slate-500/10 text-slate-500 dark:text-slate-400',
               )}
             >
@@ -275,11 +274,11 @@ function CommandCenter({ snap }: { snap: CognitiveSnapshot }) {
         <div className={card}>
           <div className={cn(label, 'mb-2')}>Drift</div>
           {snap.drift.alerts.length === 0 ? (
-            <p className="text-sm text-emerald-600 dark:text-emerald-500">No drift detected</p>
+            <p className="text-sm text-success">No drift detected</p>
           ) : (
             <ul className="space-y-1 text-xs">
               {snap.drift.alerts.map((alert, i) => (
-                <li key={i} className="text-amber-600 dark:text-amber-400">
+                <li key={i} className="text-warning">
                   {alert.metric} {alert.direction === 'down' ? '↓' : '↑'} {alert.recent} (was{' '}
                   {alert.baseline})
                 </li>
@@ -352,7 +351,7 @@ function AgentsPanel({ snap }: { snap: CognitiveSnapshot }) {
                   className={cn(
                     chip,
                     health.status === 'healthy'
-                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                      ? 'border-success/30 bg-success/10 text-success'
                       : 'border-slate-500/20 bg-slate-500/10 text-slate-500 dark:text-slate-400',
                   )}
                 >
@@ -414,9 +413,9 @@ function ProposalsPanel({ snap }: { snap: CognitiveSnapshot }) {
                 <td className="px-3 py-2">
                   <p className="font-mono text-sm">
                     <span className="text-slate-500 dark:text-slate-400">{proposal.target}: </span>
-                    <span className="text-rose-600 dark:text-rose-400">{String(proposal.old_value)}</span>
+                    <span className="text-danger">{String(proposal.old_value)}</span>
                     <span className="text-slate-500 dark:text-slate-400"> → </span>
-                    <span className="text-emerald-600 dark:text-emerald-400">{String(proposal.new_value)}</span>
+                    <span className="text-success">{String(proposal.new_value)}</span>
                   </p>
                   <p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{proposal.reason}</p>
                 </td>

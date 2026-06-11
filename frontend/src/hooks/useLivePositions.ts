@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
-import { useCodexStore, type Position } from '@/stores/useCodexStore'
+import { useDashboardStore, type Position } from '@/stores/useDashboardStore'
 import {
   getField,
   getStr,
@@ -43,7 +43,7 @@ export function markPositionsToMarket(
  * the market every tick instead of freezing at the last backend push.
  */
 export function useLivePositions(): Position[] {
-  const positions = useCodexStore((s) => s.positions)
-  const prices = useCodexStore((s) => s.prices)
+  const positions = useDashboardStore((s) => s.positions)
+  const prices = useDashboardStore((s) => s.prices)
   return useMemo(() => markPositionsToMarket(positions, prices), [positions, prices])
 }

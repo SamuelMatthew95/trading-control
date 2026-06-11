@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { UI_COPY } from '@/constants/copy'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard,
@@ -16,9 +17,9 @@ import {
   Power,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useCodexStore } from '@/stores/useCodexStore'
+import { useDashboardStore } from '@/stores/useDashboardStore'
 import { ThemeToggle } from '@/components/ThemeToggle'
-import { useWebSocket } from '@/hooks/useWebSocket'
+import { useGlobalWebSocket } from '@/hooks/useGlobalWebSocket'
 import { api } from '@/lib/apiClient'
 import { formatUSD } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
@@ -48,7 +49,7 @@ const LogoGlyph = () => (
 
 const Wordmark = () => (
   <span className="text-[13px] font-bold uppercase tracking-[0.2em] text-slate-900 dark:text-slate-100">
-    Trading<span style={{ color: 'var(--accent)' }}>Control</span>
+    Trading<span style={{ color: 'var(--brand)' }}>Control</span>
   </span>
 )
 
@@ -75,14 +76,14 @@ function HeaderStat({ label, value, className }: { label: string; value: string;
 const HeaderDivider = () => <div className="h-4 w-px bg-slate-300 dark:bg-slate-800" />
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  useWebSocket()
+  useGlobalWebSocket()
 
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [killSwitchPending, setKillSwitchPending] = useState(false)
   const [killConfirm, setKillConfirm] = useState(false)
   const [mounted, setMounted] = useState(false)
-  const { killSwitchActive, wsConnected, setKillSwitch, hydrateFromLocalStorage } = useCodexStore()
+  const { killSwitchActive, wsConnected, setKillSwitch, hydrateFromLocalStorage } = useDashboardStore()
 
   // Real account stats — broker-truth cash with live-marked positions on top
   // (see useTerminalAccount). P&L is lifetime paper P&L vs starting capital.
@@ -154,10 +155,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 className={cn(
                   'flex min-h-10 items-center gap-2 rounded-lg border px-3 text-sm font-sans font-semibold transition-colors',
                   active
-                    ? 'border-transparent text-[var(--accent)]'
+                    ? 'border-transparent text-[var(--brand)]'
                     : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-200',
                 )}
-                style={active ? { background: 'var(--accent-soft)' } : undefined}
+                style={active ? { background: 'var(--brand-soft)' } : undefined}
               >
                 <Icon className="h-4 w-4" />
                 {label}
@@ -246,9 +247,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </header>
 
         {showReconnectBanner && (
-          <div className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-xs font-sans font-semibold text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300">
-            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-amber-500 align-middle" />
-            <span className="ml-2">Reconnecting to live feed…</span>
+          <div className="border-b border-warning/30 bg-warning/10 px-4 py-2 text-xs font-sans font-semibold text-warning">
+            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-warning align-middle" />
+            <span className="ml-2">{UI_COPY.banners.reconnecting}</span>
           </div>
         )}
 

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 
 import { ProposalsSection } from '@/components/dashboard/ProposalsSection'
-import { useCodexStore, type Proposal } from '@/stores/useCodexStore'
+import { useDashboardStore, type Proposal } from '@/stores/useDashboardStore'
 
 function proposal(overrides: Partial<Proposal>): Proposal {
   return {
@@ -18,7 +18,7 @@ function proposal(overrides: Partial<Proposal>): Proposal {
 
 describe('ProposalsSection', () => {
   beforeEach(() => {
-    useCodexStore.setState({ proposals: [] })
+    useDashboardStore.setState({ proposals: [] })
   })
 
   it('shows the empty state when there are no proposals', () => {
@@ -27,7 +27,7 @@ describe('ProposalsSection', () => {
   })
 
   it('renders each proposal with its On-Approve routing badge', () => {
-    useCodexStore.setState({
+    useDashboardStore.setState({
       proposals: [
         proposal({ id: 'p1', proposal_type: 'parameter_change', content: 'lower RSI' }),
         proposal({ id: 'p2', proposal_type: 'code_change', content: 'rewrite signal logic' }),
@@ -47,7 +47,7 @@ describe('ProposalsSection', () => {
   })
 
   it('drills into a proposal: clicking the candidate change opens the detail modal', () => {
-    useCodexStore.setState({
+    useDashboardStore.setState({
       proposals: [
         proposal({
           id: 'p9',

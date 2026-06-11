@@ -1,12 +1,51 @@
 /**
  * Pure helper functions for dashboard UI logic.
  *
- * All functions here are exported so they can be unit-tested independently
- * of the components that use them. CSS class helpers return Tailwind class
- * strings; value helpers return formatted display strings or computed numbers.
+ * Style: domain value → Tone → token, expressed as declarative lookup maps
+ * (no conditional chains). All functions are exported so they can be
+ * unit-tested independently of the components that use them. Never hardcode
+ * a semantic colour here — route through the Tone maps so light/dark parity
+ * lives in one place (src/lib/design/sentiment.ts).
  */
 
-import { SENTIMENT_TEXT, TONE_BADGE, TONE_DOT, TONE_TEXT, sentimentTextClass } from '@/lib/design/sentiment'
+import { SENTIMENT_TEXT, TONE_BADGE, TONE_DOT, TONE_TEXT, type Tone } from '@/lib/design/sentiment'
+import { TRADE_FEED_EMPTY_LABELS, UI_COPY } from '@/constants/copy'
+
+// ---------------------------------------------------------------------------
+// Tone lookup tables — the single mapping from domain vocabulary to Tone
+// ---------------------------------------------------------------------------
+
+const ACTION_TONES: Record<string, Tone> = {
+  BUY: 'success',
+  SELL: 'danger',
+}
+
+const AGENT_STATUS_TONES: Record<string, Tone> = {
+  Live: 'success',
+  Stale: 'warning',
+  Error: 'danger',
+}
+
+const SYSTEM_STATUS_TONES: Record<string, Tone> = {
+  trading: 'success',
+  booting: 'warning',
+  error: 'danger',
+}
+
+const API_HEALTH_TONES: Record<string, Tone> = {
+  ok: 'success',
+  error: 'danger',
+}
+
+const PROPOSAL_STATUS_TONES: Record<string, Tone> = {
+  approved: 'success',
+  rejected: 'danger',
+}
+
+const ACTIVITY_INDICATOR_TONES: Record<string, Tone> = {
+  live: 'success',
+  waiting: 'warning',
+}
 
 // ---------------------------------------------------------------------------
 // CSS class helpers — Trading / Positions
@@ -16,16 +55,7 @@ export function pnlColorClass(value: number): string {
   return value >= 0 ? SENTIMENT_TEXT.positive : SENTIMENT_TEXT.negative
 }
 
-export function tradeSideClass(side: string | null): string {
-  return side === 'buy' ? SENTIMENT_TEXT.positive : SENTIMENT_TEXT.negative
-}
-
-export function strategyStatusClass(status: string | null): string {
-  if (status === 'approved') return TONE_BADGE.success
-  if (status === 'rejected') return TONE_BADGE.danger
-  return TONE_BADGE.warning
-}
-
+/** Confidence is a continuous score — thresholds, not vocabulary, pick the Tone. */
 export function confColorClass(conf: number | null): string {
   if (conf == null) return TONE_TEXT.neutral
   if (conf > 0.8) return TONE_TEXT.success
@@ -34,15 +64,7 @@ export function confColorClass(conf: number | null): string {
 }
 
 export function actionBadgeClass(action: string): string {
-  if (action === 'BUY') return TONE_BADGE.success
-  if (action === 'SELL') return TONE_BADGE.danger
-  return TONE_BADGE.neutral
-}
-
-export function positionSideBadgeClass(side: string): string {
-  if (side === 'LONG') return TONE_BADGE.success
-  if (side === 'SHORT') return TONE_BADGE.danger
-  return TONE_BADGE.neutral
+  return TONE_BADGE[ACTION_TONES[action] ?? 'neutral']
 }
 
 // ---------------------------------------------------------------------------
@@ -50,15 +72,12 @@ export function positionSideBadgeClass(side: string): string {
 // ---------------------------------------------------------------------------
 
 export function activityDotClass(indicator: string): string {
-  if (indicator === 'live') return `animate-pulse ${TONE_DOT.success}`
-  if (indicator === 'waiting') return TONE_DOT.warning
-  return TONE_DOT.neutral
+  const tone = ACTIVITY_INDICATOR_TONES[indicator] ?? 'neutral'
+  return tone === 'success' ? `animate-pulse ${TONE_DOT.success}` : TONE_DOT[tone]
 }
 
 export function activityLabel(indicator: string): string {
-  if (indicator === 'live') return 'LIVE'
-  if (indicator === 'waiting') return 'WAITING'
-  return 'OFFLINE'
+  return UI_COPY.activityIndicator[indicator as keyof typeof UI_COPY.activityIndicator] ?? UI_COPY.activityIndicator.offline
 }
 
 // ---------------------------------------------------------------------------
@@ -66,75 +85,23 @@ export function activityLabel(indicator: string): string {
 // ---------------------------------------------------------------------------
 
 export function tradeFeedEmptyLabel(reason: string | null): string {
-  if (reason === 'db_degraded') return 'DB unavailable — fills will appear when DB reconnects'
-  if (reason === 'no_orders_executed') return 'No orders executed yet — decisions are being evaluated'
-  if (reason === 'lifecycle_not_persisted') return 'Orders placed but lifecycle rows are pending'
-  if (reason === 'no_executable_intents') return 'Pipeline active — no executable intents yet'
-  return 'No fills yet — waiting for executed trades'
+  return (reason && TRADE_FEED_EMPTY_LABELS[reason]) || TRADE_FEED_EMPTY_LABELS.default
 }
 
 // ---------------------------------------------------------------------------
-// CSS class helpers — Agent card grid (DashboardView)
+// CSS class helpers — Agent status / System status
 // ---------------------------------------------------------------------------
 
-export function agentCardBorderClass(status: string): string {
-  if (status === 'Live') return 'border-emerald-200 bg-emerald-50/40 dark:border-emerald-900/40 dark:bg-emerald-950/20'
-  if (status === 'Error') return 'border-rose-200 bg-rose-50/30 dark:border-rose-900/30 dark:bg-rose-950/10'
-  return 'border-slate-200 dark:border-slate-800'
-}
-
-export function agentCardDotClass(status: string): string {
-  if (status === 'Live') return `animate-pulse ${TONE_DOT.success}`
-  if (status === 'Stale') return TONE_DOT.warning
-  if (status === 'Error') return TONE_DOT.danger
-  return TONE_DOT.neutral
-}
-
-export function agentCardTextClass(status: string): string {
-  if (status === 'Live') return TONE_TEXT.success
-  if (status === 'Stale') return TONE_TEXT.warning
-  if (status === 'Error') return TONE_TEXT.danger
-  return TONE_TEXT.neutral
-}
-
-// ---------------------------------------------------------------------------
-// CSS class helpers — Stream events / System status
-// ---------------------------------------------------------------------------
-
-export function streamEventBadgeClass(stream: string | null | undefined): string {
-  switch (stream) {
-    case 'market_ticks':
-    case 'market_events':
-      return 'bg-emerald-500/20 text-emerald-400'
-    case 'signals':
-      return 'bg-sky-500/20 text-sky-400'
-    case 'decisions':
-      return 'bg-violet-500/20 text-violet-300'
-    case 'orders':
-      return 'bg-amber-500/20 text-amber-400'
-    case 'executions':
-      return 'bg-orange-500/20 text-orange-400'
-    case 'risk_alerts':
-      return 'bg-rose-500/20 text-rose-400'
-    case 'notifications':
-      return 'bg-blue-500/20 text-blue-400'
-    case 'agent_logs':
-      return 'bg-slate-400/20 text-slate-300'
-    case 'system_metrics':
-      return 'bg-indigo-500/20 text-indigo-400'
-    case 'agent_grades':
-    case 'graded_decisions':
-      return 'bg-pink-500/20 text-pink-400'
-    default:
-      return 'bg-slate-500/20 text-slate-400'
-  }
+export function agentStatusDotClass(status: string): string {
+  return TONE_DOT[AGENT_STATUS_TONES[status] ?? 'neutral']
 }
 
 export function systemStatusBadgeClass(status: string): string {
-  if (status === 'trading') return TONE_BADGE.success
-  if (status === 'booting') return TONE_BADGE.warning
-  if (status === 'error') return TONE_BADGE.danger
-  return TONE_BADGE.neutral
+  return TONE_BADGE[SYSTEM_STATUS_TONES[status] ?? 'neutral']
+}
+
+export function apiHealthBadgeClass(value: string): string {
+  return TONE_BADGE[API_HEALTH_TONES[value] ?? 'neutral']
 }
 
 // ---------------------------------------------------------------------------
@@ -148,46 +115,16 @@ export function winRateFromFeed(feed: { pnl?: number | null }[]): number | null 
 }
 
 // ---------------------------------------------------------------------------
-// CSS class helpers — Agent status table (lighter palette than card grid)
+// Value helpers — Agent tier
 // ---------------------------------------------------------------------------
 
-export function agentStatusDotClass(status: string): string {
-  if (status === 'Live') return 'bg-emerald-300'
-  if (status === 'Stale') return 'bg-amber-300'
-  if (status === 'Error') return 'bg-rose-300'
-  return 'bg-slate-400'
+const AGENT_TIERS: Record<string, 'active' | 'challenger' | 'inactive'> = {
+  Live: 'active',
+  Error: 'inactive',
 }
-
-export function pipelineStatusTextClass(status: string): string {
-  if (status === 'Healthy') return TONE_TEXT.success
-  if (status === 'Degraded') return TONE_TEXT.warning
-  return TONE_TEXT.danger
-}
-
-export function apiHealthBadgeClass(value: string): string {
-  if (value === 'ok') return TONE_BADGE.success
-  if (value === 'error') return TONE_BADGE.danger
-  return TONE_BADGE.neutral
-}
-
-export function priceChangeTextClass(change: number | null, hasData: boolean): string {
-  if (change == null || !hasData) return SENTIMENT_TEXT.neutral
-  return sentimentTextClass(change)
-}
-
-// ---------------------------------------------------------------------------
-// Value helpers — Agent tier / Performance colour
-// ---------------------------------------------------------------------------
 
 export function agentTierFromStatus(status: string): 'active' | 'challenger' | 'inactive' {
-  if (status === 'Live') return 'active'
-  if (status === 'Error') return 'inactive'
-  return 'challenger'
-}
-
-export function performancePnlColorClass(pnl: number | null): string {
-  if (pnl == null) return 'text-slate-900 dark:text-slate-100'
-  return pnl >= 0 ? SENTIMENT_TEXT.positive : SENTIMENT_TEXT.negative
+  return AGENT_TIERS[status] ?? 'challenger'
 }
 
 // ---------------------------------------------------------------------------
@@ -200,7 +137,5 @@ export function performancePnlColorClass(pnl: number | null): string {
  * proposals queue and the learning console.
  */
 export function proposalStatusClass(status: string | null | undefined): string {
-  if (status === 'approved') return TONE_BADGE.success
-  if (status === 'rejected') return TONE_BADGE.danger
-  return TONE_BADGE.warning
+  return TONE_BADGE[(status && PROPOSAL_STATUS_TONES[status]) || 'warning']
 }

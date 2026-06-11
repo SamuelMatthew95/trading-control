@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { normalizeClosedTrade, useCodexStore } from '@/stores/useCodexStore'
+import { normalizeClosedTrade, useDashboardStore } from '@/stores/useDashboardStore'
 
 afterEach(() => {
-  useCodexStore.setState({ closedTrades: [] })
+  useDashboardStore.setState({ closedTrades: [] })
 })
 
 describe('normalizeClosedTrade', () => {
@@ -44,21 +44,21 @@ describe('normalizeClosedTrade', () => {
 
 describe('hydrateDashboard → closedTrades', () => {
   it('replaces the closed-trades ledger wholesale from the REST snapshot', () => {
-    useCodexStore.getState().hydrateDashboard({
+    useDashboardStore.getState().hydrateDashboard({
       closed_trades: [
         { symbol: 'BTC/USD', side: 'sell', pnl: -13.5, filled_at: '2026-06-10T12:00:00Z' },
         { symbol: 'SOL/USD', side: 'sell', pnl: 4.2, timestamp: 1781067000 },
         'garbage-row',
       ],
     })
-    const trades = useCodexStore.getState().closedTrades
+    const trades = useDashboardStore.getState().closedTrades
     expect(trades).toHaveLength(2)
     expect(trades[0].symbol).toBe('BTC/USD')
     expect(trades[1].pnl).toBe(4.2)
   })
 
   it('keeps the previous ledger when the snapshot omits closed_trades', () => {
-    useCodexStore.setState({
+    useDashboardStore.setState({
       closedTrades: [
         {
           symbol: 'BTC/USD',
@@ -72,7 +72,7 @@ describe('hydrateDashboard → closedTrades', () => {
         },
       ],
     })
-    useCodexStore.getState().hydrateDashboard({})
-    expect(useCodexStore.getState().closedTrades).toHaveLength(1)
+    useDashboardStore.getState().hydrateDashboard({})
+    expect(useDashboardStore.getState().closedTrades).toHaveLength(1)
   })
 })

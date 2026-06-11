@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
 import { Panel } from './Panel'
 import { formatUSD, formatQuantity, formatTimestamp } from '@/lib/formatters'
 import { signClass } from './marketData'
-import type { TradeFeedItem } from '@/stores/useCodexStore'
+import type { TradeFeedItem } from '@/stores/useDashboardStore'
 
 /** Recent REAL executions/fills produced by the ExecutionEngine (trade feed). */
 export function ExecutionsPanel({ trades }: { trades: TradeFeedItem[] }) {

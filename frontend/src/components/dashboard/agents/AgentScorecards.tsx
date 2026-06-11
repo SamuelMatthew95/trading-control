@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 
 import { API_ENDPOINTS, api, apiFetch } from '@/lib/apiClient'
 import { LEARNING_REFRESH_MS, gradeBg, tierBadge, tierLabel } from '@/lib/grade-colors'
-import { cardClass, sectionTitleClass, mutedClass } from '@/lib/dashboard-styles'
+import { cardClass, errorTextClass, mutedClass, sectionTitleClass } from '@/lib/dashboard-styles'
 import { agentDisplayName } from '@/constants/agents'
 import { cn } from '@/lib/utils'
 import type {
@@ -109,7 +109,7 @@ export function AgentScorecards() {
         <p className={sectionTitleClass}>Agent Scorecards</p>
         <div className="flex items-center gap-2">
           {error ? (
-            <span className="font-mono text-xs text-rose-500">err: {error}</span>
+            <span className={errorTextClass}>err: {error}</span>
           ) : (
             <span
               className="font-mono text-xs text-slate-400"
