@@ -7,7 +7,7 @@ import { useSystemStatus } from '@/hooks/useSystemStatus'
 import { useRestPoll } from '@/hooks/useRestPoll'
 import { useLivePositions } from '@/hooks/useLivePositions'
 import { cn } from '@/lib/utils'
-import { toFiniteNum as toFiniteNumber } from '@/lib/formatters'
+import { parseTimestampMs, toFiniteNum as toFiniteNumber } from '@/lib/formatters'
 import { LearningConsole } from '@/components/dashboard/LearningConsole'
 import { TradingView } from '@/components/dashboard/TradingView'
 import { TraceModal } from '@/components/dashboard/TraceModal'
@@ -84,32 +84,10 @@ function isClosedTrade(order: Record<string, unknown> | null | undefined): boole
   return false
 }
 
+/** Canonical timestamp parsing (formatters.parseTimestampMs) as a Date. */
 function parseTimestamp(value: unknown): Date | null {
-  if (value == null) return null
-  if (value instanceof Date) {
-    const t = value.getTime()
-    return Number.isNaN(t) || t <= 0 ? null : value
-  }
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value) || value <= 0) return null
-    const ms = value > 10_000_000_000 ? value : value * 1000
-    const d = new Date(ms)
-    return Number.isNaN(d.getTime()) ? null : d
-  }
-  const raw = String(value).trim()
-  if (!raw || raw === '0') return null
-  if (/^\d+(\.\d+)?$/.test(raw)) {
-    const num = Number(raw)
-    if (Number.isFinite(num) && num > 0) {
-      const ms = num > 10_000_000_000 ? num : num * 1000
-      const d = new Date(ms)
-      if (!Number.isNaN(d.getTime())) return d
-    }
-    return null
-  }
-  const d = new Date(raw)
-  if (Number.isNaN(d.getTime()) || d.getTime() <= 0) return null
-  return d
+  const ms = parseTimestampMs(value)
+  return ms == null || ms <= 0 ? null : new Date(ms)
 }
 
 function parseHeartbeatTimestamp(status: AgentHeartbeat): Date | null {
@@ -121,18 +99,20 @@ function parseHeartbeatTimestamp(status: AgentHeartbeat): Date | null {
   return parseTimestamp(status.last_event)
 }
 
+/** Sort/merge order for agent lifecycle states — healthiest first. */
+const AGENT_STATUS_PRIORITY: Record<AgentSummary['status'], number> = {
+  Live: 0,
+  Stale: 1,
+  Error: 2,
+  Idle: 3,
+}
+
 function pickHigherPriorityStatus(
   current: AgentSummary['status'] | undefined,
   incoming: AgentSummary['status'],
 ): AgentSummary['status'] {
   if (!current) return incoming
-  const priority: Record<AgentSummary['status'], number> = {
-    Live: 0,
-    Stale: 1,
-    Error: 2,
-    Idle: 3,
-  }
-  return priority[incoming] < priority[current] ? incoming : current
+  return AGENT_STATUS_PRIORITY[incoming] < AGENT_STATUS_PRIORITY[current] ? incoming : current
 }
 
 export function DashboardView({ section }: { section: Section }) {
@@ -302,15 +282,8 @@ export function DashboardView({ section }: { section: Section }) {
       }
     }
 
-    const priority: Record<AgentSummary['status'], number> = {
-      Live: 0,
-      Stale: 1,
-      Error: 2,
-      Idle: 3,
-    }
-
     return Array.from(normalizedByName.values()).sort((a, b) => {
-      const byStatus = priority[a.status] - priority[b.status]
+      const byStatus = AGENT_STATUS_PRIORITY[a.status] - AGENT_STATUS_PRIORITY[b.status]
       if (byStatus !== 0) return byStatus
       return a.name.localeCompare(b.name)
     })
