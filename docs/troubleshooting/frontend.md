@@ -967,3 +967,22 @@ danger-toned error is reserved for real API failures
 
 **Regression test:** `frontend/src/test/components/TraceModal.test.tsx::shows a
 calm notice (not an error) when the backend has no trace (404)`
+
+## Vercel deployment failed after moving build tooling to devDependencies
+
+**Symptom:** Vercel preview deployment errored on the PR while `pnpm build`
+passed locally; the build log ends in `Module not found: Can't resolve
+'@/hooks/useSystemStatus'` (an alias-resolution failure, not a missing file).
+
+**Root cause:** With `NODE_ENV=production` at install time (Vercel project
+env), pnpm skips `devDependencies` — taking `typescript` (and the
+tailwind/postcss toolchain) with it. Without the typescript package, Next.js
+cannot resolve tsconfig `@/*` path aliases, so every aliased import "fails".
+
+**Fix:** Build-critical tooling lives in `dependencies` (`typescript`,
+`@types/*`, `tailwindcss`, `postcss`, `autoprefixer`); only test/lint tooling
+(vitest, eslint, prettier, testing-library, jsdom) is dev-only.
+`frontend/package.json`. Reproduce locally with `NODE_ENV=production pnpm
+install && pnpm exec next build`.
+
+**Regression test:** none (manifest layout); this entry is the guard.
