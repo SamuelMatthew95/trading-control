@@ -364,6 +364,39 @@ async def test_pipeline_routes_all_streams_to_memory_when_db_down(monkeypatch):
     assert len(store.agent_logs) == 1
     assert len(store.orders) == 1
     assert len(store.grade_history) == 1
-    assert len(store.event_history) >= 1  # risk_alerts → generic fallback
     # SafeWriter was never called
     assert pipeline.safe_writer.calls == []
+
+
+@pytest.mark.asyncio
+async def test_pipeline_memory_fallthrough_stream_lands_once_in_event_history(monkeypatch):
+    """A fall-through stream event appears exactly once in event_history.
+
+    Regression: the pipeline used to append its generic events-feed row on top
+    of the write_event_to_memory fall-through row, so the same msg_id showed
+    up twice in the dashboard feed in memory mode.
+    """
+    store = InMemoryStore()
+    set_runtime_store(store)
+    set_db_available(False)
+    monkeypatch.setattr("api.services.persistence_routing.is_db_available", lambda: False)
+
+    bus = _FakeBus()
+    ws = _FakeBroadcaster()
+    pipeline = EventPipeline(bus, ws, DLQManager(_FakeRedis(), bus))
+    pipeline.safe_writer = _FakeWriter()
+
+    await pipeline._process_message(
+        "risk_alerts", "8-0", {"detail": "spike"}, "risk_alert", "w", "2026-01-01T00:00:00Z"
+    )
+
+    matching = [e for e in store.event_history if e.get(FieldName.ID) == "w"]
+    assert len(matching) == 1
+    assert matching[0][FieldName.KIND] == "risk_alerts"
+
+    # Dedicated-bucket streams still get their generic events-feed row.
+    await pipeline._process_message(
+        "orders", "9-0", {"symbol": "ETH/USD"}, "order", "y", "2026-01-01T00:00:00Z"
+    )
+    assert len(store.orders) == 1
+    assert any(e.get(FieldName.ID) == "y" for e in store.event_history)

@@ -3,7 +3,8 @@
  * everything is unit-testable in isolation.
  */
 import { NOTIFICATION_FALLBACKS, NOTIFICATION_SEVERITIES, type NotificationSeverity } from '@/constants/notifications'
-import type { Notification, NotificationDisplay, TradeFeedItem } from './types'
+import { EPOCH_MS_THRESHOLD } from '@/lib/formatters'
+import type { ClosedTrade, Notification, NotificationDisplay, TradeFeedItem } from './types'
 
 export function normalizeTradeFeedItem(raw: Record<string, unknown>): TradeFeedItem {
   const toNum = (v: unknown): number | null => (typeof v === 'number' && isFinite(v) ? v : null)
@@ -108,3 +109,28 @@ export function normalizeStoredNotification(input: unknown): Notification | null
   return notification
 }
 
+
+/** Normalize a raw closed-trade dict (REST snapshot) into a well-typed ClosedTrade. */
+export function normalizeClosedTrade(raw: Record<string, unknown>): ClosedTrade {
+  // Memory-mode rows carry an epoch-seconds `timestamp`; DB rows carry ISO `filled_at`.
+  const closedAtRaw = raw.filled_at ?? raw.timestamp ?? null
+  const closedAtMs =
+    typeof closedAtRaw === 'number' && Number.isFinite(closedAtRaw)
+      ? (closedAtRaw > EPOCH_MS_THRESHOLD ? closedAtRaw : closedAtRaw * 1000)
+      : null
+  return {
+    symbol: String(raw.symbol ?? ''),
+    side: raw.side === 'sell' ? 'sell' : 'buy',
+    qty: normalizeNumber(raw.qty),
+    entry_price: normalizeNumber(raw.entry_price),
+    exit_price: normalizeNumber(raw.exit_price),
+    pnl: normalizeNumber(raw.pnl),
+    pnl_percent: normalizeNumber(raw.pnl_percent),
+    closed_at:
+      closedAtMs != null
+        ? new Date(closedAtMs).toISOString()
+        : closedAtRaw != null
+          ? String(closedAtRaw)
+          : null,
+  }
+}

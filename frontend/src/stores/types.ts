@@ -210,6 +210,23 @@ export interface TradeFeedItem {
 }
 
 /** Normalize a raw trade dict (from REST or WS) into a well-typed TradeFeedItem. */
+/**
+ * One completed round-trip (realized PnL) from `/dashboard/state`'s
+ * `closed_trades` block. Distinct from TradeFeedItem (per-fill lifecycle rows):
+ * this is the verifiable "past trades" ledger behind the headline P&L.
+ */
+export interface ClosedTrade {
+  symbol: string
+  side: 'buy' | 'sell'
+  qty: number | null
+  entry_price: number | null
+  exit_price: number | null
+  pnl: number | null
+  pnl_percent: number | null
+  /** ISO string when the round-trip closed (backend sends filled_at or timestamp). */
+  closed_at: string | null
+}
+
 export interface AgentInstance {
   id: string
   instance_key: string
@@ -276,6 +293,8 @@ export type DashboardData = {
   prices?: Record<string, PriceData>
   proposals?: Array<Record<string, unknown>>
   trade_feed?: TradeFeedItem[]
+  /** Completed round-trips (newest first) — backs the Closed Trades panel. */
+  closed_trades?: Array<Record<string, unknown>>
   notifications?: Array<Record<string, unknown>>
   ic_weights?: Record<string, number>
   agent_statuses?: Array<Record<string, unknown>>

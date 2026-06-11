@@ -112,6 +112,18 @@ async def test_accumulates_score_pnl_buffer(ic_updater):
     assert len(ic_updater._score_pnl_buffer) == 2
 
 
+@patch("api.services.agents.ic_updater.AsyncSessionFactory", _MockSessionFactory())
+async def test_paired_close_events_counted_once(ic_updater):
+    """A round-trip close arrives on BOTH trade_performance and trade_completed
+    (same trace_id, same realized PnL) — fold it into the IC inputs once."""
+    close = {"pnl": 7.0, "trace_id": "trace-close-1"}
+    await ic_updater.process("trade_performance", "id-1", close)
+    await ic_updater.process("trade_completed", "id-2", dict(close))
+
+    assert ic_updater._fills == 1
+    assert len(ic_updater._score_pnl_buffer) == 1
+
+
 # ---------------------------------------------------------------------------
 # Trigger threshold tests
 # ---------------------------------------------------------------------------

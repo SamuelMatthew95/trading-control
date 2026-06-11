@@ -21,8 +21,10 @@ from redis.asyncio import Redis
 
 from api.constants import (
     AGENT_GRADE_HISTORY_MAX,
+    REDIS_CLOSED_TRADES_MAX,
     REDIS_DECISIONS_MAX,
     REDIS_KEY_AGENT_GRADE_HISTORY,
+    REDIS_KEY_CLOSED_TRADES_RECENT,
     REDIS_KEY_DECISIONS_RECENT,
     REDIS_KEY_LLM_DAILY_CALLS,
     REDIS_KEY_LLM_METRICS,
@@ -280,6 +282,47 @@ class RedisStore:
             },
             FieldName.LAST_DECISION: last_decision,
         }
+
+    # ------------------------------------------------------------------ #
+    # Closed trades — durable round-trip history behind the header PnL
+    # ------------------------------------------------------------------ #
+
+    async def push_closed_trade(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Push one completed round-trip to ``closed_trades:recent`` (LPUSH+LTRIM).
+
+        The PaperBroker's equity (and therefore the header PnL) survives
+        restarts in Redis; without this list the trades that produced that PnL
+        vanished on every redeploy, leaving a number no visible trade explains.
+        """
+        entry = dict(payload)
+        if not entry.get(FieldName.TIMESTAMP):
+            entry[FieldName.TIMESTAMP] = _now_iso()
+        encoded = json.dumps(entry, default=str)
+        try:
+            async with self.redis.pipeline(transaction=True) as pipe:
+                pipe.lpush(REDIS_KEY_CLOSED_TRADES_RECENT, encoded)
+                pipe.ltrim(REDIS_KEY_CLOSED_TRADES_RECENT, 0, REDIS_CLOSED_TRADES_MAX - 1)
+                await pipe.execute()
+        except Exception:
+            log_structured("warning", "redis_store_closed_trade_push_failed", exc_info=True)
+        return entry
+
+    async def list_closed_trades(
+        self, limit: int = REDIS_CLOSED_TRADES_MAX
+    ) -> list[dict[str, Any]]:
+        """Recent closed round-trips, newest first."""
+        safe_limit = max(1, min(int(limit), REDIS_CLOSED_TRADES_MAX))
+        try:
+            raw_items = await self.redis.lrange(REDIS_KEY_CLOSED_TRADES_RECENT, 0, safe_limit - 1)
+        except Exception:
+            log_structured("warning", "redis_store_closed_trade_list_failed", exc_info=True)
+            return []
+        items: list[dict[str, Any]] = []
+        for raw in raw_items:
+            parsed = _safe_loads(raw)
+            if parsed is not None:
+                items.append(parsed)
+        return items
 
     # ------------------------------------------------------------------ #
     # LLM metrics — rolling hash counters

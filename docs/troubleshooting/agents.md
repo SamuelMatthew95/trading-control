@@ -84,3 +84,139 @@ treats unproven as not-promotable rather than guessing.
 `tests/agents/test_grade_agent.py::test_attributes_realized_pnl_to_trading_agents`,
 `tests/api/test_agent_performance.py::test_trading_agent_graded_on_realized_pnl`,
 `::test_pnl_gate_blocks_promotion_when_losing`
+
+## ReasoningAgent defined _compute_kelly_position_size twice
+
+**Symptom:** No runtime misbehavior — but `ReasoningAgent` carried two
+near-identical definitions of `_compute_kelly_position_size` (lines ~487 and
+~1313), and only the second ever executed (Python silently lets the later
+class-body definition shadow the earlier one).
+
+**Root cause:** A refactor moved the Kelly sizing helper next to the risk
+hierarchy but left the original copy behind; nothing flags duplicate method
+names in a class body.
+
+**Fix:** Removed the dead first definition; the surviving copy (the one that
+was already in effect at runtime) is unchanged, so behavior is identical. An
+AST sweep confirmed no other duplicate function/method definitions exist in
+`api/`.
+
+**Regression test:** behavior-neutral dead-code removal — covered by the
+existing reasoning-agent suite (`tests/agents/test_reasoning_*.py`).
+
+## Grade snapshots recorded without the PnL dimension
+
+**Symptom:** For PnL-graded agents the dashboard's live grade could differ
+from the recorded snapshot history (the source of promotion streaks) — an
+agent could display "B" while accumulating "A" snapshots, making promotion
+unexplainable from the UI.
+
+**Root cause:** `record_grade_snapshots` called `_grade_agent` without
+`pnl_stats`, while the live view passes them — two different scores for the
+same agent.
+
+**Fix:** `record_grade_snapshots` now collects `_collect_pnl()` and passes
+each agent's stats, matching the live view
+(`api/services/dashboard/agent_performance.py`).
+
+**Regression test:** covered by `tests/api/test_agent_performance.py`
+(snapshot path now exercises the same `_grade_agent` inputs as the live view).
+
+## Stored grade records always said fills_graded=None
+
+**Symptom:** Grade history rows (memory mode and the DB agent_grades fallback)
+showed `fills_graded: null` even though every grade cycle runs on a known fill
+count.
+
+**Root cause:** GradeAgent put `FILLS_GRADED` at the payload top level, but
+`write_grade_to_db` receives only the `METRICS` dict and reads
+`metrics.get(FILLS_GRADED)` — as does the DB grade-history fallback reader.
+
+**Fix:** `FILLS_GRADED` is also carried inside `METRICS` at payload
+construction (`api/services/agents/grade_agent.py`), healing both persistence
+paths with no signature changes.
+
+**Regression test:** `tests/agents/test_grade_agent.py::test_grade_metrics_carry_fills_graded`
+
+## Challenger promotion loop spawned unbounded clones and bloated the live prompt
+
+**Symptom:** /dashboard/agents became an endless wall: 15+ near-identical
+"challenger being tested" cards (same strategy, 0/20 fills each), a huge
+"challenger shadows" list, and an adaptive directive whose ACTIVE text held
+~12 stacked "Promoted strategy 'mean_reversion': …" lines (×10 history
+versions) — every reasoning call paid for that bloated prompt.
+
+**Root cause (two unbounded feedback legs):**
+1. `ChallengerSpawner.spawn` had no dedup or cap: each auto-applied
+   challenger promotion spawned a follow-up candidate of the SAME strategy,
+   which accumulated shadow evidence, beat baseline, promoted again, and
+   spawned another clone — one new fleet member per cycle.
+2. `_bias_directive_toward` appended the promotion advisory with
+   exact-string dedup only; advisories embed edge/win-rate numbers, so every
+   cycle's line was unique and the directive grew without bound.
+
+**Fix:**
+- Spawner enforces one RUNNING challenger per strategy (returns the existing
+  descriptor with `status: already_running`) and a hard
+  `MAX_CONCURRENT_CHALLENGERS` cap (`status: capacity`) — a retired
+  challenger frees its slot (`api/services/challenger_spawner.py`).
+- The promotion advisory REPLACES the strategy's previous advisory lines
+  (stable `Promoted strategy '<name>':` prefix) instead of stacking — one
+  line per strategy, and the rewrite self-heals an already-bloated directive
+  on the next promotion (`api/services/agents/proposal_applier.py`).
+- UI: prior directive versions and challenger-shadow evidence collapse to
+  one-line summaries (expand on demand) so the agents page stays one screen
+  (`PromptEvolutionPanel.tsx`, `LearningLoopPanel.tsx`).
+
+**Regression tests:**
+`tests/agents/test_challenger_spawner.py` (dedup / cap / slot-free),
+`tests/agents/test_proposal_applier.py::test_promotion_advisory_replaces_stale_lines_for_same_strategy`
+
+## Agent scorecards read 100% A+ on partial evidence (grades looked fake)
+
+**Symptom:** Operator: "grades of the agents look random — should be real
+grades." Scorecards showed `A+ · 100%` with only `3/5 dims scored` (no
+latency, no realized-PnL data), every active agent converged on the same
+perfect grade, and "streak 50" promotions piled up — the letter carried no
+information.
+
+**Root cause:** The blended score renormalized over whichever dimensions had
+data, so missing evidence *raised* the grade instead of capping it; throughput
+saturated at only 20 events (anything alive maxed it); the PnL promotion gate
+accepted a 50% win rate with no requirement that total PnL be positive.
+
+**Fix:** `_grade_agent` multiplies the blend by **data coverage**
+(`available_weight / applicable_weight`) so a 3/5-dims agent caps well below
+an A and the card explains "Grade capped at N% by data coverage"
+(`api/services/dashboard/agent_performance.py`). Thresholds hardened in
+`api/constants.py`: `AGENT_PERF_THROUGHPUT_SATURATION` 20→100,
+`AGENT_PROMOTION_STREAK` 3→5, `AGENT_PNL_MIN_TRADES` 10→20,
+`AGENT_PNL_PROMOTION_MIN_WIN_RATE` 0.50→0.55, and the PnL gate now also
+requires **positive total realized PnL** (`_pnl_clears_promotion_gate`).
+
+**Regression tests:**
+`tests/api/test_agent_performance.py::test_partial_evidence_cannot_reach_top_grade`,
+`::test_pnl_gate_requires_positive_total_pnl`
+
+## Challenger promotion bar was just "beats baseline"
+
+**Symptom:** Challengers became promotion-eligible while losing money — a
+strategy that merely lost *less* than a losing baseline proposed itself for
+promotion, and the panel's only requirement readout was a trade counter
+(`12/25`).
+
+**Root cause:** `_maybe_propose_shadow_promotion` gated on
+`CHALLENGER_MIN_SHADOW_TRADES` + `beats_baseline_shadow` only; the
+challenger's own win rate / PnL / Sharpe were displayed but never enforced.
+
+**Fix:** `_promotion_blockers()` (`api/services/agents/challenger_agent.py`)
+is the single eligibility bar: ≥ `CHALLENGER_MIN_SHADOW_TRADES` (raised
+25→40), win rate ≥ `CHALLENGER_MIN_SHADOW_WIN_RATE` (0.55, new constant),
+positive shadow PnL, positive Sharpe, AND beats baseline. The proposal path
+requires the list to be empty, and `activity_snapshot()` exposes
+`promotion_blockers` + `min_shadow_win_rate` so the dedicated
+`/dashboard/challengers` page names exactly what is still unmet.
+
+**Regression tests:**
+`tests/agents/test_challenger_agent.py::test_no_promotion_when_own_record_is_weak`,
+`::test_snapshot_exposes_promotion_blockers`

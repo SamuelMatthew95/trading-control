@@ -130,35 +130,18 @@ describe('LearningLoopPanel', () => {
     expect(screen.getByText(agentDisplayName('REASONING_AGENT'))).toBeInTheDocument()
   })
 
-  it('shows challenger strategy name + shadow evidence + beats-baseline badge', async () => {
+  it('summarizes challengers and links to the dedicated page', async () => {
+    // The full evidence trail moved to /dashboard/challengers — this panel only
+    // carries the headline count and a link (ChallengersPanel.test.tsx covers
+    // the detailed view).
     _wireAll()
     render(<LearningLoopPanel />)
 
-    // Strategy name (not just the opaque challenger id) and fills progress.
-    expect(await screen.findByText(/mean_reversion/)).toBeInTheDocument()
-    expect(screen.getByText(/12\/200 fills/)).toBeInTheDocument()
-    // Real shadow evidence is surfaced.
-    expect(screen.getByText(/trades: 8/)).toBeInTheDocument()
-    expect(screen.getByText(/win: 63%/)).toBeInTheDocument()
-    expect(screen.getByText(/beats baseline/)).toBeInTheDocument()
-  })
-
-  it('surfaces full challenger visibility: promotion progress, flow, and liveness', async () => {
-    _wireAll()
-    render(<LearningLoopPanel />)
-
-    // The connected status narrative explains WHY there's no promotion yet
-    // (8 of 25 shadow trades → 17 to go).
-    expect(await screen.findByText(/17 more shadow trades to promotion eligibility/)).toBeInTheDocument()
-    // Promotion-eligibility progress (8/25 threshold).
-    expect(screen.getByText('8/25')).toBeInTheDocument()
-    // Live trade FLOW — the most recent shadow round-trip with its symbol.
-    expect(screen.getByText(/recent shadow trades/)).toBeInTheDocument()
-    expect(screen.getByText(/long SOL\/USD/)).toBeInTheDocument()
-    // Connects to system state: no live fills → live grade pending, explained.
-    // (fills=12 here, so instead assert the warming-up live-grade note is absent
-    // and the sharpe metric is shown.)
-    expect(screen.getByText(/sharpe: 1.21/)).toBeInTheDocument()
+    expect(
+      await screen.findByText(/1 running · 1 beating baseline · 0 promotions proposed/),
+    ).toBeInTheDocument()
+    const link = screen.getByRole('link', { name: /follow challengers/i })
+    expect(link).toHaveAttribute('href', '/dashboard/challengers')
   })
 
   it('lists pending parameter-change PRs (GitOps loop)', async () => {

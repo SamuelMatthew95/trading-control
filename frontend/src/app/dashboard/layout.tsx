@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   CandlestickChart,
   Bot,
+  Swords,
   TrendingUp,
   Lightbulb,
   Settings2,
@@ -28,6 +29,7 @@ const NAV = [
   { href: '/dashboard', label: 'Overview', Icon: LayoutDashboard },
   { href: '/dashboard/trading', label: 'Trading', Icon: CandlestickChart },
   { href: '/dashboard/agents', label: 'Agents', Icon: Bot },
+  { href: '/dashboard/challengers', label: 'Challengers', Icon: Swords },
   { href: '/dashboard/learning', label: 'Learning', Icon: TrendingUp },
   { href: '/dashboard/proposals', label: 'Proposals', Icon: Lightbulb },
   { href: '/dashboard/cognitive', label: 'Cognitive', Icon: Brain },
@@ -35,8 +37,10 @@ const NAV = [
 ]
 
 const LogoGlyph = () => (
-  <div className="flex h-7 w-7 items-center justify-center rounded-lg" style={{ background: 'var(--brand)' }}>
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#04141a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+  // Token-driven mark: chip + glyph derive from the success token so the
+  // glyph flips with the theme and never renders dark-on-dark.
+  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-success/15 text-success">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 17l5-5 4 3 6-7" />
       <path d="M3 21h18" />
     </svg>

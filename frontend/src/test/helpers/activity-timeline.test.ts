@@ -88,7 +88,7 @@ describe('buildActivityTimeline', () => {
 
   it('surfaces market stream events only — richer stages come from logs/decisions', () => {
     const recentEvents: RecentEvent[] = [
-      { stream: STREAM_MARKET_TICKS, msgId: 'm1', timestamp: iso(10) },
+      { stream: STREAM_MARKET_TICKS, msgId: 'm1', timestamp: iso(10), symbol: 'BTC/USD', price: 60781.58 },
       { stream: STREAM_SIGNALS, msgId: 's1', timestamp: iso(20) },
       { stream: STREAM_EXECUTIONS, msgId: 'e1', timestamp: iso(30) },
     ]
@@ -104,9 +104,14 @@ describe('buildActivityTimeline', () => {
     expect(item.detail).toBe('BTC/USD · $60,781.58 · ▼ 12.3')
   })
 
-  it('leaves detail null when a market event carries no subject (no regression)', () => {
-    const recentEvents: RecentEvent[] = [{ stream: STREAM_MARKET_TICKS, msgId: 'm1', timestamp: iso(10) }]
-    expect(buildActivityTimeline({ recentEvents })[0].detail).toBeNull()
+  it('drops market events that carry no subject — a bare repeated "Market event" row is feed noise', () => {
+    const recentEvents: RecentEvent[] = [
+      { stream: STREAM_MARKET_TICKS, msgId: 'bare', timestamp: iso(10) },
+      { stream: STREAM_MARKET_TICKS, msgId: 'rich', timestamp: iso(20), symbol: 'ETH/USD', price: 2500 },
+    ]
+    const items = buildActivityTimeline({ recentEvents })
+    expect(items).toHaveLength(1)
+    expect(items[0].id).toBe(`event-${STREAM_MARKET_TICKS}-rich`)
   })
 
   it('merges all sources newest-first', () => {
@@ -114,7 +119,9 @@ describe('buildActivityTimeline', () => {
       recentDecisions: [{ id: 'd', action: 'buy', symbol: 'BTC/USD', timestamp: iso(5_000) }],
       notifications: [notification({ id: 'n', title: 'BUY filled', timestamp: iso(1_000) })],
       agentLogs: [agentLog({ agent_name: 'SIGNAL_AGENT', symbol: 'BTC/USD', timestamp: iso(9_000) })],
-      recentEvents: [{ stream: STREAM_MARKET_TICKS, msgId: 'm', timestamp: iso(12_000) }],
+      recentEvents: [
+        { stream: STREAM_MARKET_TICKS, msgId: 'm', timestamp: iso(12_000), symbol: 'BTC/USD', price: 60000 },
+      ],
     })
     expect(items.map((i) => i.stage)).toEqual(['notification', 'decision', 'signal', 'market'])
   })

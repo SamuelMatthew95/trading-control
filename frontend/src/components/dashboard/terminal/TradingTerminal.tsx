@@ -93,14 +93,19 @@ export function TradingTerminal({
 
   return (
     <div className="flex flex-col bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100 lg:h-[calc(100vh-3rem)] lg:overflow-hidden">
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-2 p-2 lg:grid-cols-[220px_1fr_320px] lg:grid-rows-[1fr_230px]">
+      {/* Wrappers use lg:h-full (fill the grid track), never lg:h-auto —
+          auto sizes to CONTENT, so a long list grew past its track and
+          painted over the panel below it (decisions bleeding through
+          Executions). h-full pins each panel to its track so the Panel's
+          own overflow-y-auto body scrolls instead. */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-2 p-2 lg:grid-cols-[220px_1fr_320px] lg:grid-rows-[minmax(0,1fr)_230px]">
         {/* Watchlist — full height on the left */}
-        <div className="h-[320px] min-h-0 lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:h-auto">
+        <div className="h-[320px] min-h-0 lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:h-full">
           <Watchlist rows={watchRows} active={symbol} onSelect={setSymbol} />
         </div>
 
         {/* Chart panel */}
-        <section className="flex h-[420px] min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 lg:col-start-2 lg:row-start-1 lg:h-auto">
+        <section className="flex h-[420px] min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 lg:col-start-2 lg:row-start-1 lg:h-full">
           <SymbolHeader view={view} live={symbolIsLive} />
           <div className="min-h-0 flex-1">
             <PriceChart points={view.points} />
@@ -108,16 +113,16 @@ export function TradingTerminal({
         </section>
 
         {/* Positions blotter — bottom center */}
-        <div className="h-[260px] min-h-0 lg:col-start-2 lg:row-start-2 lg:h-auto">
+        <div className="h-[260px] min-h-0 lg:col-start-2 lg:row-start-2 lg:h-full">
           <PositionsPanel positions={positions} onSelect={setSymbol} />
         </div>
 
         {/* Right stack: agent decisions + executions */}
-        <div className="grid min-h-0 gap-2 lg:col-start-3 lg:row-span-2 lg:row-start-1 lg:grid-rows-2">
-          <div className="h-[260px] min-h-0 lg:h-auto">
+        <div className="grid min-h-0 gap-2 lg:col-start-3 lg:row-span-2 lg:row-start-1 lg:grid-rows-[minmax(0,1fr)_minmax(0,1fr)]">
+          <div className="h-[260px] min-h-0 lg:h-full">
             <DecisionsPanel decisions={recentDecisions} />
           </div>
-          <div className="h-[260px] min-h-0 lg:h-auto">
+          <div className="h-[260px] min-h-0 lg:h-full">
             <ExecutionsPanel trades={tradeFeed} />
           </div>
         </div>

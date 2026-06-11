@@ -484,31 +484,6 @@ class ReasoningAgent(BaseStreamConsumer):
         source = str(summary.get(FieldName.SOURCE) or "").lower()
         return "fallback" in reasoning_summary or "fallback" in reason or source == "fallback"
 
-    def _compute_kelly_position_size(self, summary: dict) -> float:
-        """Compute Kelly-fraction position size capped at MAX_RISK_PER_TRADE_PCT.
-
-        Falls back to the LLM-suggested size_pct if Kelly produces zero
-        (e.g., negative-EV scenario already caught by confidence gate).
-        """
-        confidence = float(summary.get(FieldName.CONFIDENCE) or 0.0)
-        rr_ratio = max(float(summary.get(FieldName.RR_RATIO) or MIN_RR_RATIO), MIN_RR_RATIO)
-        stop_loss = STOP_LOSS_PCT  # 5% stop from constants
-        take_profit = stop_loss * rr_ratio  # enforce at least 2:1 R/R
-
-        kelly_size = compute_dynamic_position_size(
-            confidence=confidence,
-            stop_loss_pct=stop_loss,
-            take_profit_pct=take_profit,
-            kelly_scale=KELLY_FRACTION_SCALE,
-            max_risk_pct=MAX_RISK_PER_TRADE_PCT,
-        )
-        if kelly_size > 0:
-            return kelly_size
-
-        # Fallback: use LLM suggestion but cap it at max risk
-        llm_size = float(summary.get(FieldName.SIZE_PCT) or 0.01)
-        return min(llm_size, MAX_RISK_PER_TRADE_PCT)
-
     @staticmethod
     def _build_decision_payload(
         *,
@@ -590,9 +565,11 @@ class ReasoningAgent(BaseStreamConsumer):
         action: str,
         is_fallback: bool,
     ) -> None:
+        # The RedisStore mirror is optional (None during partial startup or in
+        # harnesses that wire only the runtime store) — the in-memory ledger
+        # must still record every decision, or the dashboard shows nothing
+        # while the agent is actively deciding.
         store = get_redis_store()
-        if store is None:
-            return
         payload = self._build_decision_payload(
             data=data,
             summary=summary,
@@ -601,7 +578,9 @@ class ReasoningAgent(BaseStreamConsumer):
             is_fallback=is_fallback,
             tools_used=self._cycle_tools,
         )
-        persisted_decision = await store.push_decision(payload)
+        persisted_decision = payload
+        if store is not None:
+            persisted_decision = await store.push_decision(payload)
         if not is_db_available():
             # Record the persisted payload so in-memory and Redis copies share
             # the same canonical id/timestamp and dedupe key material.
@@ -629,7 +608,9 @@ class ReasoningAgent(BaseStreamConsumer):
                     or ""
                 ),
             )
-            persisted = await store.push_notification(notification)
+            persisted = notification
+            if store is not None:
+                persisted = await store.push_notification(notification)
             if not is_db_available():
                 # Record the persisted payload so in-memory and Redis copies use
                 # the same id/timestamp and dedupe keys.

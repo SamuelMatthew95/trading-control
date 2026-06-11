@@ -16,6 +16,7 @@ from fastapi import HTTPException
 
 import api.services.dashboard.agent_performance as perf
 from api.constants import (
+    AGENT_PROMOTION_STREAK,
     AGENT_REASONING,
     AGENT_SIGNAL,
     REDIS_KEY_AGENT_TRUST,
@@ -99,6 +100,14 @@ def _agent(payload, name):
     return next(a for a in payload["agents"] if a["name"] == name)
 
 
+def _winning_pnl():
+    """A realized record that clears every PnL gate (sample, win rate, +PnL).
+
+    Grades are coverage-capped: a TRADING agent can only reach A/A+ with its
+    PnL dimension scored, so the healthy-agent tests must supply this."""
+    return {AGENT_SIGNAL: _pnl_stats(trade_count=25, win_rate=0.7, total_pnl=500.0)}
+
+
 def _active_signal_hb():
     return [
         {
@@ -130,7 +139,7 @@ async def test_single_a_window_is_trusted_not_yet_promoted(monkeypatch):
     # Fresh history → an A grade earns TRUSTED, promotion pending a streak. The
     # GET path is read-only: it must NOT write a snapshot.
     store = _FakeStore()
-    _patch(monkeypatch, _active_signal_hb(), _clean_runs(), store=store)
+    _patch(monkeypatch, _active_signal_hb(), _clean_runs(), store=store, pnl=_winning_pnl())
 
     payload = await perf.get_agent_performance_payload()
     sig = _agent(payload, AGENT_SIGNAL)
@@ -145,8 +154,11 @@ async def test_single_a_window_is_trusted_not_yet_promoted(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_sustained_a_streak_earns_promotion(monkeypatch):
-    # Three prior A snapshots (recent) → current A makes a streak of 3 → PROMOTED.
-    history = [{"grade": "A", "tier": TIER_TRUSTED, "timestamp": perf._iso(0)} for _ in range(3)]
+    # AGENT_PROMOTION_STREAK prior A snapshots (recent) → current A → PROMOTED.
+    history = [
+        {"grade": "A", "tier": TIER_TRUSTED, "timestamp": perf._iso(0)}
+        for _ in range(AGENT_PROMOTION_STREAK)
+    ]
     # Use a near-now timestamp so _should_record doesn't append a 4th and the
     # head grade matches; the streak comes from the 3 stored A's.
     from datetime import datetime, timezone
@@ -161,7 +173,7 @@ async def test_sustained_a_streak_earns_promotion(monkeypatch):
         _active_signal_hb(),
         _clean_runs(),
         store=_FakeStore(history),
-        pnl={AGENT_SIGNAL: _pnl_stats(trade_count=20, win_rate=0.65, total_pnl=500.0)},
+        pnl=_winning_pnl(),
     )
 
     payload = await perf.get_agent_performance_payload()
@@ -169,14 +181,14 @@ async def test_sustained_a_streak_earns_promotion(monkeypatch):
 
     assert sig["promoted"] is True
     assert sig["tier"] == TIER_PROMOTED
-    assert sig["grade_streak"] >= 3
+    assert sig["grade_streak"] >= AGENT_PROMOTION_STREAK
     assert payload["promoted"] == 1
 
 
 @pytest.mark.asyncio
 async def test_no_store_degrades_to_single_window(monkeypatch):
     # Without a RedisStore there is no durable history; promotion can't be earned.
-    _patch(monkeypatch, _active_signal_hb(), _clean_runs(), store=None)
+    _patch(monkeypatch, _active_signal_hb(), _clean_runs(), store=None, pnl=_winning_pnl())
 
     payload = await perf.get_agent_performance_payload()
     sig = _agent(payload, AGENT_SIGNAL)
@@ -313,7 +325,7 @@ async def test_apply_promotions_writes_trust_weights(monkeypatch):
 @pytest.mark.asyncio
 async def test_record_grade_snapshots_writes_throttled_history(monkeypatch):
     store = _FakeStore()
-    _patch(monkeypatch, _active_signal_hb(), _clean_runs(), store=store)
+    _patch(monkeypatch, _active_signal_hb(), _clean_runs(), store=store, pnl=_winning_pnl())
 
     # First pass writes a snapshot for the graded agent.
     n = await perf.record_grade_snapshots()
@@ -346,18 +358,18 @@ async def test_streak_promotion_uses_recorded_history(monkeypatch):
         _active_signal_hb(),
         _clean_runs(),
         store=store,
-        pnl={AGENT_SIGNAL: _pnl_stats(trade_count=20, win_rate=0.65, total_pnl=500.0)},
+        pnl=_winning_pnl(),
     )
 
     # Seed a long streak by recording past the throttle (clear timestamps).
-    for _ in range(3):
+    for _ in range(AGENT_PROMOTION_STREAK):
         await perf.record_grade_snapshots()
         for snap in store._history:
             snap[perf.FieldName.TIMESTAMP] = perf._iso(0)  # age out the throttle
 
     payload = await perf.get_agent_performance_payload()
     sig = _agent(payload, AGENT_SIGNAL)
-    assert sig["grade_streak"] >= 3
+    assert sig["grade_streak"] >= AGENT_PROMOTION_STREAK
     assert sig["promoted"] is True
     assert sig["tier"] == TIER_PROMOTED
 
@@ -366,7 +378,10 @@ async def test_streak_promotion_uses_recorded_history(monkeypatch):
 async def test_background_tick_reconciles_trust_only_when_enabled(monkeypatch):
     # Build a promoted streak so the agent's tier maps to a boosted trust weight.
     # SIGNAL is a trading agent → the PnL gate also requires a winning record.
-    history = [{"grade": "A", "tier": TIER_PROMOTED, "timestamp": perf._iso(0)} for _ in range(3)]
+    history = [
+        {"grade": "A", "tier": TIER_PROMOTED, "timestamp": perf._iso(0)}
+        for _ in range(AGENT_PROMOTION_STREAK)
+    ]
     redis = _FakeRedis()
     _patch(
         monkeypatch,
@@ -374,7 +389,7 @@ async def test_background_tick_reconciles_trust_only_when_enabled(monkeypatch):
         _clean_runs(),
         store=_FakeStore(history),
         redis=redis,
-        pnl={AGENT_SIGNAL: _pnl_stats(trade_count=20, win_rate=0.65, total_pnl=500.0)},
+        pnl=_winning_pnl(),
     )
     trust_key = REDIS_KEY_AGENT_TRUST.format(name=AGENT_SIGNAL)
 
@@ -460,6 +475,61 @@ async def test_pnl_gate_blocks_promotion_when_losing(monkeypatch):
     sig = _agent(payload, AGENT_SIGNAL)
     assert sig["promoted"] is False  # losing money → gate blocks promotion
     assert sig["tier"] == TIER_TRUSTED  # A grade still shows TRUSTED, just not promoted
+
+
+@pytest.mark.asyncio
+async def test_partial_evidence_cannot_reach_top_grade(monkeypatch):
+    """Regression for "3/5 dims scored → 100% A+": the score is capped by data
+    coverage, so a trading agent with perfect liveness/success/throughput but NO
+    latency and NO PnL evidence cannot renormalize its way to an A."""
+    hb = [
+        {
+            "name": AGENT_SIGNAL,
+            "status": "ACTIVE",
+            "event_count": 500,  # saturates throughput
+            "last_event": "x",
+            "seconds_ago": 2,
+            "last_seen": 100,
+        }
+    ]
+    # Completed runs with no latency recorded → latency dim unavailable.
+    runs = [
+        {"source": SOURCE_SIGNAL, "status": StatusValue.COMPLETED, "trace_id": f"t{i}"}
+        for i in range(5)
+    ]
+    _patch(monkeypatch, hb, runs, store=_FakeStore())  # no PnL data either
+
+    payload = await perf.get_agent_performance_payload()
+    sig = _agent(payload, AGENT_SIGNAL)
+
+    assert sig["grade"] is not None  # still graded — just honestly
+    assert sig["grade"] not in ("A", "A+")
+    assert sig["score_pct"] < 70
+    # The cap is explained to the operator.
+    assert any("capped" in learning["text"] for learning in sig["learnings"])
+
+
+@pytest.mark.asyncio
+async def test_pnl_gate_requires_positive_total_pnl(monkeypatch):
+    """A win rate above the bar with NEGATIVE total PnL must not promote —
+    winning often while losing money overall is not a promotable record."""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+    history = [
+        {"grade": "A", "tier": TIER_TRUSTED, "timestamp": now}
+        for _ in range(AGENT_PROMOTION_STREAK)
+    ]
+    _patch(
+        monkeypatch,
+        _active_signal_hb(),
+        _clean_runs(),
+        store=_FakeStore(history),
+        pnl={AGENT_SIGNAL: _pnl_stats(trade_count=25, win_rate=0.7, total_pnl=-120.0)},
+    )
+    payload = await perf.get_agent_performance_payload()
+    sig = _agent(payload, AGENT_SIGNAL)
+    assert sig["promoted"] is False
 
 
 @pytest.mark.asyncio

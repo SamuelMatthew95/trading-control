@@ -1,16 +1,15 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
-import {
-  useDashboardStore,
-  type AgentInstance,
-  type AgentLog,
-  type AgentHeartbeat,
-  type Notification,
-  type Proposal,
-  type RecentEvent,
-  type StreamStat,
+import type {
+  AgentInstance,
+  AgentLog,
+  AgentHeartbeat,
+  Notification,
+  Proposal,
+  RecentEvent,
+  StreamStat,
 } from '@/stores/useDashboardStore'
 import type { ApiHealth, DecisionStats } from '@/hooks/useRestPoll'
 import type { AgentSummary } from '@/lib/agent-pipeline'
@@ -29,8 +28,6 @@ import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
 import { ActivityTimeline } from './ActivityTimeline'
 import { KpiCard } from './KpiCard'
 import { TraceModal } from '@/components/dashboard/TraceModal'
-import { AgentStatusTable } from './AgentStatusTable'
-import { AgentDetailModal } from './AgentDetailModal'
 import { AgentScorecards } from './AgentScorecards'
 import { SystemDiagnostics } from './SystemDiagnostics'
 import { GroupLabel, type WiringFreshness } from './shared'
@@ -41,7 +38,6 @@ export type { WiringFreshness }
 // ── Timing windows ──────────────────────────────────────────────────────────
 const MARKET_LIVE_WINDOW_MS = 60_000
 const NOTIFICATION_RECENT_WINDOW_MS = 3_600_000 // 1 hour
-const AGENT_DATA_TIMEOUT_MS = 10_000
 
 export interface AgentsDashboardProps {
   realAgents: AgentSummary[]
@@ -54,6 +50,9 @@ export interface AgentsDashboardProps {
   decisionStats: DecisionStats | null
   recentDecisions: Array<Record<string, unknown>>
   recentEvents: RecentEvent[]
+  /** Closed round-trips this session — gates the learning stages' "waiting for
+   *  closed trades" hint in the pipeline. */
+  closedTradesCount: number
   apiHealth: ApiHealth
   marketTickCount: number
   lastMarketSymbol: string | null
@@ -74,6 +73,7 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
     decisionStats,
     recentDecisions,
     recentEvents,
+    closedTradesCount,
     apiHealth,
     marketTickCount,
     lastMarketSymbol,
@@ -87,27 +87,8 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
   // show as state.
   const activityItems = buildActivityTimeline({ recentEvents, recentDecisions, notifications, agentLogs })
 
-  // Drill-down: which agent's detail modal is open (null = none).
-  const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
   // Drill-down: which trace's modal is open — shared by decisions + notifications.
   const [activeTraceId, setActiveTraceId] = useState<string | null>(null)
-
-  // Only surface "no agents" after a grace period — agent data can arrive a beat
-  // after the WebSocket connects.
-  const [showNoAgentDataMessage, setShowNoAgentDataMessage] = useState(false)
-  useEffect(() => {
-    if (!wsConnected || realAgents.length > 0) {
-      setShowNoAgentDataMessage(false)
-      return
-    }
-    const timer = setTimeout(() => {
-      const state = useDashboardStore.getState()
-      const hasAgentData =
-        state.agentLogs.length > 0 || state.agentStatuses.length > 0 || state.agentInstances.length > 0
-      if (!hasAgentData && state.wsConnected) setShowNoAgentDataMessage(true)
-    }, AGENT_DATA_TIMEOUT_MS)
-    return () => clearTimeout(timer)
-  }, [realAgents.length, wsConnected])
 
   const liveAgentCount = realAgents.filter((agent) => agent.status === 'Live').length
   const recentNotificationCount = countRecentNotifications(notifications, NOTIFICATION_RECENT_WINDOW_MS)
@@ -137,6 +118,7 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
           marketLive={marketLive}
           decisionStats={decisionStats}
           proposalsCount={proposals.length}
+          closedTradesCount={closedTradesCount}
         />
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -183,15 +165,12 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
         <LearningLoopPanel />
       </section>
 
+      {/* The scorecards are the single per-agent view: grade, tier, drill-in.
+          The former Agent Status table duplicated them with status/source/uptime
+          noise ("Live · Hybrid") that answered no operator question. */}
       <section className="space-y-2">
         <GroupLabel>Agents</GroupLabel>
         <AgentScorecards />
-        <AgentStatusTable
-          realAgents={realAgents}
-          agentInstances={agentInstances}
-          showNoAgentDataMessage={showNoAgentDataMessage}
-          onSelect={setSelectedAgent}
-        />
       </section>
 
       <section className="space-y-2">
@@ -222,9 +201,6 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
         />
       </section>
 
-      {selectedAgent && (
-        <AgentDetailModal name={selectedAgent} onClose={() => setSelectedAgent(null)} />
-      )}
       {activeTraceId && (
         <TraceModal traceId={activeTraceId} onClose={() => setActiveTraceId(null)} />
       )}

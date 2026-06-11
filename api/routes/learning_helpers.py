@@ -171,7 +171,7 @@ def _mem_grades_as_trades(store: Any, limit: int, offset: int) -> tuple[list[dic
     page = all_grades[offset : offset + limit]
     trades = []
     for g in page:
-        raw = float(g.get(FieldName.SCORE) or g.get(FieldName.SCORE_PCT, 0))
+        raw = float(g.get(FieldName.SCORE) or g.get(FieldName.SCORE_PCT) or 0)
         # GradeAgent may write percentage scores (0–100); normalize to [0, 1]
         score = raw / 100.0 if raw > 1.0 else raw
         trades.append(

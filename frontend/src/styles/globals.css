@@ -3,25 +3,31 @@
 @tailwind utilities;
 
 @layer base {
+  /* Light theme — tuned for parity with the dark "operator console" look.
+     Surfaces are desaturated (the old 214-hue, high-chroma values read as a
+     washed blue cast), the accent/selection tint is a neutral slate instead of
+     pale cyan, and the semantic tones are darkened one step so text-success /
+     text-danger / text-warning (and their /10 banner fills) keep readable
+     contrast on white. Dark values below are intentionally untouched. */
   :root {
-    --background: 214 32% 91%;
+    --background: 220 14% 96%;
     --foreground: 222.2 47.4% 11.2%;
     --card: 0 0% 100%;
     --card-foreground: 222.2 47.4% 11.2%;
-    --border: 214 28% 84%;
-    --input: 214 28% 84%;
-    --muted: 214 28% 96%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 214 28% 96%;
+    --border: 215 16% 84%;
+    --input: 215 16% 84%;
+    --muted: 215 16% 94%;
+    --muted-foreground: 215 16% 40%;
+    --accent: 215 16% 92%;
     --accent-foreground: 222.2 47.4% 11.2%;
-    --primary: 243.4 75.4% 58.6%;
+    --primary: 243 55% 50%;
     --primary-foreground: 210 40% 98%;
-    --destructive: 0 84.2% 60.2%;
+    --destructive: 0 72% 46%;
     --destructive-foreground: 210 40% 98%;
-    --ring: 243.4 75.4% 58.6%;
-    --success: 160 84% 39%;
-    --danger: 347 77% 50%;
-    --warning: 32 95% 44%;
+    --ring: 243 55% 50%;
+    --success: 161 94% 30%;
+    --danger: 347 77% 44%;
+    --warning: 30 92% 38%;
     --radius: 0.75rem;
 
     /* Trading terminal tokens — shared across every dashboard surface so the

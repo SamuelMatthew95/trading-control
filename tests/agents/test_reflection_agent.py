@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -85,7 +86,7 @@ def agent(mock_bus, mock_dlq):
     return ReflectionAgent(bus=mock_bus, dlq=mock_dlq)
 
 
-def _trade_performance_event(pnl=100.0, symbol="BTC/USD"):
+def _trade_performance_event(pnl=100.0, symbol="BTC/USD", trace_id=None):
     return {
         "type": "trade_performance",
         "symbol": symbol,
@@ -94,7 +95,9 @@ def _trade_performance_event(pnl=100.0, symbol="BTC/USD"):
         "pnl_percent": 0.5,
         "fill_price": 50000.0,
         "filled_at": "2024-01-01T12:00:00+00:00",
-        "trace_id": "trace-tp-001",
+        # Distinct trades carry distinct traces; the paired-close dedup
+        # collapses same-trace events on purpose.
+        "trace_id": trace_id or f"trace-tp-{uuid.uuid4()}",
     }
 
 
@@ -153,6 +156,18 @@ async def test_accumulates_fills_from_trade_performance(agent):
     fills_pnl = [f["pnl"] for f in list(agent._recent_fills)]
     assert 50.0 in fills_pnl
     assert -20.0 in fills_pnl
+
+
+async def test_paired_close_events_processed_once(agent):
+    """A round-trip close arrives on BOTH trade_performance and trade_completed
+    (same trace_id, same realized PnL) — it must count as exactly ONE fill or
+    total_pnl doubles and the reflection cadence fires early."""
+    close = _trade_performance_event(pnl=50.0, trace_id="trace-close-1")
+    await agent.process("trade_performance", "m1", close)
+    await agent.process("trade_completed", "m2", dict(close))
+
+    assert agent._fills == 1
+    assert len(agent._recent_fills) == 1
 
 
 async def test_accumulates_grades_from_agent_grades(agent):

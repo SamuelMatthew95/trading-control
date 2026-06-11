@@ -168,6 +168,22 @@ export function formatUSD(v: number | null | undefined): string {
 }
 
 /**
+ * HH:MM:SS clock label for "as of" copy (e.g. the backend-offline banner);
+ * returns '--:--:--' for missing or unparseable input.
+ */
+export function formatClockHMS(value: string | null): string {
+  if (!value) return '--:--:--'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '--:--:--'
+  return date.toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+}
+
+/**
  * Format a signed dollar amount.
  *
  * Returns '--' for null/undefined/non-finite. Near-zero values (|v| < $0.005)

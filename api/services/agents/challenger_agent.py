@@ -11,6 +11,7 @@ from typing import Any
 from api.constants import (
     AGENT_CHALLENGER,
     CHALLENGER_MIN_SHADOW_TRADES,
+    CHALLENGER_MIN_SHADOW_WIN_RATE,
     STREAM_AGENT_GRADES,
     STREAM_EXECUTIONS,
     STREAM_MARKET_EVENTS,
@@ -256,6 +257,11 @@ class ChallengerAgent(MultiStreamAgent):
         """
         snap: dict[str, Any] = dict(self._shadow_summary())
         snap["min_shadow_trades"] = CHALLENGER_MIN_SHADOW_TRADES
+        snap["min_shadow_win_rate"] = CHALLENGER_MIN_SHADOW_WIN_RATE
+        if self._shadow is not None and self._baseline_shadow is not None:
+            # The exact unmet promotion criteria, so the dashboard can show WHY
+            # a challenger is (not yet) eligible instead of a bare progress bar.
+            snap["promotion_blockers"] = self._promotion_blockers(snap)
         snap["shadow_proposal_emitted"] = self._shadow_proposal_emitted
         snap["ticks_observed"] = self._ticks_observed
         snap["last_tick_at"] = self._last_tick_at
@@ -269,6 +275,31 @@ class ChallengerAgent(MultiStreamAgent):
             snap[FieldName.LATEST_GRADE] = self._grade_history[-1]
         return snap
 
+    def _promotion_blockers(self, summary: dict[str, Any]) -> list[str]:
+        """Unmet promotion criteria for the current shadow window (empty = eligible).
+
+        Harder than "beats baseline" alone: the challenger's OWN record must be
+        objectively good — enough trades, a minimum win rate, positive realized
+        PnL, and positive Sharpe — so a strategy that merely lost less than a
+        losing baseline can never promote.
+        """
+        blockers: list[str] = []
+        trades = int(summary.get("shadow_trades") or 0)
+        if trades < CHALLENGER_MIN_SHADOW_TRADES:
+            blockers.append(f"needs {CHALLENGER_MIN_SHADOW_TRADES - trades} more shadow trades")
+        win_rate = float(summary.get("shadow_win_rate") or 0.0)
+        if win_rate < CHALLENGER_MIN_SHADOW_WIN_RATE:
+            blockers.append(
+                f"win rate {win_rate:.0%} below the {CHALLENGER_MIN_SHADOW_WIN_RATE:.0%} minimum"
+            )
+        if float(summary.get("shadow_pnl") or 0.0) <= 0.0:
+            blockers.append("shadow PnL not positive")
+        if float(summary.get("shadow_sharpe") or 0.0) <= 0.0:
+            blockers.append("shadow Sharpe not positive")
+        if not summary.get("beats_baseline_shadow"):
+            blockers.append("not beating the baseline shadow's PnL")
+        return blockers
+
     async def _maybe_propose_shadow_promotion(self) -> None:
         """Emit a human-approvable promotion proposal when this challenger beats
         baseline on enough SHADOW evidence.
@@ -279,13 +310,14 @@ class ChallengerAgent(MultiStreamAgent):
         pipeline is idle. Here the winning verdict surfaces as a backtest-backed
         proposal in the learning-loop queue (``requires_approval=True`` — a human
         promotes, never the system). Latched to fire once per challenger.
+
+        Eligibility is the FULL ``_promotion_blockers`` bar — trades, win rate,
+        positive PnL, positive Sharpe, and beating baseline — not just any edge.
         """
         if self._shadow_proposal_emitted or self._shadow is None or self._baseline_shadow is None:
             return
-        if self._shadow.metrics.trades < CHALLENGER_MIN_SHADOW_TRADES:
-            return
         summary = self._shadow_summary()
-        if not summary.get("beats_baseline_shadow"):
+        if self._promotion_blockers(summary):
             return
 
         # Latch before publishing so a publish error cannot re-fire on the next tick.

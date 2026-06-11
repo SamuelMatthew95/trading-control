@@ -54,7 +54,6 @@ from api.services.agents.proposal_applier import ProposalApplier
 from api.services.agents.reasoning_agent import ReasoningAgent
 from api.services.agents.risk_guardian import RiskGuardian
 from api.services.challenger_spawner import ChallengerSpawner
-from api.services.config_overrides import apply_parameter_overrides
 from api.services.dashboard.agent_performance import agent_grade_snapshot_loop
 from api.services.event_pipeline import EventPipeline
 from api.services.execution.brokers.paper import PaperBroker
@@ -72,7 +71,7 @@ from api.services.lmstudio_provider import (
 )
 from api.services.multi_agent_orchestrator import MultiAgentOrchestrator
 from api.services.prompt_store import PromptStore, set_prompt_store
-from api.services.redis_store import RedisStore, set_redis_store
+from api.services.redis_store import RedisStore, get_redis_store, set_redis_store
 from api.services.signal_generator import SignalGenerator
 from api.services.tool_telemetry import (
     flush_tool_registry,
@@ -251,6 +250,34 @@ async def _hydrate_positions_from_broker(broker: PaperBroker) -> None:
         log_structured("info", "positions_hydrated_from_broker", count=hydrated)
 
 
+async def _hydrate_closed_trades_from_redis() -> None:
+    """In memory mode, seed InMemoryStore.closed_trades from the Redis mirror.
+
+    The PaperBroker's equity (header PnL) survives restarts in Redis, but a
+    fresh InMemoryStore starts with no closed trades — so after a redeploy the
+    dashboard showed a PnL figure with no trade history to explain it. The
+    execution engine mirrors every round-trip close to ``closed_trades:recent``;
+    this loads them back (oldest first, so list order matches live appends).
+    Best effort: no RedisStore or a Redis hiccup never blocks startup.
+    """
+    if is_db_available():
+        return
+    redis_store = get_redis_store()
+    if redis_store is None:
+        return
+    try:
+        recent = await redis_store.list_closed_trades()
+    except Exception:
+        log_structured("warning", "closed_trade_hydration_failed", exc_info=True)
+        return
+    if not recent:
+        return
+    store = get_runtime_store()
+    for trade in reversed(recent):  # list is newest-first; append oldest-first
+        store.add_closed_trade(trade)
+    log_structured("info", "closed_trades_hydrated_from_redis", count=len(recent))
+
+
 def _build_agents(event_bus, dlq_manager, redis_client, agent_state, paper_broker) -> list:
     """Construct the full agent fleet (order matters only for logging)."""
     grade_agent = GradeAgent(event_bus, dlq_manager, agent_state=agent_state)
@@ -399,12 +426,6 @@ async def _shutdown(app: FastAPI, pipeline: EventPipeline | None, broadcaster) -
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Sequence startup, yield to serve requests, then tear everything down."""
-    # Apply any merged config overrides (auto-PR GitOps) over settings before
-    # anything reads them. Defensive: bad/unknown overrides are skipped.
-    applied_overrides = apply_parameter_overrides(settings)
-    if applied_overrides:
-        log_structured("info", "config_overrides_applied", params=applied_overrides)
-
     app.state.db_engine = engine
     app.state.in_memory_store = InMemoryStore()
     set_runtime_store(app.state.in_memory_store)
@@ -469,6 +490,10 @@ async def lifespan(app: FastAPI):
         # truth) so a restart in memory mode doesn't blank the dashboard's
         # positions until the next fill.
         await _hydrate_positions_from_broker(paper_broker)
+        # Seed the closed-trade history from its durable Redis mirror so the
+        # header PnL (broker equity, survives restarts) is always explainable
+        # by visible trades after a redeploy.
+        await _hydrate_closed_trades_from_redis()
         _start_background_tasks(app)
 
         agents = _build_agents(event_bus, dlq_manager, redis_client, agent_state, paper_broker)

@@ -23,7 +23,7 @@ const ROUTING: Record<string, ProposalRouting> = {
   parameter_change: {
     label: 'Config auto-PR',
     kind: 'config-pr',
-    hint: 'Writes config/parameter_overrides/ and opens a pull request (no code edit).',
+    hint: 'Opens a pull request editing config/param_overrides.json (bounds-validated, no code edit).',
   },
   prompt_evolution: {
     label: 'Prompt store',

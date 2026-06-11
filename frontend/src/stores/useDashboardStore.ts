@@ -3,9 +3,10 @@ import { create } from 'zustand'
 import { createLogger } from '@/lib/logger'
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { coerceProposalContent, proposalStrategyName } from '@/lib/proposal-content'
-import { normalizeStoredNotification, normalizeTradeFeedItem } from './normalizers'
+import { normalizeClosedTrade, normalizeStoredNotification, normalizeTradeFeedItem } from './normalizers'
 import type {
   AgentHeartbeat,
+  ClosedTrade,
   AgentInstance,
   AgentLog,
   CachedPriceData,
@@ -31,7 +32,7 @@ import type {
 // Single import surface: every consumer keeps importing domain types and
 // normalizers from this module.
 export * from './types'
-export { normalizeStoredNotification, normalizeTradeFeedItem } from './normalizers'
+export { normalizeClosedTrade, normalizeStoredNotification, normalizeTradeFeedItem } from './normalizers'
 
 const log = createLogger('store')
 
@@ -45,6 +46,7 @@ type DashboardState = {
   notifications: Notification[]
   proposals: Proposal[]
   tradeFeed: TradeFeedItem[]
+  closedTrades: ClosedTrade[]
   agentInstances: AgentInstance[]
   performanceSummary: PerformanceSummary | null
   pnlSummary: PnlSummary | null
@@ -150,6 +152,7 @@ export const useDashboardStore = create<DashboardState>((set) => ({
   notifications: [],
   proposals: [],
   tradeFeed: [],
+  closedTrades: [],
   agentInstances: [],
   performanceSummary: null,
   pnlSummary: null,
@@ -589,6 +592,14 @@ export const useDashboardStore = create<DashboardState>((set) => ({
         if (newProposals.length > 0) {
           updates.proposals = [...newProposals, ...currentState.proposals].slice(0, 50)
         }
+      }
+
+      // Closed trades: the REST snapshot is authoritative (already newest-first,
+      // capped server-side), so replace wholesale rather than merging.
+      if (Array.isArray(data.closed_trades)) {
+        updates.closedTrades = (data.closed_trades as unknown[])
+          .filter((t): t is Record<string, unknown> => !!t && typeof t === 'object')
+          .map(normalizeClosedTrade)
       }
 
       if (data.trade_feed && Array.isArray(data.trade_feed)) {
