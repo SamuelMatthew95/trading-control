@@ -1,10 +1,14 @@
 'use client'
 
 import { formatPercent } from '@/lib/formatters'
-import { proposalStatusClass } from '@/lib/dashboard-helpers'
-import { sectionTitleClass, mutedClass } from '@/lib/dashboard-styles'
+import { proposalStatusTone } from '@/lib/dashboard-helpers'
+import { mutedClass, sectionTitleClass } from '@/lib/dashboard-styles'
 import { proposalRouting } from '@/lib/proposal-routing'
 import { cn } from '@/lib/utils'
+import { NO_DATA, UI_COPY } from '@/constants/copy'
+import { Modal } from '@/components/ui/modal'
+import { Badge } from '@/components/ui/badge'
+import { MetricTile } from '@/components/ui/stat-tile'
 import type { Proposal } from '@/stores/useDashboardStore'
 
 /**
@@ -24,83 +28,71 @@ export function ProposalDetailModal({
     proposal.content || proposal.strategy_name || proposal.proposal_type.replace(/_/g, ' ')
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 pt-16"
-      onClick={onClose}
-    >
-      <div
-        className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className={sectionTitleClass}>Proposal · {proposal.proposal_type.replace(/_/g, ' ')}</p>
-            <p className={cn(mutedClass, 'font-mono')}>ID {proposal.id}</p>
-          </div>
-          <span
-            className={cn(
-              'rounded border px-2 py-0.5 font-mono text-[10px] uppercase',
-              proposalStatusClass(proposal.status),
-            )}
+    <Modal
+      onClose={onClose}
+      title={`${UI_COPY.proposalDetail.title} · ${proposal.proposal_type.replace(/_/g, ' ')}`}
+      subtitle={
+        <div className="flex items-center gap-3">
+          <p className={cn(mutedClass, 'font-mono')}>
+            {UI_COPY.proposalDetail.id} {proposal.id}
+          </p>
+          <Badge
+            tone={proposalStatusTone(proposal.status)}
+            variant="outlined"
+            className="font-mono text-3xs uppercase"
           >
             {proposal.status}
-          </span>
+          </Badge>
         </div>
+      }
+    >
+      {/* What it is */}
+      <Section label={UI_COPY.proposalDetail.candidateChange}>
+        <p className="whitespace-pre-wrap text-sm text-foreground/90">{content}</p>
+      </Section>
 
-        {/* What it is */}
-        <Section label="Candidate change">
-          <p className="whitespace-pre-wrap text-sm text-slate-800 dark:text-slate-200">{content}</p>
-        </Section>
+      {/* What happens on approve — plain English */}
+      <Section label={UI_COPY.proposalDetail.onApprove}>
+        <p className="text-sm text-foreground/80">{routing.hint}</p>
+        <p className={cn(mutedClass, 'mt-1')}>
+          {UI_COPY.proposalDetail.routesTo} {routing.label}
+        </p>
+      </Section>
 
-        {/* What happens on approve — plain English */}
-        <Section label="On approve">
-          <p className="text-sm text-slate-700 dark:text-slate-300">{routing.hint}</p>
-          <p className={cn(mutedClass, 'mt-1')}>routes to: {routing.label}</p>
-        </Section>
+      {/* Evidence */}
+      <Section label={UI_COPY.proposalDetail.evidence}>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <MetricTile label={UI_COPY.proposalDetail.confidence} value={formatPercent(proposal.confidence)} />
+          <MetricTile
+            label={UI_COPY.proposalDetail.backtestDelta}
+            value={proposal.grade_score != null ? formatPercent(proposal.grade_score) : NO_DATA}
+          />
+          <MetricTile
+            label={UI_COPY.proposalDetail.requiresApproval}
+            value={proposal.requires_approval ? UI_COPY.proposalDetail.yes : UI_COPY.proposalDetail.no}
+          />
+        </div>
+      </Section>
 
-        {/* Evidence */}
-        <Section label="Evidence">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <Metric label="confidence" value={formatPercent(proposal.confidence)} />
-            <Metric
-              label="backtest delta"
-              value={proposal.grade_score != null ? formatPercent(proposal.grade_score) : '--'}
-            />
-            <Metric label="requires approval" value={proposal.requires_approval ? 'yes' : 'no'} />
-          </div>
-        </Section>
-
-        {/* Provenance */}
-        <Section label="Traceability">
-          <dl className="grid grid-cols-1 gap-1 font-mono text-[11px] text-slate-500 dark:text-slate-400">
-            <Row k="trace_id" v={proposal.trace_id} />
-            <Row k="reflection_trace_id" v={proposal.reflection_trace_id} />
-            <Row k="source" v={proposal.source} />
-            <Row k="symbol" v={proposal.symbol} />
-            <Row k="created_at" v={proposal.created_at ?? proposal.timestamp} />
-          </dl>
-        </Section>
-      </div>
-    </div>
+      {/* Provenance */}
+      <Section label={UI_COPY.proposalDetail.traceability}>
+        <dl className="grid grid-cols-1 gap-1 font-mono text-2xs text-muted-foreground">
+          <Row k="trace_id" v={proposal.trace_id} />
+          <Row k="reflection_trace_id" v={proposal.reflection_trace_id} />
+          <Row k="source" v={proposal.source} />
+          <Row k="symbol" v={proposal.symbol} />
+          <Row k="created_at" v={proposal.created_at ?? proposal.timestamp} />
+        </dl>
+      </Section>
+    </Modal>
   )
 }
 
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="mb-4">
-      <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-        {label}
-      </p>
+      <p className={cn(sectionTitleClass, 'mb-1.5')}>{label}</p>
       {children}
-    </div>
-  )
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-slate-200 p-2 text-center dark:border-slate-800">
-      <p className="font-mono text-sm tabular-nums text-slate-900 dark:text-slate-100">{value}</p>
-      <p className={mutedClass}>{label}</p>
     </div>
   )
 }
@@ -109,7 +101,7 @@ function Row({ k, v }: { k: string; v?: string | null }) {
   return (
     <div className="flex justify-between gap-3">
       <dt className="shrink-0">{k}</dt>
-      <dd className="truncate text-slate-600 dark:text-slate-300">{v || '--'}</dd>
+      <dd className="truncate text-foreground/70">{v || NO_DATA}</dd>
     </div>
   )
 }
