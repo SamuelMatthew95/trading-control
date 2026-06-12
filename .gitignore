@@ -276,3 +276,13 @@ CLAUDE.local.md
 *.secret
 # Formatting update
 frontend/coverage/
+
+# OpenTofu / Terraform working files (lock files ARE committed when generated)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# Kubernetes real secrets (template is secret.example.yaml)
+deploy/k8s/secret.yaml
