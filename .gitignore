@@ -286,3 +286,6 @@ frontend/coverage/
 
 # Kubernetes real secrets (template is secret.example.yaml)
 deploy/k8s/secret.yaml
+
+# Local Redis snapshot (created when running redis-server from the repo root)
+dump.rdb
