@@ -14,5 +14,6 @@ resources:
   - ingress.yaml
   - hpa.yaml
   - pdb.yaml
-commonLabels:
-  app.kubernetes.io/part-of: trading-control
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: trading-control
