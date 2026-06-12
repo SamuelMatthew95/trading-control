@@ -51,6 +51,7 @@ from api.services.agent_heartbeat import write_heartbeat
 from api.services.agent_state import AgentStateRegistry
 from api.services.market_status import get_market_status
 from api.services.risk_filters import compute_atr_from_prices, compute_rsi
+from api.telemetry import record_signal_generated
 
 AGENT_NAME = AGENT_SIGNAL
 
@@ -450,6 +451,7 @@ class SignalGenerator(BaseStreamConsumer):
 
         # --- Publish signal to downstream agents -------------------------
         await self.bus.publish(STREAM_SIGNALS, signal_payload)
+        record_signal_generated(symbol, signal_type=signal_type.value)
 
         # --- Persist signal data and complete the run --------------------
         elapsed_ms = int((time.perf_counter() - start_time) * 1000)
