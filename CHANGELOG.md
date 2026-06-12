@@ -1,5 +1,16 @@
 # Changelog
 
+## [2026-06-12] — RiskGuardian: memory-mode exits, trailing-stop ratchet, stale-position reaper
+
+### Fixed
+- **Stop-loss / take-profit / daily-loss never fired in memory mode** — RiskGuardian read positions only from Postgres and daily PnL only from `trade_performance`, so in a no-DB deployment every risk check silently no-opped and losers rode unbounded. It now routes on `is_db_available()`: positions fall back to a scan of the PaperBroker's `paper:positions:{symbol}` Redis keys (the position source of truth in memory mode), and the daily-loss limit + circuit-breaker drawdown fall back to summing today's closes from the `closed_trades:recent` Redis mirror (`docs/troubleshooting/agents.md`)
+
+### Added
+- **Trailing-stop profit ratchet** (`api/services/agents/risk_guardian.py`) — peak-PnL high-water mark per position (`risk:peak_pnl:{symbol}`); arms at `TRAILING_STOP_ARM_PCT` (+3%) and closes when PnL gives back more than `TRAILING_STOP_GIVEBACK_FRAC` (40%) of the peak, so an armed winner always banks ≥ 60% of its peak instead of riding back to the −5% hard stop. Basis change (add / re-entry) resets the ratchet; hard SL/TP bounds unchanged
+- **Stale-position reaper** — closes positions older than `STALE_POSITION_MAX_AGE_SECONDS` (4h) whose PnL is still inside the `STALE_POSITION_PNL_BAND_PCT` (±1%) dead band, freeing capital from decayed momentum instead of letting chop bleed it into the hard stop. PaperBroker now stamps `opened_at` on positions (preserved across adds/partial closes, reset on flips, cleared when flat)
+- All four new knobs registered in `PARAM_BOUNDS` so the GitOps learning loop can tune them within safe bounds
+- Tests: `tests/agents/test_risk_guardian.py` (memory-mode scan, ratchet arm/hold/fire/reset, reaper, daily-loss mirror), `tests/agents/test_paper_broker.py` (`opened_at` lifecycle)
+
 ## [2026-06-01] — Cognitive brain: decision counterfactuals + drift detection
 
 ### Added
