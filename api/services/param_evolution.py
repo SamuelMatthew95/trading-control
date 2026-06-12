@@ -36,6 +36,14 @@ PARAM_BOUNDS: dict[str, tuple[float, float]] = {
     "TAKE_PROFIT_PCT": (0.02, 0.40),
     "MAX_RISK_PER_TRADE_PCT": (0.005, 0.05),
     "KELLY_FRACTION_SCALE": (0.05, 0.50),
+    # Trailing-stop ratchet (RiskGuardian). ARM low bound stays above typical
+    # slippage noise; GIVEBACK 1.0 would never trail, 0.0 would exit on the
+    # first downtick — both excluded by the bounds.
+    "TRAILING_STOP_ARM_PCT": (0.005, 0.08),
+    "TRAILING_STOP_GIVEBACK_FRAC": (0.10, 0.80),
+    # Stale-position reaper (RiskGuardian). Whole-number bounds → int coercion.
+    "STALE_POSITION_MAX_AGE_SECONDS": (1800, 259200),
+    "STALE_POSITION_PNL_BAND_PCT": (0.0, 0.05),
     # GradeAgent's rate-limit response. Upper bound mirrors LLM_DELAY_MAX_MS in
     # api/constants.py (literal here — this module must stay import-cycle-free).
     # Whole-number bounds → the override is coerced to int, matching the constant.

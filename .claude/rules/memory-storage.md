@@ -121,14 +121,16 @@ constitution-only prompt (never crashes). Managed exclusively through
 await redis.set(REDIS_KEY_IC_WEIGHTS, json.dumps(weights), ex=REDIS_IC_WEIGHTS_TTL_SECONDS)
 ```
 
-### Category 3 — Control Plane (Circuit Breaker)
+### Category 3 — Control Plane & Risk State
 Safety-critical flags. These are the ONLY Redis keys where a missing value has
-a defined meaning: absence = switch is OFF.
+a defined meaning: absence = switch is OFF (kill switch) / ratchet not armed
+(trailing stop).
 
 | Constant | Key Pattern | TTL | Owner |
 |----------|------------|-----|-------|
 | `REDIS_KEY_KILL_SWITCH` | `kill_switch:active` | None | RiskGuardian |
 | `REDIS_KEY_KILL_SWITCH_UPDATED_AT` | `kill_switch:updated_at` | None | RiskGuardian |
+| `REDIS_KEY_RISK_PEAK_PNL` | `risk:peak_pnl:{symbol}` | 7d (refreshed each scan) | RiskGuardian |
 
 **CRITICAL:** If Redis is unavailable during a kill switch check, the check
 **raises an exception**, which routes the order to the DLQ. This is intentional
@@ -140,6 +142,15 @@ if await self.redis.get(REDIS_KEY_KILL_SWITCH) == "1":
     raise RuntimeError("KillSwitchActive")
 ```
 
+**Trailing-stop ratchet state (`risk:peak_pnl:{symbol}`):** one JSON value per
+open position — `{peak_pnl_pct, avg_cost}` — written by RiskGuardian on every
+position scan. `avg_cost` identifies the position: a basis change (fresh entry
+or an add) resets the ratchet instead of trailing against a stale peak. Deleted
+when the guardian publishes a close; the TTL reaps keys orphaned by closes the
+guardian didn't issue (opposite-signal exits via ReasoningAgent). Absent →
+ratchet re-arms from the current PnL; the hard STOP_LOSS_PCT / TAKE_PROFIT_PCT
+bounds still protect the position, so a lost peak degrades gracefully.
+
 ### Category 4 — Paper Broker State
 Mutable simulation state for the paper trading engine. Redis is the
 **primary store** for in-flight paper state. Postgres is a **durable mirror**
@@ -148,8 +159,14 @@ written after each fill (positions table).
 | Constant | Key Pattern | TTL | Owner |
 |----------|------------|-----|-------|
 | `REDIS_KEY_PAPER_CASH` | `paper:cash` | None | PaperBroker |
-| `REDIS_KEY_PAPER_POSITION` | `paper:positions:{symbol}` | None | PaperBroker |
+| `REDIS_KEY_PAPER_POSITION` | `paper:positions:{symbol}` | None | PaperBroker (writes), RiskGuardian (memory-mode scan) |
 | `REDIS_KEY_PAPER_ORDER` | `paper:order:{broker_order_id}` | None | PaperBroker |
+
+The position payload carries `opened_at` (stamped on open/flip, preserved on
+adds and partial closes, cleared when flat) so RiskGuardian's stale-position
+reaper knows the position's true age. In memory mode RiskGuardian scans
+`paper:positions:*` directly — the broker keys are the ONLY position record
+there, and exits must keep working without Postgres.
 
 **Fallback if absent:** Default to cash=100k, position=flat. Position truth
 can be reconstructed from Postgres `positions` table.

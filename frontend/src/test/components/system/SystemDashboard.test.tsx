@@ -158,3 +158,21 @@ describe('SystemDashboard integration', () => {
     expect(screen.getByText('Confidence: 78.0%')).toBeInTheDocument()
   })
 })
+
+describe('Open Exposure KPI', () => {
+  it('counts memory-mode (qty/avg_cost) rows and renders an unsigned magnitude', () => {
+    // Regression: exposure read position.quantity directly, so REST-hydrated
+    // memory-mode rows (which carry qty) silently counted as $0, and the
+    // signedUSD formatting made a magnitude read like a profit ("+$…").
+    const positions = [
+      { symbol: 'AVAX/USD', side: 'long', qty: 2, avg_cost: 40, current_price: 40.5 },
+      { symbol: 'BTC/USD', side: 'long', quantity: 0.001, entry_price: 50000, current_price: 52000 },
+    ] as unknown as SystemDashboardProps['positions']
+    render(<SystemDashboard {...baseProps} positions={positions} />)
+    // 2 × 40.5 + 0.001 × 52000 = 133.00 — both shapes counted, no "+" prefix
+    expect(screen.getByText('$133.00')).toBeInTheDocument()
+    expect(screen.queryByText('+$133.00')).toBeNull()
+    // both rows are active positions under the canonical qty rule
+    expect(screen.getByText('2')).toBeInTheDocument()
+  })
+})

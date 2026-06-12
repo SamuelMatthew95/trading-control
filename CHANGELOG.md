@@ -1,5 +1,27 @@
 # Changelog
 
+## [2026-06-12] — Deep audit: UTC daily-loss window, Open Exposure KPI
+
+### Fixed
+- **Daily-loss kill switch timezone divergence** — the DB path summed "today" by the server's local date while the memory path used UTC; on a non-UTC server the two modes tripped on different trade sets near midnight. Both now use the UTC calendar day (`tests/agents/test_risk_guardian.py::test_db_daily_pnl_query_binds_utc_date`)
+- **Open Exposure KPI undercounted and mis-signed** (`/dashboard/system`) — exposure read `position.quantity` directly, so memory-mode REST rows (shaped `qty`/`avg_cost`) counted as $0 and the figure depended on which delivery path each position arrived by; `signedUSD` then rendered the magnitude as `+$…` like a profit. New canonical `positionNotional()`/`positionEntryPrice()` helpers count both shapes, mark against the live price stream, and the KPI formats unsigned (`docs/troubleshooting/frontend.md`)
+
+## [2026-06-12] — Cooling-off gate no longer blocks risk exits
+
+### Fixed
+- **One losing close pinned every other position open** — the cooling-off gate (revenge-entry throttle) applied to SELLs too, so after a single loss the ExecutionEngine blocked RiskGuardian's take-profit / trailing-stop / stale / further stop-loss closes for the whole cooldown window. SELLs in this long-only book only reduce exposure and now bypass the gate; BUY entries are still throttled (`docs/troubleshooting/execution-engine.md`, `tests/agents/test_execution_engine.py::test_cooling_off_never_blocks_sell_close`)
+
+## [2026-06-12] — RiskGuardian: memory-mode exits, trailing-stop ratchet, stale-position reaper
+
+### Fixed
+- **Stop-loss / take-profit / daily-loss never fired in memory mode** — RiskGuardian read positions only from Postgres and daily PnL only from `trade_performance`, so in a no-DB deployment every risk check silently no-opped and losers rode unbounded. It now routes on `is_db_available()`: positions fall back to a scan of the PaperBroker's `paper:positions:{symbol}` Redis keys (the position source of truth in memory mode), and the daily-loss limit + circuit-breaker drawdown fall back to summing today's closes from the `closed_trades:recent` Redis mirror (`docs/troubleshooting/agents.md`)
+
+### Added
+- **Trailing-stop profit ratchet** (`api/services/agents/risk_guardian.py`) — peak-PnL high-water mark per position (`risk:peak_pnl:{symbol}`); arms at `TRAILING_STOP_ARM_PCT` (+3%) and closes when PnL gives back more than `TRAILING_STOP_GIVEBACK_FRAC` (40%) of the peak, so an armed winner always banks ≥ 60% of its peak instead of riding back to the −5% hard stop. Basis change (add / re-entry) resets the ratchet; hard SL/TP bounds unchanged
+- **Stale-position reaper** — closes positions older than `STALE_POSITION_MAX_AGE_SECONDS` (4h) whose PnL is still inside the `STALE_POSITION_PNL_BAND_PCT` (±1%) dead band, freeing capital from decayed momentum instead of letting chop bleed it into the hard stop. PaperBroker now stamps `opened_at` on positions (preserved across adds/partial closes, reset on flips, cleared when flat)
+- All four new knobs registered in `PARAM_BOUNDS` so the GitOps learning loop can tune them within safe bounds
+- Tests: `tests/agents/test_risk_guardian.py` (memory-mode scan, ratchet arm/hold/fire/reset, reaper, daily-loss mirror), `tests/agents/test_paper_broker.py` (`opened_at` lifecycle)
+
 ## [2026-06-01] — Cognitive brain: decision counterfactuals + drift detection
 
 ### Added

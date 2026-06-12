@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import random
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 from redis.asyncio import Redis
@@ -56,24 +57,35 @@ class PaperBroker:
         # entry_price to fill_price on EVERY order, which destroyed cost basis
         # after any partial close — the next sell would compute realized PnL
         # against the closing price instead of the original entry.
+        # opened_at follows the position's identity: stamped when a position
+        # opens from flat (or flips through zero), preserved across adds and
+        # partial closes, cleared when flat — RiskGuardian's stale-position
+        # reaper needs the true age, not the last-fill time.
+        now_iso = datetime.now(timezone.utc).isoformat()
+        prior_opened_at = current_position.get(FieldName.OPENED_AT)
         if abs(new_qty) < 1e-9:
             new_entry_price = 0.0
             new_side = PositionSide.FLAT
+            new_opened_at = None
         elif abs(current_qty) < 1e-9 or prior_entry <= 0:
             new_entry_price = fill_price
             new_side = PositionSide.LONG if new_qty > 0 else PositionSide.SHORT
+            new_opened_at = now_iso
         elif (current_qty > 0) == (direction > 0):
             # Adding in the same direction → weighted average cost
             new_entry_price = (prior_entry * abs(current_qty) + fill_price * qty) / abs(new_qty)
             new_side = PositionSide.LONG if new_qty > 0 else PositionSide.SHORT
+            new_opened_at = prior_opened_at or now_iso
         elif (current_qty > 0) != (new_qty > 0):
             # Order flipped direction past zero → new opening price
             new_entry_price = fill_price
             new_side = PositionSide.LONG if new_qty > 0 else PositionSide.SHORT
+            new_opened_at = now_iso
         else:
             # Reducing same-direction position (partial close) → preserve entry
             new_entry_price = prior_entry
             new_side = PositionSide.LONG if new_qty > 0 else PositionSide.SHORT
+            new_opened_at = prior_opened_at or now_iso
 
         position_payload = {
             FieldName.SYMBOL: symbol,
@@ -81,6 +93,7 @@ class PaperBroker:
             FieldName.QTY: new_qty,
             FieldName.ENTRY_PRICE: new_entry_price,
             FieldName.CURRENT_PRICE: fill_price,
+            FieldName.OPENED_AT: new_opened_at,
         }
         await self.redis.set(
             REDIS_KEY_PAPER_POSITION.format(symbol=symbol), json.dumps(position_payload)
@@ -109,6 +122,7 @@ class PaperBroker:
             FieldName.QTY: 0.0,
             FieldName.ENTRY_PRICE: 0.0,
             FieldName.CURRENT_PRICE: 0.0,
+            FieldName.OPENED_AT: None,
         }
 
     async def get_position(self, symbol: str) -> dict[str, Any]:

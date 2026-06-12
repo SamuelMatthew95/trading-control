@@ -69,13 +69,32 @@ export function isActivePosition(pos: unknown): boolean {
 
 /**
  * The freshest price to mark a position against: the live price-stream value for
- * its symbol, else the position's stored `current_price`, else `entry_price`.
+ * its symbol, else the position's stored `current_price`, else its cost basis
+ * (`entry_price` on ORM/broker rows, `avg_cost` on memory-mode snapshot rows).
  * `prices` is the store's `prices` map (keyed by symbol → { price, … }).
  */
 export function livePriceFor(pos: unknown, prices?: Record<string, unknown>): number | null {
   const symbol = getStr(pos, 'symbol')
   const live = prices ? toFiniteNum(getField(getField(prices, symbol), 'price')) : null
-  return live ?? toFiniteNum(getField(pos, 'current_price')) ?? toFiniteNum(getField(pos, 'entry_price'))
+  return (
+    live ??
+    toFiniteNum(getField(pos, 'current_price')) ??
+    toFiniteNum(getField(pos, 'entry_price')) ??
+    toFiniteNum(getField(pos, 'avg_cost'))
+  )
+}
+
+/**
+ * Notional value of a position at its freshest mark: |qty| × price.
+ * Always a magnitude (≥ 0) — exposure is capital at risk, not a gain or loss.
+ * Built on {@link positionQty} / {@link livePriceFor} so both backend position
+ * shapes count (ORM `quantity`/`entry_price`, memory-mode `qty`/`avg_cost`);
+ * reading `position.quantity` directly undercounted REST-hydrated rows to $0.
+ */
+export function positionNotional(pos: unknown, prices?: Record<string, unknown>): number {
+  const qty = Math.abs(positionQty(pos))
+  if (qty === 0) return 0
+  return qty * (livePriceFor(pos, prices) ?? 0)
 }
 
 /**
@@ -90,20 +109,30 @@ export function livePriceFor(pos: unknown, prices?: Record<string, unknown>): nu
  * never regress a value the backend already computed.
  */
 export function positionLivePnl(pos: unknown, prices?: Record<string, unknown>): number | null {
-  const entry = toFiniteNum(getField(pos, 'entry_price'))
+  const entry = positionEntryPrice(pos)
   const qty = positionQty(pos)
   if (qty === 0) return 0
   const current = livePriceFor(pos, prices)
-  if (entry == null || current == null) return toFiniteNum(getField(pos, 'pnl'))
+  if (entry == null || current == null) {
+    return toFiniteNum(getField(pos, 'pnl')) ?? toFiniteNum(getField(pos, 'unrealized_pnl'))
+  }
   const sideRaw = getStr(pos, 'side').toLowerCase()
   const isShort = sideRaw === 'short' || sideRaw === 'sell' || qty < 0
   const magnitude = Math.abs(qty)
   return isShort ? (entry - current) * magnitude : (current - entry) * magnitude
 }
 
+/**
+ * Cost basis per unit: `entry_price` on ORM/broker rows, `avg_cost` on
+ * memory-mode snapshot rows. Same dual-shape rule as {@link positionQty}.
+ */
+export function positionEntryPrice(pos: unknown): number | null {
+  return toFiniteNum(getField(pos, 'entry_price')) ?? toFiniteNum(getField(pos, 'avg_cost'))
+}
+
 /** Live unrealized P&L as a percentage return on the position's cost basis. */
 export function positionLivePnlPct(pos: unknown, prices?: Record<string, unknown>): number | null {
-  const entry = toFiniteNum(getField(pos, 'entry_price'))
+  const entry = positionEntryPrice(pos)
   const pnl = positionLivePnl(pos, prices)
   if (entry == null || pnl == null) return null
   const basis = entry * Math.abs(positionQty(pos))

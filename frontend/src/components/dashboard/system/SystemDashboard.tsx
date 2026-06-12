@@ -6,6 +6,9 @@ import { cn } from '@/lib/utils'
 import {
   formatPercent,
   formatTimestamp,
+  formatUSD,
+  isActivePosition,
+  positionNotional,
   signedUSD,
   toFiniteNum as toFiniteNumber,
 } from '@/lib/formatters'
@@ -78,15 +81,11 @@ export function SystemDashboard(props: SystemDashboardProps) {
     if (orderMs < dayStartMs) return sum
     return sum + (toFiniteNumber(order.pnl) ?? 0)
   }, 0)
-  const openExposure = props.positions.reduce((sum, position) => {
-    const quantity = Math.abs(toFiniteNumber(position.quantity) ?? 0)
-    const price =
-      toFiniteNumber(position.current_price) ?? toFiniteNumber(position.entry_price) ?? 0
-    return sum + quantity * price
-  }, 0)
-  const activePositions = props.positions.filter(
-    (position) => position.side === 'long' || position.side === 'short',
-  ).length
+  const openExposure = props.positions.reduce(
+    (sum, position) => sum + positionNotional(position, props.prices),
+    0,
+  )
+  const activePositions = props.positions.filter(isActivePosition).length
   const recentRiskAlert = props.riskAlerts[0]
   const riskState = recentRiskAlert
     ? String(recentRiskAlert.severity ?? recentRiskAlert.status ?? COPY.review)
@@ -219,7 +218,7 @@ export function SystemDashboard(props: SystemDashboardProps) {
           <div className="grid grid-cols-2 divide-x divide-y md:grid-cols-3 xl:grid-cols-6 xl:divide-y-0">
             <KpiStrip label={COPY.kpiNetPnl} value={signedUSD(netPnl)} tone={netPnl >= 0 ? 'ok' : 'err'} />
             <KpiStrip label={COPY.kpiDailyPnl} value={signedUSD(dailyPnl)} tone={dailyPnl >= 0 ? 'ok' : 'err'} />
-            <KpiStrip label={COPY.kpiOpenExposure} value={signedUSD(openExposure)} />
+            <KpiStrip label={COPY.kpiOpenExposure} value={formatUSD(openExposure)} />
             <KpiStrip label={COPY.kpiActivePositions} value={String(activePositions)} />
             <KpiStrip label={COPY.kpiRegime} value={props.regime || COPY.unknown} />
             <KpiStrip
@@ -342,7 +341,7 @@ export function SystemDashboard(props: SystemDashboardProps) {
                         {index === 1 && selectedDecision.reason.join(' ')}
                         {index === 2 && riskState}
                         {index === 3 &&
-                          `${activePositions} ${COPY.activePositionsOf} ${signedUSD(openExposure)} ${COPY.exposure}`}
+                          `${activePositions} ${COPY.activePositionsOf} ${formatUSD(openExposure)} ${COPY.exposure}`}
                         {index === 4 &&
                           `${selectedDecision.source} ${COPY.eventAt} ${formatClock(selectedDecision.timestamp)}`}
                         {index === 5 &&

@@ -220,3 +220,45 @@ requires the list to be empty, and `activity_snapshot()` exposes
 **Regression tests:**
 `tests/agents/test_challenger_agent.py::test_no_promotion_when_own_record_is_weak`,
 `::test_snapshot_exposes_promotion_blockers`
+
+## Stop-loss / take-profit / daily-loss never fired in memory mode (Postgres-only reads)
+
+**Symptom:** In a no-Postgres (memory mode) deployment, positions rode losses
+far past `STOP_LOSS_PCT` and gains past `TAKE_PROFIT_PCT` with no auto-close,
+and a string of losing days never tripped the daily-loss kill switch. The
+RiskGuardian heartbeat looked healthy the whole time — every scan "completed".
+
+**Root cause:** `RiskGuardian._check_positions` read open positions ONLY from
+the Postgres `positions` table (`except Exception: return` swallowed the dead
+DB), and `_check_daily_loss` summed ONLY `trade_performance`. In memory mode
+positions exist solely in the PaperBroker's `paper:positions:{symbol}` Redis
+keys and closed-trade PnL solely in the `closed_trades:recent` Redis mirror —
+so every risk check silently no-opped. Exits only happened if the
+ReasoningAgent volunteered an opposite-direction decision.
+
+**Fix:** `api/services/agents/risk_guardian.py` routes its position source on
+`is_db_available()`: Postgres rows when up (`_load_db_positions`, cached as
+before), otherwise a fresh scan of the broker's Redis keys
+(`_load_paper_positions`, normalized to the same row shape — `entry_price` →
+`avg_cost`, signed qty → unsigned + side). A failed DB read also falls through
+to the Redis scan instead of returning. `_today_realized_pnl()` does the same
+for the daily-loss limit and circuit-breaker drawdown: `trade_performance` when
+the DB is up, else summing today's closes from `RedisStore.list_closed_trades()`
+(capped at 100 — a conservative floor that can only under-count).
+
+**Regression tests:**
+`tests/agents/test_risk_guardian.py::test_memory_mode_stop_loss_closes_paper_position`,
+`::test_memory_mode_short_position_normalized`,
+`::test_memory_mode_daily_loss_uses_closed_trades_mirror`
+
+---
+
+## Daily-loss window used the server's local date in DB mode but UTC in memory mode
+
+**Symptom:** On a non-UTC server, the daily-loss kill switch could trip in memory mode but not DB mode (or vice versa) for the same trades near midnight — the two paths summed different "today" windows.
+
+**Root cause:** `RiskGuardian._today_realized_pnl()` bound `date.today()` (server-local calendar day, pre-existing) into the Postgres query while the memory-mode mirror filter used `datetime.now(timezone.utc).date()`.
+
+**Fix:** The DB query now binds the UTC calendar day, matching the memory path and the UTC timestamps agents stamp on trades (`api/services/agents/risk_guardian.py::_today_realized_pnl`). Both ISO-timestamp parse sites in the guardian were also consolidated into a single `_parse_utc_datetime` helper so format handling can't drift.
+
+**Regression test:** `tests/agents/test_risk_guardian.py::test_db_daily_pnl_query_binds_utc_date`

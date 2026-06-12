@@ -3,6 +3,7 @@ import {
   livePriceFor,
   positionLivePnl,
   positionLivePnlPct,
+  positionNotional,
   pricesFreshnessMs,
 } from '@/lib/formatters'
 import { markPositionsToMarket } from '@/hooks/useLivePositions'
@@ -96,5 +97,36 @@ describe('computeLivePnl', () => {
 
   it('reports no data for empty inputs', () => {
     expect(computeLivePnl([], [], {})).toEqual({ realized: 0, unrealized: 0, total: 0, hasData: false })
+  })
+})
+
+describe('memory-mode position shape (qty / avg_cost / unrealized_pnl)', () => {
+  // The memory-mode /dashboard/state snapshot emits qty + avg_cost (not
+  // quantity + entry_price). Every helper must value both shapes identically —
+  // reading the ORM keys alone undercounted REST-hydrated rows to $0/null.
+  const memPos = (overrides: Record<string, unknown> = {}): Position =>
+    ({ symbol: 'AVAX/USD', side: 'long', qty: 2, avg_cost: 40, current_price: 40.5, ...overrides }) as unknown as Position
+
+  it('positionLivePnl values a memory-shape long from avg_cost', () => {
+    expect(positionLivePnl(memPos(), {})).toBeCloseTo(1.0) // (40.5 - 40) × 2
+  })
+
+  it('positionLivePnl falls back to stored unrealized_pnl when prices are unknown', () => {
+    expect(
+      positionLivePnl(memPos({ avg_cost: undefined, current_price: undefined, unrealized_pnl: 7 }), {}),
+    ).toBe(7)
+  })
+
+  it('livePriceFor falls back to avg_cost when no other mark exists', () => {
+    expect(livePriceFor(memPos({ current_price: undefined }), {})).toBe(40)
+  })
+
+  it('positionNotional counts both shapes', () => {
+    expect(positionNotional(memPos(), {})).toBeCloseTo(81) // 2 × 40.5
+    expect(positionNotional(pos({ quantity: 0.001, entry_price: 50000, current_price: 52000 }), {})).toBeCloseTo(52)
+  })
+
+  it('positionNotional is 0 for a flat position', () => {
+    expect(positionNotional(memPos({ qty: 0 }), { 'AVAX/USD': { price: 999 } })).toBe(0)
   })
 })
