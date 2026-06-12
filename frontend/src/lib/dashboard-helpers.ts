@@ -67,6 +67,31 @@ export function actionBadgeClass(action: string): string {
   return TONE_BADGE[ACTION_TONES[action] ?? 'neutral']
 }
 
+/** Text colour for a trade action/side (`buy`/`sell`, any case). */
+export function actionTextClass(action: string): string {
+  return TONE_TEXT[ACTION_TONES[action.toUpperCase()] ?? 'neutral']
+}
+
+/** Tone for a trade action/side — for `<Badge tone={…}>` call sites. */
+export function toneForAction(action: string): Tone {
+  return ACTION_TONES[action.toUpperCase()] ?? 'neutral'
+}
+
+/** 0–1 score → Meter fill colour: ≥0.8 success, ≥0.5 warning, else danger. */
+export function meterFillClass(value: number): string {
+  if (value >= 0.8) return TONE_DOT.success
+  if (value >= 0.5) return TONE_DOT.warning
+  return TONE_DOT.danger
+}
+
+/** 0–100 grade/score → text colour: ≥70 success, ≥40 warning, else danger. */
+export function scoreColorClass(score: number | null): string {
+  if (score == null) return TONE_TEXT.neutral
+  if (score >= 70) return TONE_TEXT.success
+  if (score >= 40) return TONE_TEXT.warning
+  return TONE_TEXT.danger
+}
+
 // ---------------------------------------------------------------------------
 // CSS class helpers — Agent activity
 // ---------------------------------------------------------------------------
@@ -137,5 +162,10 @@ export function agentTierFromStatus(status: string): 'active' | 'challenger' | '
  * proposals queue and the learning console.
  */
 export function proposalStatusClass(status: string | null | undefined): string {
-  return TONE_BADGE[(status && PROPOSAL_STATUS_TONES[status]) || 'warning']
+  return TONE_BADGE[proposalStatusTone(status)]
+}
+
+/** Tone for a proposal review status — for `<Badge tone={…}>` call sites. */
+export function proposalStatusTone(status: string | null | undefined): Tone {
+  return (status && PROPOSAL_STATUS_TONES[status]) || 'warning'
 }
