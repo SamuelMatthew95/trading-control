@@ -14,7 +14,7 @@ container, CI, Kubernetes, IaC.
 | App | TrustedHostMiddleware + CORS allowlist; optional `x-api-key` auth on `/api/*` write surfaces; optional Bearer token on `/mcp` | `api/main.py`, `api/security.py` |
 | App | Security headers: `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Cache-Control: no-store`, HSTS on https | `api/main.py` middleware |
 | App | Fail-closed defaults: kill-switch check raises on Redis loss (order → DLQ); LLM outage → `REJECT`, never a blind trade; paper broker default | platform invariants |
-| CI | `pip-audit --strict`, Trivy fs + image (HIGH/CRITICAL gate), gitleaks over full history, weekly cron, SBOM artifact | `.github/workflows/security-scan.yml` |
+| CI | `pip-audit --strict`, Trivy fs + image (HIGH/CRITICAL gate), gitleaks CLI over full history (precise allowlist in `.gitleaks.toml` — only the documented `lm-studio` placeholder token), weekly cron, SBOM artifact | `.github/workflows/security-scan.yml` |
 | CI | Image publish uses job-scoped `GITHUB_TOKEN` `packages:write` — no long-lived registry credential | `.github/workflows/docker-build.yml` |
 | IaC | Prod rejects non-sha-pinned images via variable validation; sensitive outputs/vars marked `sensitive`; secrets via `TF_VAR_*` only | `infra/opentofu/environments/prod` |
 | Automation | ansible-vault for deploy secrets, `no_log` on secret-bearing tasks, ssh password auth disabled, ufw default-deny | `infra/ansible/` |
@@ -29,10 +29,18 @@ container, CI, Kubernetes, IaC.
    `/decisions` are public by design for the demo dashboard. Before any
    non-paper deployment: set `API_SECRET_KEY` (enables key auth on the write
    surfaces) and put the read surfaces behind an authenticating proxy.
-3. **[Open] Floating dependency pins.** `groq`, `alpaca-py` are unpinned in
-   `requirements.txt`; builds are not bit-reproducible. Recommendation: adopt
-   `pip-compile` (uv/pip-tools) to generate a fully-pinned lock layer used by
-   the Dockerfile while keeping `requirements.txt` as the human-edited input.
+3. **[Fixed] Vulnerable pinned dependencies.** The first pip-audit run
+   surfaced ~40 CVEs in the previous pins. Remediated by upgrading
+   `aiohttp 3.9.1→3.14.0`, `fastapi 0.115→0.136` (starlette 1.3.1),
+   `fastmcp 2.9→2.14.7` (mcp 1.27), `gunicorn 21.2→23.0`,
+   `uvicorn 0.24→0.38`, `python-dotenv`, and the pytest toolchain
+   (`pytest 9`, `pytest-asyncio 1.3`). Verified: full test suite green
+   (1,473 + 89 + 605) and the gunicorn/UvicornWorker production boot path
+   serves `/health`. One audit ignore remains — `CVE-2025-69872`
+   (`diskcache`, transitive): no fixed release exists; documented in
+   `security-scan.yml`, remove when upstream ships a fix.
+   **[Still open]** `groq`, `alpaca-py` float; adopt `pip-compile`
+   (uv/pip-tools) for a fully-pinned lock layer used by the Dockerfile.
 4. **[Open] No image signing.** Supply-chain recommendation below.
 5. **[Mitigated] Secret exposure via env.** Keys live in env vars (visible in
    `kubectl describe pod` to anyone with namespace read). Mitigation: RBAC on
