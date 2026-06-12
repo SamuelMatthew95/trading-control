@@ -15,18 +15,20 @@ terraform {
 }
 
 locals {
-  exporter_block = var.signoz_endpoint != "" ? <<-EOT
+  exporter_block_signoz = <<-EOT
     otlp:
       endpoint: ${var.signoz_endpoint}
       tls:
         insecure: true
   EOT
-  : <<-EOT
+
+  exporter_block_debug = <<-EOT
     debug:
       verbosity: basic
   EOT
 
-  exporter_name = var.signoz_endpoint != "" ? "otlp" : "debug"
+  exporter_block = var.signoz_endpoint != "" ? local.exporter_block_signoz : local.exporter_block_debug
+  exporter_name  = var.signoz_endpoint != "" ? "otlp" : "debug"
 
   collector_config = <<-EOT
     receivers:
