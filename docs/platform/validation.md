@@ -59,16 +59,19 @@ implied. Re-run column = how to reproduce locally.
     a precise `.gitleaks.toml` allowlist for the documented `lm-studio`
     placeholder token (46 false positives, verified individually).
   - pip-audit found ~40 real CVEs in pre-existing pins → dependencies
-    upgraded (aiohttp 3.14, fastapi 0.136/starlette 1.3.1, fastmcp 2.14.7,
-    gunicorn 23, uvicorn 0.38, pytest 9 toolchain). Full suite re-run
-    green on the new stack AND the gunicorn `UvicornWorker` production
-    boot path verified against a live Redis. One no-fix-available ignore
-    (`CVE-2025-69872`, diskcache) documented in the workflow.
+    upgraded (aiohttp 3.14, fastapi 0.136/starlette 1.3.1, gunicorn 23,
+    uvicorn 0.38, pytest 9 toolchain). Full suite re-run green on the new
+    stack AND the gunicorn `UvicornWorker` production boot path verified
+    against a live Redis.
+  - The first Trivy **image** scan then flagged fastmcp 2.x CVEs (CRITICAL
+    SSRF, fixed only in 3.x) and vendored jaraco.context/wheel inside the
+    base image's setuptools 79 → fastmcp upgraded to 3.4.2 (API surface
+    used here unchanged; suite + boot + `/mcp` mount re-verified) and the
+    Dockerfile upgrades pip/setuptools/wheel in both stages. pip-audit is
+    now clean with zero ignore flags (the previous diskcache ignore was a
+    fastmcp 2 transitive and is gone).
 
 ## Known residual risks (deliberate, tracked)
-
-- Trivy image scan executes first in CI, not locally — watch the
-  `security-scan.yml` image job.
 - `tofu init` against the real provider registry and `ansible-galaxy`
   collection installs were network-blocked in the sandbox; both are
   standard first-run steps documented in their guides.
