@@ -11,6 +11,8 @@
  * A symbol with no live data shows '--', never a fabricated number.
  */
 
+import { NO_DATA } from '@/constants/copy'
+
 export interface UniverseSymbol {
   sym: string
   name: string
@@ -59,18 +61,11 @@ export function liveStoreQuote(
 // ── Formatters (numeric display is always tabular mono) ──────────────────────
 
 export function fmtCompact(v: number): string {
-  if (!Number.isFinite(v)) return '--'
+  if (!Number.isFinite(v)) return NO_DATA
   return new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(v)
 }
 
 export function fmtQty(v: number): string {
-  if (!Number.isFinite(v)) return '--'
+  if (!Number.isFinite(v)) return NO_DATA
   return Number(v).toLocaleString('en')
-}
-
-/** Tailwind text-colour class for a signed value, via the terminal CSS vars. */
-export function signClass(v: number): string {
-  if (v > 0) return 'txt-up'
-  if (v < 0) return 'txt-down'
-  return 'text-slate-500 dark:text-slate-400'
 }

@@ -1,3 +1,10 @@
+import {
+  STREAM_EXECUTIONS,
+  STREAM_MARKET_EVENTS,
+  STREAM_MARKET_TICKS,
+  STREAM_ORDERS,
+  STREAM_SIGNALS,
+} from '@/constants/streams'
 import type { PipelineStatus } from './types'
 
 /** Latency above which the data pipeline reads as Degraded rather than Healthy. */
@@ -31,8 +38,8 @@ export function computePipeline({
   wsLastMessageTimestamp,
   wsMessageRate,
 }: PipelineInputs): PipelineComputation {
-  const latestMarketTickTs = streamStats['market_ticks']?.lastMessageTimestamp ?? null
-  const marketEventsTs = streamStats['market_events']?.lastMessageTimestamp ?? null
+  const latestMarketTickTs = streamStats[STREAM_MARKET_TICKS]?.lastMessageTimestamp ?? null
+  const marketEventsTs = streamStats[STREAM_MARKET_EVENTS]?.lastMessageTimestamp ?? null
   const effectiveTickTs = latestMarketTickTs ?? marketEventsTs
 
   const dataLatencyMs = effectiveTickTs
@@ -47,11 +54,11 @@ export function computePipeline({
       : null
   const effectiveLatencyMs = dataLatencyMs ?? wsLatencyMs ?? recentEventLatencyMs
 
-  const marketTicksCount = streamStats['market_ticks']?.count ?? 0
-  const marketEventsCount = streamStats['market_events']?.count ?? 0
-  const signalsCount = streamStats['signals']?.count ?? 0
-  const ordersCount = streamStats['orders']?.count ?? 0
-  const executionsCount = streamStats['executions']?.count ?? 0
+  const marketTicksCount = streamStats[STREAM_MARKET_TICKS]?.count ?? 0
+  const marketEventsCount = streamStats[STREAM_MARKET_EVENTS]?.count ?? 0
+  const signalsCount = streamStats[STREAM_SIGNALS]?.count ?? 0
+  const ordersCount = streamStats[STREAM_ORDERS]?.count ?? 0
+  const executionsCount = streamStats[STREAM_EXECUTIONS]?.count ?? 0
   const marketStageCount = marketEventsCount || marketTicksCount
 
   const hasMarketData = Boolean(
@@ -60,7 +67,7 @@ export function computePipeline({
       marketTicksCount > 0 ||
       marketEventsCount > 0 ||
       recentEvents.some(
-        (event) => event.stream === 'market_ticks' || event.stream === 'market_events',
+        (event) => event.stream === STREAM_MARKET_TICKS || event.stream === STREAM_MARKET_EVENTS,
       ),
   )
 

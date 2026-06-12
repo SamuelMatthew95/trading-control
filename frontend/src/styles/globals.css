@@ -3,69 +3,59 @@
 @tailwind utilities;
 
 @layer base {
-  /* Light theme — tuned for parity with the dark "operator console" look.
-     Surfaces are desaturated (the old 214-hue, high-chroma values read as a
-     washed blue cast), the accent/selection tint is a neutral slate instead of
-     pale cyan, and the semantic tones are darkened one step so text-success /
-     text-danger / text-warning (and their /10 banner fills) keep readable
-     contrast on white. Dark values below are intentionally untouched. */
+  /* Design tokens — the single place where the palette and light/dark parity
+     live. Every Tailwind color token (tailwind.config.js) resolves to one of
+     these variables; components never hardcode a hue.
+
+     Surface layering: --background (page) < --card (panel) < --popover (modal).
+     Semantic tones (--success/--danger/--warning) are darkened one step in
+     light mode so text and /10 banner fills keep readable contrast on white. */
   :root {
-    --background: 220 14% 96%;
+    --background: 210 40% 96.1%;
     --foreground: 222.2 47.4% 11.2%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 47.4% 11.2%;
-    --border: 215 16% 84%;
-    --input: 215 16% 84%;
-    --muted: 215 16% 94%;
-    --muted-foreground: 215 16% 40%;
-    --accent: 215 16% 92%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --popover: 0 0% 100%;
+    --border: 214.3 31.8% 91.4%;
+    --border-strong: 212.7 26.8% 83.9%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
     --primary: 243 55% 50%;
     --primary-foreground: 210 40% 98%;
-    --destructive: 0 72% 46%;
-    --destructive-foreground: 210 40% 98%;
     --ring: 243 55% 50%;
     --success: 161 94% 30%;
     --danger: 347 77% 44%;
     --warning: 30 92% 38%;
     --radius: 0.75rem;
 
-    /* Trading terminal tokens — shared across every dashboard surface so the
-       whole app reads with one visual language. `--up`/`--down` are the
-       functional trading colours (a trader reads green/red instantly);
-       `--brand` is the brand/interactive colour (logo, active nav, selected
-       row) derived from --primary so it stays consistent in both themes.
-       NOTE: never re-declare `--accent` here — Tailwind's `accent` colour is
-       `hsl(var(--accent))`, so overwriting it with a hex (or reading it as a
-       raw colour) silently produces invalid CSS. */
-    --brand: hsl(var(--primary));
-    --brand-soft: hsl(var(--primary) / 0.12);
-    --up: #10b981;
-    --down: #f43f5e;
-    --up-soft: rgba(16, 185, 129, 0.14);
-    --down-soft: rgba(244, 63, 94, 0.14);
+    --shadow-card: 0 1px 2px 0 hsl(222 47% 11% / 0.05);
+    --shadow-modal: 0 25px 50px -12px hsl(222 47% 11% / 0.25);
+
+    /* Trading direction colors for SVG/chart strokes (recharts can't take a
+       Tailwind class). Aliases of the semantic tones — never hardcode them. */
+    --up: hsl(var(--success));
+    --down: hsl(var(--danger));
+
     --term-hdr: 38px;
   }
 
   .dark {
     --background: 222.2 84% 4.9%;
     --foreground: 210 40% 98%;
-    --card: 222.2 47% 11%;
-    --card-foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --popover: 222.2 47.4% 11.2%;
     --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
+    --border-strong: 215.3 25% 26.7%;
     --muted: 217.2 32.6% 17.5%;
     --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
     --primary: 243.4 75.4% 58.6%;
     --primary-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
     --ring: 243.4 75.4% 58.6%;
     --success: 158 64% 52%;
     --danger: 351 95% 71%;
     --warning: 43 96% 56%;
+
+    --shadow-card: 0 1px 2px 0 hsl(0 0% 0% / 0.2);
+    --shadow-modal: 0 25px 50px -12px hsl(0 0% 0% / 0.55);
   }
 
   * {
@@ -74,50 +64,15 @@
   }
 
   body {
-    @apply bg-slate-100 text-slate-900 font-sans antialiased;
-  }
-
-  .dark body {
-    @apply bg-slate-950 text-slate-100;
-  }
-
-  body.light {
-    @apply bg-slate-100 text-slate-900;
+    @apply bg-background text-foreground font-sans antialiased;
   }
 }
 
 @layer components {
-  .app-card {
-    @apply rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 sm:p-5;
-  }
-
-  .app-label {
-    @apply text-xs font-semibold uppercase tracking-wider font-sans text-slate-500 dark:text-slate-400;
-  }
-
-  .app-value {
-    @apply text-2xl font-black font-mono tabular-nums text-slate-900 dark:text-slate-100;
-  }
-
-  .status-dot-live {
-    @apply w-2 h-2 rounded-full bg-emerald-500 animate-pulse;
-  }
-
-  .status-dot-idle {
-    @apply w-2 h-2 rounded-full bg-slate-400;
-  }
-
-  /* Terminal semantic helpers — driven by CSS vars so a single token change
-     re-themes every panel. Used by the trading terminal and reusable anywhere. */
-  .txt-up { color: var(--up); }
-  .txt-down { color: var(--down); }
-  .badge-up { background: var(--up-soft); color: var(--up); }
-  .badge-down { background: var(--down-soft); color: var(--down); }
-
-  /* Thin, unobtrusive scrollbars for dense terminal panels. */
+  /* Thin, unobtrusive scrollbars for dense terminal panels — theme-aware. */
   .thin-scroll::-webkit-scrollbar { width: 7px; height: 7px; }
   .thin-scroll::-webkit-scrollbar-track { background: transparent; }
-  .thin-scroll::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
-  .thin-scroll::-webkit-scrollbar-thumb:hover { background: #334155; }
-  .thin-scroll { scrollbar-width: thin; scrollbar-color: #1e293b transparent; }
+  .thin-scroll::-webkit-scrollbar-thumb { background: hsl(var(--border-strong)); border-radius: 4px; }
+  .thin-scroll::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground)); }
+  .thin-scroll { scrollbar-width: thin; scrollbar-color: hsl(var(--border-strong)) transparent; }
 }

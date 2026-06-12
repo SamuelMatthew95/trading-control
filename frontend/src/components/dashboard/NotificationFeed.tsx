@@ -2,6 +2,7 @@
 
 import type { ComponentType } from 'react'
 import { EmptyState } from '@/components/ui/empty-state'
+import { Button } from '@/components/ui/button'
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -13,15 +14,13 @@ import {
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { mutedClass } from '@/lib/dashboard-styles'
+import { cardClass, mutedClass, sectionTitleClass } from '@/lib/dashboard-styles'
 import { formatTimeAgo, parseTimestampMs } from '@/lib/formatters'
 import type { Notification } from '@/stores/useDashboardStore'
 import { NOTIFICATION_FALLBACKS } from '@/constants/notifications'
+import { NO_DATA, UI_COPY } from '@/constants/copy'
 import { groupNotifications } from '@/lib/notification-grouping'
-
-const cardClass =
-  'rounded-lg border border-slate-300 bg-white p-4 transition-colors duration-150 hover:border-slate-400 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 sm:p-5'
-const sectionTitleClass = 'text-xs font-semibold uppercase font-sans text-slate-500 dark:text-slate-400'
+import { TraceButton } from '@/components/dashboard/TraceButton'
 
 // The Redis-backed notifications list survives restarts, so without an age cap a
 // 3-day-old fill sits at the top of the feed and makes a live system look stale.
@@ -114,12 +113,12 @@ const toneStyles: Record<string, NotificationToneStyle> = {
   urgent: WARNING_STRONG_STYLE,
   warning: WARNING_STYLE,
   info: {
-    card: 'border-slate-200 dark:border-slate-800',
-    icon: 'bg-slate-500/10 text-slate-500',
-    badge: 'border border-slate-500/30 bg-slate-500/10 text-slate-600 dark:text-slate-300',
-    text: 'text-slate-700 dark:text-slate-200',
-    dot: 'bg-slate-400',
-    border: 'border-l-slate-400',
+    card: '',
+    icon: 'bg-muted-foreground/10 text-muted-foreground',
+    badge: 'border border-muted-foreground/30 bg-muted-foreground/10 text-foreground/70',
+    text: 'text-foreground/80',
+    dot: 'bg-muted-foreground',
+    border: 'border-l-muted-foreground',
   },
 }
 
@@ -128,13 +127,9 @@ function normalizeTone(value: unknown): string {
   return toneStyles[tone] ? tone : 'info'
 }
 
-function displayValue(value: unknown, fallback = '--'): string {
+function displayValue(value: unknown, fallback = NO_DATA): string {
   if (value === null || value === undefined || value === '') return fallback
   return String(value)
-}
-
-function NotificationEmptyState({ message }: { message: string }) {
-  return <EmptyState message={message} />
 }
 
 export function NotificationFeed({
@@ -160,39 +155,38 @@ export function NotificationFeed({
     <div className={cardClass}>
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Bell className="h-4 w-4 text-slate-500" />
-          <p className={sectionTitleClass}>Notifications</p>
+          <Bell className="h-4 w-4 text-muted-foreground" aria-hidden />
+          <p className={sectionTitleClass}>{UI_COPY.notifications.title}</p>
           {liveNotifications.length > 0 && (
-            <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-slate-200 px-1.5 text-[10px] font-bold tabular-nums text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+            <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-3xs font-bold tabular-nums text-foreground/70">
               {liveNotifications.length}
             </span>
           )}
         </div>
         <div className="flex items-center gap-3">
-          {lastTimestamp && (
-            <p className={mutedClass}>{formatTimeAgo(lastTimestamp)}</p>
-          )}
+          {lastTimestamp && <p className={mutedClass}>{formatTimeAgo(lastTimestamp)}</p>}
           {onClearAll && liveNotifications.length > 0 && (
-            <button
+            <Button
+              variant="ghost"
+              size="xs"
               onClick={onClearAll}
-              className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-              aria-label="Clear all notifications"
+              aria-label={UI_COPY.notifications.clearAria}
             >
-              <X className="h-3 w-3" />
-              Clear
-            </button>
+              <X className="h-3 w-3" aria-hidden />
+              {UI_COPY.actions.clear}
+            </Button>
           )}
         </div>
       </div>
 
       {liveNotifications.length === 0 ? (
-        <NotificationEmptyState
+        <EmptyState
           message={
             !wsConnected
-              ? 'Stream disconnected'
+              ? UI_COPY.notifications.streamDisconnected
               : notifications.length > 0
-                ? 'No notifications in the last hour'
-                : 'No notifications yet'
+                ? UI_COPY.notifications.noneInWindow
+                : UI_COPY.notifications.noneYet
           }
         />
       ) : (
@@ -202,8 +196,14 @@ export function NotificationFeed({
             const tone = normalizeTone(display?.tone || notification.severity)
             const style = toneStyles[tone]
             const Icon = iconByName[display?.icon || NOTIFICATION_FALLBACKS.icon] || BellRing
-            const title = displayValue(display?.title || notification.title || notification.notification_type, 'Notification')
-            const subtitle = displayValue(display?.subtitle || notification.message, 'No message')
+            const title = displayValue(
+              display?.title || notification.title || notification.notification_type,
+              UI_COPY.notifications.fallbackTitle,
+            )
+            const subtitle = displayValue(
+              display?.subtitle || notification.message,
+              UI_COPY.notifications.fallbackMessage,
+            )
             const badges = Array.isArray(display?.badges) ? display.badges : []
             const facts = Array.isArray(display?.facts) ? display.facts : []
             const meta = Array.isArray(display?.meta) ? display.meta : []
@@ -212,14 +212,14 @@ export function NotificationFeed({
               <article
                 key={notification.id}
                 className={cn(
-                  'rounded-lg border-l-[3px] border border-l-transparent px-3 py-2.5 transition-all duration-200',
+                  'rounded-lg border border-l-[3px] border-l-transparent px-3 py-2.5 transition-all duration-200',
                   style.card,
                   style.border,
                 )}
               >
                 <div className="flex items-start gap-2.5">
                   <span className={cn('mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md', style.icon)}>
-                    <Icon className="h-3.5 w-3.5" />
+                    <Icon className="h-3.5 w-3.5" aria-hidden />
                   </span>
 
                   <div className="min-w-0 flex-1">
@@ -229,15 +229,15 @@ export function NotificationFeed({
                         return (
                           <span
                             key={`${displayValue(badge.label)}-${index}`}
-                            className={cn('rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide', toneStyles[badgeTone].badge)}
+                            className={cn('rounded px-1.5 py-0.5 text-3xs font-semibold uppercase tracking-caps', toneStyles[badgeTone].badge)}
                           >
                             {displayValue(badge.label)}
                           </span>
                         )
                       })}
-                      <h3 className="min-w-0 flex-1 truncate text-sm font-semibold leading-tight text-slate-900 dark:text-slate-100">{title}</h3>
+                      <h3 className="min-w-0 flex-1 truncate text-sm font-semibold leading-tight text-foreground">{title}</h3>
                       {count > 1 && (
-                        <span className="shrink-0 rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-slate-500 dark:bg-slate-700 dark:text-slate-400">
+                        <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-3xs font-bold tabular-nums text-muted-foreground">
                           ×{count}
                         </span>
                       )}
@@ -245,21 +245,14 @@ export function NotificationFeed({
                         {formatTimeAgo(notification.timestamp)}
                       </time>
                       {notification.trace_id && onSelectTrace && (
-                        <button
-                          type="button"
-                          onClick={() => onSelectTrace(String(notification.trace_id))}
-                          title="View the full trace (runs, logs, grades) for this event"
-                          className="shrink-0 rounded border border-slate-300 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:border-slate-400 hover:text-slate-700 dark:border-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-                        >
-                          trace
-                        </button>
+                        <TraceButton onClick={() => onSelectTrace(String(notification.trace_id))} />
                       )}
                     </div>
 
-                    <p className="mt-0.5 text-xs leading-relaxed text-slate-600 dark:text-slate-400">{subtitle}</p>
+                    <p className="mt-0.5 text-xs leading-relaxed text-foreground/70">{subtitle}</p>
 
                     {facts.length > 0 && (
-                      <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-md border border-slate-100 bg-slate-50/60 p-2 dark:border-slate-800 dark:bg-slate-900/60 sm:grid-cols-4">
+                      <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-md border bg-muted/40 p-2 sm:grid-cols-4">
                         {facts.map((fact, index) => {
                           const factTone = normalizeTone(fact.tone)
                           return (
@@ -267,7 +260,7 @@ export function NotificationFeed({
                               <dt className={mutedClass}>{displayValue(fact.label)}</dt>
                               <dd
                                 className={cn(
-                                  'truncate text-xs font-mono font-semibold tabular-nums text-slate-900 dark:text-slate-100',
+                                  'truncate text-xs font-mono font-semibold tabular-nums text-foreground',
                                   fact.tone ? toneStyles[factTone].text : '',
                                 )}
                               >

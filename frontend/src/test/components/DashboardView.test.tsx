@@ -327,10 +327,11 @@ describe('DashboardView — agents', () => {
 })
 
 describe('DashboardView — theming (light/dark duality)', () => {
-  // The section frame (root wrapper + SectionHeader) is shared by EVERY section,
-  // so a dark-only class here breaks light mode on every page at once. Guard the
-  // base (non-`dark:`) tokens so the redesign's dark "console" tone can only live
-  // behind a `dark:` variant — never as the bare, theme-agnostic class.
+  // The section frame (root wrapper + PageHeader) is shared by EVERY section,
+  // so a dark-only class here breaks light mode on every page at once. The
+  // surfaces are token-driven (bg-background / bg-card flip per theme in
+  // globals.css), so guard that the frame uses the theme tokens and never a
+  // bare, theme-agnostic dark class.
   const baseTokens = (className: string): string[] =>
     className.split(/\s+/).filter((token) => token.length > 0 && !token.startsWith('dark:'))
 
@@ -346,30 +347,27 @@ describe('DashboardView — theming (light/dark duality)', () => {
     mockStore.proposals = []
   })
 
-  it('renders the root content wrapper with a light background base (dark only behind dark:)', () => {
+  it('renders the root content wrapper on the theme tokens (no bare dark surface)', () => {
     const { container } = render(<DashboardView section="agents" />)
     const root = container.firstChild as HTMLElement
     const tokens = baseTokens(root.className)
-    expect(tokens).toContain('bg-slate-100')
-    expect(tokens).toContain('text-slate-900')
+    expect(tokens).toContain('bg-background')
+    expect(tokens).toContain('text-foreground')
     expect(hasDarkSurface(tokens)).toBe(false)
-    expect(root.className).toContain('dark:bg-slate-950')
   })
 
-  it('renders the section header as a light panel with a readable title in light mode', () => {
+  it('renders the section header as a token-driven panel with a readable title', () => {
     render(<DashboardView section="agents" />)
     const title = screen.getByRole('heading', { name: /Agent health and production activity/i })
     const titleTokens = baseTokens(title.className)
     // Bare `text-white` is invisible on the light panel — the bug we are guarding.
-    expect(titleTokens).toContain('text-slate-900')
+    expect(titleTokens).toContain('text-foreground')
     expect(titleTokens).not.toContain('text-white')
-    expect(title.className).toContain('dark:text-white')
 
     const header = title.closest('section') as HTMLElement
     const headerTokens = baseTokens(header.className)
-    expect(headerTokens).toContain('bg-white')
+    expect(headerTokens).toContain('bg-card')
     expect(hasDarkSurface(headerTokens)).toBe(false)
-    expect(header.className).toContain('dark:bg-slate-950/90')
   })
 })
 

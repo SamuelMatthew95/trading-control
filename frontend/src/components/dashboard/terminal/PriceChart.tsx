@@ -2,10 +2,14 @@
 
 import { useMemo } from 'react'
 import { Area, AreaChart, ResponsiveContainer, XAxis, YAxis } from 'recharts'
+import { UI_COPY } from '@/constants/copy'
 import type { PricePoint } from './types'
 
-const UP = '#10b981'
-const DOWN = '#f43f5e'
+// Direction tokens for SVG strokes — derived from the semantic Tone tokens in
+// globals.css, so the chart re-themes with the design system.
+const UP = 'var(--up)'
+const DOWN = 'var(--down)'
+const TICK_FILL = 'hsl(var(--muted-foreground))'
 
 /**
  * Real intraday price chart for the selected symbol, drawn from the live price
@@ -42,8 +46,8 @@ export function PriceChart({ points }: { points: PricePoint[] }) {
 
   if (data.length < 2) {
     return (
-      <div className="flex h-full items-center justify-center text-[11px] font-mono text-slate-500 dark:text-slate-500">
-        Waiting for live price data… (feed warming up or market closed)
+      <div className="flex h-full items-center justify-center font-mono text-2xs text-muted-foreground">
+        {UI_COPY.terminal.chartWaiting}
       </div>
     )
   }
@@ -63,7 +67,7 @@ export function PriceChart({ points }: { points: PricePoint[] }) {
             type="number"
             domain={['dataMin', 'dataMax']}
             tickFormatter={formatTick}
-            tick={{ fill: '#94a3b8', fontSize: 10, fontFamily: 'var(--font-mono)' }}
+            tick={{ fill: TICK_FILL, fontSize: 10, fontFamily: 'var(--font-mono)' }}
             axisLine={false}
             tickLine={false}
             minTickGap={64}
@@ -75,7 +79,7 @@ export function PriceChart({ points }: { points: PricePoint[] }) {
             domain={domain}
             width={56}
             tickFormatter={(v: number) => `$${v.toFixed(2)}`}
-            tick={{ fill: '#94a3b8', fontSize: 10, fontFamily: 'var(--font-mono)' }}
+            tick={{ fill: TICK_FILL, fontSize: 10, fontFamily: 'var(--font-mono)' }}
             axisLine={false}
             tickLine={false}
           />

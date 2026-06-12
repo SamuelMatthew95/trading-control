@@ -4,6 +4,7 @@ import { Fragment, type ComponentType } from 'react'
 import { Activity, Brain, ChevronRight, FileSearch, Gauge, Radio, Settings2, Workflow, Zap } from 'lucide-react'
 
 import { cardClass, sectionTitleClass, mutedClass } from '@/lib/dashboard-styles'
+import { UI_COPY } from '@/constants/copy'
 import { cn } from '@/lib/utils'
 import {
   buildPipelineStages,
@@ -31,31 +32,31 @@ const TONE_STYLES: Record<StageTone, { dot: string; text: string; ring: string; 
     dot: 'bg-success animate-pulse',
     text: 'text-success',
     ring: 'border-success/40 bg-success/5',
-    label: 'Live',
+    label: UI_COPY.pipeline.toneLive,
   },
   idle: {
     dot: 'bg-warning',
     text: 'text-warning',
-    ring: 'border-slate-200 dark:border-slate-800',
-    label: 'Idle',
+    ring: '',
+    label: UI_COPY.pipeline.toneIdle,
   },
   stale: {
     dot: 'bg-warning',
     text: 'text-warning',
     ring: 'border-warning/40 bg-warning/5',
-    label: 'Stale',
+    label: UI_COPY.pipeline.toneStale,
   },
   error: {
     dot: 'bg-danger',
     text: 'text-danger',
     ring: 'border-danger/40 bg-danger/5',
-    label: 'Error',
+    label: UI_COPY.pipeline.toneError,
   },
   none: {
-    dot: 'bg-slate-300 dark:bg-slate-600',
-    text: 'text-slate-400 dark:text-slate-500',
-    ring: 'border-slate-200 dark:border-slate-800',
-    label: 'Waiting',
+    dot: 'bg-muted-foreground/40',
+    text: 'text-muted-foreground/70',
+    ring: '',
+    label: UI_COPY.pipeline.toneWaiting,
   },
 }
 
@@ -66,8 +67,8 @@ function StageCard({ stage }: { stage: PipelineStageView }) {
     <div className={cn('flex w-[150px] shrink-0 flex-col gap-1 rounded-lg border px-3 py-3 sm:w-[160px]', tone.ring)}>
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-1.5">
-          <Icon className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" />
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+          <Icon className="h-3.5 w-3.5 text-muted-foreground/70" aria-hidden />
+          <span className="text-3xs font-semibold uppercase tracking-caps text-muted-foreground">
             {stage.label}
           </span>
         </span>
@@ -77,25 +78,25 @@ function StageCard({ stage }: { stage: PipelineStageView }) {
       {stage.waitingHint ? (
         // A learning stage with 0 output and no closed trades is waiting on
         // input, not broken — a bare "0" here reads as a failure.
-        <p className="flex min-h-8 items-center text-[11px] italic leading-snug text-slate-400 dark:text-slate-500">
+        <p className="flex min-h-8 items-center text-2xs italic leading-snug text-muted-foreground/70">
           {stage.waitingHint}
         </p>
       ) : (
         <div className="flex items-baseline gap-1">
-          <span className="font-mono text-2xl font-bold tabular-nums text-slate-900 dark:text-slate-100">
+          <span className="font-mono text-2xl font-bold tabular-nums text-foreground">
             {stage.count.toLocaleString()}
           </span>
-          <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500">{stage.unit}</span>
+          <span className="text-3xs font-medium text-muted-foreground/70">{stage.unit}</span>
         </div>
       )}
 
-      <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">{stage.agent}</p>
-      <p className="text-[10px] leading-snug text-slate-500 dark:text-slate-400">{stage.does}</p>
+      <p className="text-xs font-semibold text-foreground/80">{stage.agent}</p>
+      <p className="text-3xs leading-snug text-muted-foreground">{stage.does}</p>
 
       <div className="mt-auto flex items-center justify-between gap-1 pt-1">
-        <span className={cn('text-[10px] font-semibold uppercase tracking-wider', tone.text)}>{tone.label}</span>
+        <span className={cn('text-3xs font-semibold uppercase tracking-caps', tone.text)}>{tone.label}</span>
         {stage.fact ? (
-          <span className="truncate text-[10px] font-mono text-slate-500 dark:text-slate-400" title={stage.fact}>
+          <span className="truncate font-mono text-3xs text-muted-foreground" title={stage.fact}>
             {stage.fact}
           </span>
         ) : null}
@@ -111,14 +112,12 @@ export function AgentPipeline(props: AgentPipelineInput) {
   return (
     <div className={cardClass}>
       <div className="mb-1 flex items-center justify-between">
-        <p className={sectionTitleClass}>Agent Pipeline</p>
+        <p className={sectionTitleClass}>{UI_COPY.pipeline.title}</p>
         <span className={mutedClass}>
-          {liveCount} of {stages.length} stages live
+          {liveCount} of {stages.length} {UI_COPY.pipeline.stagesLive}
         </span>
       </div>
-      <p className={cn(mutedClass, 'mb-3')}>
-        How data moves through the system — each box is an agent, the number is what it has produced.
-      </p>
+      <p className={cn(mutedClass, 'mb-3')}>{UI_COPY.pipeline.description}</p>
 
       <div className="flex items-stretch gap-1.5 overflow-x-auto pb-2">
         {stages.map((stage, index) => (
@@ -126,7 +125,7 @@ export function AgentPipeline(props: AgentPipelineInput) {
             <StageCard stage={stage} />
             {index < stages.length - 1 ? (
               <div className="flex shrink-0 items-center">
-                <ChevronRight aria-hidden className="h-4 w-4 text-slate-300 dark:text-slate-700" />
+                <ChevronRight aria-hidden className="h-4 w-4 text-muted-foreground/40" />
               </div>
             ) : null}
           </Fragment>
@@ -137,7 +136,7 @@ export function AgentPipeline(props: AgentPipelineInput) {
         <span aria-hidden className="text-sm leading-none">
           ↺
         </span>
-        Grades and re-weighted factors loop back into Reasoning — that&apos;s how the system learns over time.
+        {UI_COPY.pipeline.loopNote}
       </p>
     </div>
   )

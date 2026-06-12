@@ -1,20 +1,26 @@
-'use client'
-
-import type { ComponentType } from 'react'
+import type { ComponentType, ReactNode } from 'react'
+import { cn } from '@/lib/utils'
 
 export interface EmptyStateProps {
   message: string
+  /** Optional secondary explanation line(s) under the message. */
+  hint?: ReactNode
   icon?: ComponentType<{ className?: string }>
+  className?: string
 }
 
-/** Canonical empty-state primitive — dashed surface + muted message (optional icon). */
-export function EmptyState({ message, icon: Icon }: EmptyStateProps) {
+/** Canonical empty-state primitive — dashed surface + muted message (optional icon/hint). */
+export function EmptyState({ message, hint, icon: Icon, className }: EmptyStateProps) {
   return (
-    <div className="flex min-h-28 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-4 py-10 dark:border-slate-800 dark:bg-slate-900/30">
-      {Icon ? <Icon className="h-5 w-5 text-slate-300 dark:text-slate-600" /> : null}
-      <p className="text-xs font-sans font-medium text-slate-400 dark:text-slate-600">
-        {message}
-      </p>
+    <div
+      className={cn(
+        'flex min-h-28 flex-col items-center justify-center gap-2 rounded-lg border border-dashed bg-muted/30 px-4 py-10',
+        className,
+      )}
+    >
+      {Icon ? <Icon className="h-5 w-5 text-muted-foreground/50" aria-hidden /> : null}
+      <p className="text-xs font-sans font-medium text-muted-foreground">{message}</p>
+      {hint ? <div className="max-w-prose text-center text-xs text-muted-foreground/80">{hint}</div> : null}
     </div>
   )
 }

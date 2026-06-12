@@ -15,6 +15,10 @@
 /** How often learning panels re-fetch data from the REST API. */
 export const LEARNING_REFRESH_MS = 15_000
 
+/** Chip shape for grade pills — compose the colour with gradeTone()/gradeBg(). */
+export const gradeChipClass =
+  'inline-flex items-center rounded border px-2 py-0.5 font-mono text-3xs font-semibold uppercase'
+
 /**
  * Tailwind text-colour class for a single letter grade.
  *
@@ -30,7 +34,7 @@ export function gradeColor(grade: string | null): string {
     case 'C': return 'text-amber-600 dark:text-amber-500'
     case 'D': return 'text-orange-600 dark:text-orange-500'
     case 'F': return 'text-rose-600 dark:text-rose-500'
-    default:  return 'text-slate-500 dark:text-slate-400'
+    default:  return 'text-muted-foreground'
   }
 }
 
@@ -43,7 +47,7 @@ export function gradeBg(grade: string | null): string {
     case 'C': return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30'
     case 'D': return 'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-500/10 dark:text-orange-400 dark:border-orange-500/30'
     case 'F': return 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/30'
-    default:  return 'bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-500/10 dark:text-slate-400 dark:border-slate-500/30'
+    default:  return 'bg-muted-foreground/10 text-muted-foreground border-muted-foreground/30'
   }
 }
 
@@ -71,10 +75,10 @@ export function tierBadge(tier: string): string {
   switch (tier) {
     case 'PROMOTED': return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/30'
     case 'TRUSTED': return 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:border-sky-500/30'
-    case 'STANDARD': return 'bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-500/10 dark:text-slate-300 dark:border-slate-500/30'
+    case 'STANDARD': return 'bg-muted-foreground/10 text-foreground/70 border-muted-foreground/30'
     case 'PROBATION': return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30'
     case 'UNDER_REVIEW': return 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/30'
-    default: return 'bg-slate-100 text-slate-500 border-slate-300 dark:bg-slate-500/10 dark:text-slate-400 dark:border-slate-500/30'
+    default: return 'bg-muted-foreground/10 text-muted-foreground border-muted-foreground/30'
   }
 }
 
@@ -106,6 +110,6 @@ export function gradeTone(grade: string | null | undefined): string {
     case 'F':
       return 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30'
     default:
-      return 'bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20'
+      return 'bg-muted-foreground/10 text-muted-foreground border-muted-foreground/20'
   }
 }

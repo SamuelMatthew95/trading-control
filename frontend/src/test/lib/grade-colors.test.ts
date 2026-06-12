@@ -19,9 +19,9 @@ describe('grade-colors tier helpers', () => {
     expect(gradeTone('C-')).toContain('amber')
     expect(gradeTone('D')).toContain('orange')
     expect(gradeTone('F')).toContain('rose')
-    expect(gradeTone('NR')).toContain('slate')
-    expect(gradeTone(null)).toContain('slate')
-    expect(gradeTone(undefined)).toContain('slate')
+    expect(gradeTone('NR')).toContain('muted-foreground')
+    expect(gradeTone(null)).toContain('muted-foreground')
+    expect(gradeTone(undefined)).toContain('muted-foreground')
   })
 
   it('gives visually distinct badges for promoted vs under-review', () => {
@@ -31,6 +31,6 @@ describe('grade-colors tier helpers', () => {
   })
 
   it('falls back to a neutral badge for an unknown tier', () => {
-    expect(tierBadge('SOMETHING_ELSE')).toContain('slate')
+    expect(tierBadge('SOMETHING_ELSE')).toContain('muted-foreground')
   })
 })

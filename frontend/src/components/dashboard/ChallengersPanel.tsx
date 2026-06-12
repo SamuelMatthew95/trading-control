@@ -1,10 +1,15 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-
-import { API_ENDPOINTS, apiFetch } from '@/lib/apiClient'
+import { API_ENDPOINTS } from '@/lib/apiClient'
+import { usePolledApi } from '@/hooks/usePolledApi'
 import { LEARNING_REFRESH_MS } from '@/lib/grade-colors'
-import { cardClass, sectionTitleClass, mutedClass } from '@/lib/dashboard-styles'
+import { cardClass, errorTextClass, mutedClass, sectionTitleClass } from '@/lib/dashboard-styles'
+import { sentimentTextClass, TONE_DOT } from '@/lib/design/sentiment'
+import { formatPercent, formatTimeAgo, signedUSD } from '@/lib/formatters'
+import { NO_DATA, UI_COPY } from '@/constants/copy'
+import { Badge } from '@/components/ui/badge'
+import { Meter } from '@/components/ui/meter'
+import { StatTile } from '@/components/ui/stat-tile'
 import { cn } from '@/lib/utils'
 
 // One closed shadow round-trip — the live FLOW of what the strategy actually did.
@@ -46,27 +51,8 @@ export type ChallengerInfo = {
   latest_grade?: { win_rate?: number; avg_pnl?: number; fills?: number } | null
 }
 
-const fmtUSD = (n: number | null | undefined): string => {
-  if (n == null || !Number.isFinite(n)) return '--'
-  return (n >= 0 ? '+' : '') + n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
-}
-
-const fmtPct = (n: number | null | undefined): string =>
-  n == null || !Number.isFinite(n) ? '--' : `${(n * 100).toFixed(0)}%`
-
-// Compact "12s ago" / "3m ago" / "2h ago" — stale data is obviously stale.
-const relTime = (iso: string | null | undefined): string => {
-  if (!iso) return 'never'
-  const then = new Date(iso).getTime()
-  if (!Number.isFinite(then)) return '--'
-  const secs = Math.max(0, Math.round((Date.now() - then) / 1000))
-  if (secs < 60) return `${secs}s ago`
-  const mins = Math.round(secs / 60)
-  if (mins < 60) return `${mins}m ago`
-  const hours = Math.round(mins / 60)
-  if (hours < 24) return `${hours}h ago`
-  return `${Math.round(hours / 24)}d ago`
-}
+const relTime = (iso: string | null | undefined): string =>
+  iso ? formatTimeAgo(iso) : UI_COPY.challengers.never
 
 // "live" while the challenger has observed a tick in the last STALE window —
 // shadow trades run off the raw price stream, so a live challenger should tick
@@ -79,24 +65,7 @@ const isFresh = (iso: string | null | undefined): boolean => {
   return (Date.now() - then) / 1000 <= CHALLENGER_STALE_SECONDS
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: 'success' | 'danger' }) {
-  return (
-    <div className="rounded-lg border border-slate-200 p-2 dark:border-slate-800">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-        {label}
-      </p>
-      <p
-        className={cn(
-          'font-mono text-sm font-bold tabular-nums text-slate-900 dark:text-slate-100',
-          tone === 'success' && 'text-success',
-          tone === 'danger' && 'text-danger',
-        )}
-      >
-        {value}
-      </p>
-    </div>
-  )
-}
+const compactStatClass = 'p-2 sm:p-2'
 
 function ChallengerCard({ c }: { c: ChallengerInfo }) {
   const shadowTrades = c.shadow_trades ?? 0
@@ -110,13 +79,13 @@ function ChallengerCard({ c }: { c: ChallengerInfo }) {
   // Connected status narrative — WHY it is where it is, in words.
   let status: string
   if (c.shadow_proposal_emitted) {
-    status = 'Promotion fired — cleared every bar (trades, win rate, +PnL, +Sharpe, beats baseline).'
+    status = UI_COPY.challengers.statusPromoted
   } else if (eligible) {
-    status = 'Eligible — promotion proposal fires on the next confirming tick.'
+    status = UI_COPY.challengers.statusEligible
   } else if (shadowTrades > 0) {
-    status = 'Building its record — every unmet requirement is listed below.'
+    status = UI_COPY.challengers.statusBuilding
   } else {
-    status = 'Warming up — no shadow round-trips closed yet.'
+    status = UI_COPY.challengers.statusWarming
   }
 
   return (
@@ -125,27 +94,29 @@ function ChallengerCard({ c }: { c: ChallengerInfo }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="flex items-center gap-2">
           <span
-            className={cn('h-2 w-2 shrink-0 rounded-full', live ? 'bg-success' : 'bg-slate-400')}
-            title={live ? 'live — ticking' : 'stale — no recent tick'}
+            className={cn('h-2 w-2 shrink-0 rounded-full', live ? TONE_DOT.success : TONE_DOT.neutral)}
+            title={live ? UI_COPY.challengers.dotLive : UI_COPY.challengers.dotStale}
           />
-          <span className="font-mono text-sm font-semibold text-slate-900 dark:text-slate-100">
+          <span className="font-mono text-sm font-semibold text-foreground">
             {c.strategy || `challenger ${c.challenger_id}`}
           </span>
           {c.shadow_proposal_emitted ? (
-            <span className="shrink-0 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-bold text-success">
-              promotion proposed
-            </span>
+            <Badge tone="success" size="xs" pill className="font-bold">
+              {UI_COPY.challengers.badgePromoted}
+            </Badge>
           ) : eligible ? (
-            <span className="shrink-0 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-bold text-success">
-              eligible
-            </span>
+            <Badge tone="success" size="xs" pill className="font-bold">
+              {UI_COPY.challengers.badgeEligible}
+            </Badge>
           ) : (
-            <span className="shrink-0 rounded-full bg-warning/10 px-2 py-0.5 text-[10px] font-bold text-warning">
-              {blockers.length > 0 ? `${blockers.length} requirement${blockers.length === 1 ? '' : 's'} unmet` : 'warming up'}
-            </span>
+            <Badge tone="warning" size="xs" pill className="font-bold">
+              {blockers.length > 0
+                ? `${blockers.length} requirement${blockers.length === 1 ? '' : 's'} unmet`
+                : UI_COPY.challengers.badgeWarming}
+            </Badge>
           )}
         </span>
-        <span className="font-mono text-[11px] tabular-nums text-slate-500 dark:text-slate-400">
+        <span className="font-mono text-2xs tabular-nums text-muted-foreground">
           id {c.challenger_id} · ticked {relTime(c.last_tick_at)} · {c.ticks_observed ?? 0} ticks seen
         </span>
       </div>
@@ -153,21 +124,38 @@ function ChallengerCard({ c }: { c: ChallengerInfo }) {
 
       {/* Own record vs baseline, side by side */}
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Stat label="Shadow trades" value={String(shadowTrades)} />
-        <Stat label="Win rate" value={fmtPct(c.shadow_win_rate)} />
-        <Stat
-          label="Shadow PnL"
-          value={fmtUSD(c.shadow_pnl)}
-          tone={(c.shadow_pnl ?? 0) >= 0 ? 'success' : 'danger'}
+        <StatTile
+          label={UI_COPY.challengers.statTrades}
+          value={String(shadowTrades)}
+          valueClassName="mt-0.5 text-sm font-bold"
+          className={compactStatClass}
         />
-        <Stat label="Sharpe" value={c.shadow_sharpe != null ? c.shadow_sharpe.toFixed(2) : '--'} />
+        <StatTile
+          label={UI_COPY.challengers.statWinRate}
+          value={formatPercent(c.shadow_win_rate, { decimals: 0 })}
+          valueClassName="mt-0.5 text-sm font-bold"
+          className={compactStatClass}
+        />
+        <StatTile
+          label={UI_COPY.challengers.statPnl}
+          value={signedUSD(c.shadow_pnl)}
+          valueClassName={cn('mt-0.5 text-sm font-bold', sentimentTextClass(c.shadow_pnl ?? 0))}
+          className={compactStatClass}
+        />
+        <StatTile
+          label={UI_COPY.challengers.statSharpe}
+          value={c.shadow_sharpe != null ? c.shadow_sharpe.toFixed(2) : NO_DATA}
+          valueClassName="mt-0.5 text-sm font-bold"
+          className={compactStatClass}
+        />
       </div>
       {c.baseline_shadow_trades != null && (
-        <p className="mt-1.5 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+        <p className="mt-1.5 font-mono text-2xs text-muted-foreground">
           baseline on the same ticks: {c.baseline_shadow_trades} trades ·{' '}
-          {fmtPct(c.baseline_shadow_win_rate)} win · {fmtUSD(c.baseline_shadow_pnl)}
+          {formatPercent(c.baseline_shadow_win_rate, { decimals: 0 })} win ·{' '}
+          {signedUSD(c.baseline_shadow_pnl)}
           {c.beats_baseline_shadow != null && (
-            <span className={c.beats_baseline_shadow ? 'text-success' : 'text-danger'}>
+            <span className={sentimentTextClass(c.beats_baseline_shadow ? 1 : -1)}>
               {' '}
               — challenger {c.beats_baseline_shadow ? 'ahead' : 'behind'}
             </span>
@@ -177,22 +165,22 @@ function ChallengerCard({ c }: { c: ChallengerInfo }) {
 
       {/* Promotion requirements — the full (hard) bar, with progress */}
       <div className="mt-3">
-        <div className="mb-0.5 flex justify-between font-mono text-[10px] text-slate-400">
-          <span>shadow trades toward eligibility</span>
+        <div className="mb-0.5 flex justify-between font-mono text-3xs text-muted-foreground/70">
+          <span>{UI_COPY.challengers.progressLabel}</span>
           <span>
             {Math.min(shadowTrades, minTrades)}/{minTrades}
           </span>
         </div>
-        <div className="h-1 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
-          <div
-            className={cn('h-full rounded-full', progressPct >= 100 ? 'bg-success' : 'bg-warning')}
-            style={{ width: `${progressPct}%` }}
-          />
-        </div>
+        <Meter
+          value={progressPct}
+          label={UI_COPY.challengers.progressLabel}
+          className="h-1"
+          fillClassName={progressPct >= 100 ? TONE_DOT.success : TONE_DOT.warning}
+        />
         {blockers.length > 0 && (
           <ul className="mt-1.5 space-y-0.5">
             {blockers.map((b) => (
-              <li key={b} className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+              <li key={b} className="flex items-center gap-1.5 text-2xs text-muted-foreground">
                 <span className="text-warning">○</span> {b}
               </li>
             ))}
@@ -203,24 +191,24 @@ function ChallengerCard({ c }: { c: ChallengerInfo }) {
       {/* Live trade flow — the recent shadow round-trips */}
       {recent.length > 0 && (
         <div className="mt-3">
-          <p className="mb-1 font-mono text-[10px] uppercase tracking-wider text-slate-400">
-            recent shadow trades
+          <p className="mb-1 font-mono text-3xs uppercase tracking-caps text-muted-foreground/70">
+            {UI_COPY.challengers.recentTrades}
           </p>
-          <div className="space-y-0.5 font-mono text-[11px]">
+          <div className="space-y-0.5 font-mono text-2xs">
             {recent.map((t, i) => (
               <div
                 key={`${t.symbol}-${t.timestamp ?? i}`}
-                className="flex items-center justify-between gap-2 text-slate-500 dark:text-slate-400"
+                className="flex items-center justify-between gap-2 text-muted-foreground"
               >
                 <span className="truncate">
                   {t.direction === 'long' ? '▲' : '▼'} {t.direction} {t.symbol}
                   {t.entry_price != null && t.exit_price != null && (
-                    <span className="text-slate-400"> {t.entry_price} → {t.exit_price}</span>
+                    <span className="text-muted-foreground/70"> {t.entry_price} → {t.exit_price}</span>
                   )}
                 </span>
                 <span className="shrink-0 tabular-nums">
-                  <span className={t.pnl < 0 ? 'text-danger' : 'text-success'}>{fmtUSD(t.pnl)}</span>
-                  <span className="text-slate-400"> · {relTime(t.timestamp)}</span>
+                  <span className={sentimentTextClass(t.pnl)}>{signedUSD(t.pnl)}</span>
+                  <span className="text-muted-foreground/70"> · {relTime(t.timestamp)}</span>
                 </span>
               </div>
             ))}
@@ -229,11 +217,11 @@ function ChallengerCard({ c }: { c: ChallengerInfo }) {
       )}
 
       {/* Live (real-fill) grading state */}
-      <p className="mt-3 font-mono text-[10px] text-slate-400">
+      <p className="mt-3 font-mono text-3xs text-muted-foreground/70">
         {(c.fills ?? 0) === 0
           ? `0/${c.max_fills} live fills — live grading starts when the pipeline trades; shadow trades above run on raw price ticks regardless.`
           : c.latest_grade
-            ? `live grade: ${fmtPct(c.latest_grade.win_rate)} win over ${c.latest_grade.fills ?? c.fills} fills · ${c.fills}/${c.max_fills} fills`
+            ? `live grade: ${formatPercent(c.latest_grade.win_rate, { decimals: 0 })} win over ${c.latest_grade.fills ?? c.fills} fills · ${c.fills}/${c.max_fills} fills`
             : `${c.fills}/${c.max_fills} live fills`}
       </p>
     </div>
@@ -244,62 +232,33 @@ function ChallengerCard({ c }: { c: ChallengerInfo }) {
  *  own record, baseline comparison, the named promotion requirements still
  *  unmet, and the live flow of its recent shadow trades. */
 export function ChallengersPanel() {
-  const [challengers, setChallengers] = useState<ChallengerInfo[]>([])
-  const [loaded, setLoaded] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    const load = async () => {
-      try {
-        const ch = await apiFetch<{ challengers: ChallengerInfo[] }>(
-          API_ENDPOINTS.DASHBOARD_CHALLENGERS,
-        )
-        if (!cancelled) {
-          setChallengers(ch.challengers ?? [])
-          setError(null)
-          setLoaded(true)
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'fetch_failed')
-          setLoaded(true)
-        }
-      }
-    }
-    load()
-    const id = window.setInterval(load, LEARNING_REFRESH_MS)
-    return () => {
-      cancelled = true
-      window.clearInterval(id)
-    }
-  }, [])
+  const { data, error, loaded } = usePolledApi<{ challengers: ChallengerInfo[] }>(
+    API_ENDPOINTS.DASHBOARD_CHALLENGERS,
+    LEARNING_REFRESH_MS,
+  )
+  const challengers = data?.challengers ?? []
 
   return (
     <div className="space-y-3">
       <div className={cardClass}>
         <div className="flex items-center justify-between gap-2">
-          <p className={sectionTitleClass}>Challenger Shadows</p>
+          <p className={sectionTitleClass}>{UI_COPY.challengers.title}</p>
           {error ? (
-            <span className="font-mono text-xs text-danger">err: {error}</span>
+            <span className={errorTextClass}>err: {error}</span>
           ) : (
-            <span className="font-mono text-xs text-slate-400">{challengers.length} running</span>
+            <span className="font-mono text-xs text-muted-foreground/70">
+              {challengers.length} {UI_COPY.challengers.running}
+            </span>
           )}
         </div>
-        <p className={cn(mutedClass, 'mt-1')}>
-          Rival strategies shadow-trading the live price stream — they never place real orders.
-          Promotion requires the full bar: enough shadow trades, a minimum win rate, positive PnL,
-          positive Sharpe, <em>and</em> beating the baseline on the same ticks. When one clears it,
-          a promotion proposal lands on the <span className="font-medium">Proposals</span> page.
-        </p>
+        <p className={cn(mutedClass, 'mt-1')}>{UI_COPY.challengers.description}</p>
       </div>
 
       {!loaded ? (
-        <p className={cn(cardClass, 'text-xs text-slate-500')}>Loading challengers…</p>
+        <p className={cn(cardClass, 'text-xs text-muted-foreground')}>{UI_COPY.loading.challengers}</p>
       ) : challengers.length === 0 ? (
-        <p className={cn(cardClass, 'text-xs text-slate-500')}>
-          No shadow challengers running. They spawn from approved challenger promotions or
-          new-agent proposals on the Proposals page.
+        <p className={cn(cardClass, 'text-xs text-muted-foreground')}>
+          {UI_COPY.challengers.emptyState}
         </p>
       ) : (
         challengers.map((c) => <ChallengerCard key={c.challenger_id} c={c} />)
