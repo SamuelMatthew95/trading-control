@@ -136,9 +136,11 @@ class _FakeSession:
     def __init__(self, positions=None, daily_pnl=0.0):
         self._positions = positions or []
         self._daily_pnl = daily_pnl
+        self.queries: list[tuple[str, dict | None]] = []
 
     async def execute(self, stmt, params=None):
         sql = str(stmt)
+        self.queries.append((sql, params))
         result = MagicMock()
         if "FROM positions" in sql:
             result.mappings.return_value.all.return_value = self._positions
@@ -677,3 +679,31 @@ async def test_auto_close_decision_clears_execution_gate():
     assert final_score >= EXECUTION_DECISION_THRESHOLD, (
         f"Auto-close score {final_score} must clear gate {EXECUTION_DECISION_THRESHOLD}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Daily-loss window — UTC day boundary on both sources
+# ---------------------------------------------------------------------------
+
+
+async def test_db_daily_pnl_query_binds_utc_date():
+    """Regression: the DB daily-PnL window must use the UTC calendar day.
+
+    date.today() is the server's LOCAL date — on a non-UTC server the DB and
+    memory paths counted different trade sets near midnight, so the daily-loss
+    kill switch could trip in one mode and not the other for identical trades.
+    Both sources must agree on the UTC day.
+    """
+    session = _FakeSession(daily_pnl=0.0)
+    guardian = RiskGuardian(_make_bus(), _make_redis())
+
+    before = datetime.now(timezone.utc).date().isoformat()
+    with _db_path(session):
+        await guardian._today_realized_pnl()
+    after = datetime.now(timezone.utc).date().isoformat()
+
+    pnl_queries = [q for q in session.queries if "trade_performance" in q[0]]
+    assert pnl_queries, "daily-PnL query was not executed"
+    bound = pnl_queries[-1][1]["today"]
+    # before/after bracket guards the (astronomically rare) UTC-midnight rollover
+    assert bound in (before, after)
