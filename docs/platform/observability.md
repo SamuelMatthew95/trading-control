@@ -22,7 +22,25 @@ the hooks are no-ops and the app behaves exactly as before.
 | `OTEL_ENABLED` | `false` | Master switch. Off → zero overhead, SDK never imported |
 | `OTEL_SERVICE_NAME` | `trading-control` | `service.name` resource attribute |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` | OTLP gRPC collector |
+| `OTEL_EXPORTER_OTLP_INSECURE` | `true` | Plaintext gRPC (local collectors). Set `false` for cloud backends (TLS) |
+| `OTEL_EXPORTER_OTLP_HEADERS` | empty | Auth headers, standard `k=v,k2=v2` format (e.g. `signoz-ingestion-key=<token>`) |
 | `OTEL_GAUGE_POLL_SECONDS` | `30` | Business-gauge refresh interval |
+
+## Choosing a backend (best-practice ladder)
+
+1. **Managed (recommended for Render-style deployments):** SigNoz Cloud or
+   Grafana Cloud free tier. Nothing to host — set three env vars on the
+   service and dashboards appear in the vendor UI:
+   ```bash
+   OTEL_ENABLED=true
+   OTEL_EXPORTER_OTLP_ENDPOINT=ingest.<region>.signoz.cloud:443
+   OTEL_EXPORTER_OTLP_INSECURE=false
+   OTEL_EXPORTER_OTLP_HEADERS=signoz-ingestion-key=<token>
+   ```
+2. **Self-hosted SigNoz** (`observability/signoz/README.md`): when data
+   control or volume-cost matters and you can operate ClickHouse. This is a
+   real ops commitment, not a default.
+3. **Local clone + compose:** development and learning only.
 
 ## Where instrumentation lives
 
