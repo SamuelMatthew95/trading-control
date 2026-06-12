@@ -92,7 +92,7 @@ export function TradingTerminal({
   const symbolIsLive = liveStorePrice(prices, symbol) != null && view.points.length > 1
 
   return (
-    <div className="flex flex-col bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100 lg:h-[calc(100vh-3rem)] lg:overflow-hidden">
+    <div className="flex flex-col bg-background text-foreground lg:h-[calc(100vh-3rem)] lg:overflow-hidden">
       {/* Wrappers use lg:h-full (fill the grid track), never lg:h-auto —
           auto sizes to CONTENT, so a long list grew past its track and
           painted over the panel below it (decisions bleeding through
@@ -105,7 +105,7 @@ export function TradingTerminal({
         </div>
 
         {/* Chart panel */}
-        <section className="flex h-[420px] min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 lg:col-start-2 lg:row-start-1 lg:h-full">
+        <section className="flex h-[420px] min-h-0 flex-col overflow-hidden rounded-xl border bg-card dark:bg-popover lg:col-start-2 lg:row-start-1 lg:h-full">
           <SymbolHeader view={view} live={symbolIsLive} />
           <div className="min-h-0 flex-1">
             <PriceChart points={view.points} />
