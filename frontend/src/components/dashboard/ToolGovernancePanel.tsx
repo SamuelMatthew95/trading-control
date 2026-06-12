@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-
-import { API_ENDPOINTS, apiFetch } from '@/lib/apiClient'
+import { API_ENDPOINTS } from '@/lib/apiClient'
+import { usePolledApi } from '@/hooks/usePolledApi'
 import { LEARNING_REFRESH_MS } from '@/lib/grade-colors'
 import { cardClass, errorTextClass, mutedClass, sectionTitleClass } from '@/lib/dashboard-styles'
-import { sentimentTextClass } from '@/lib/design/sentiment'
+import { sentimentTextClass, TONE_BADGE, TONE_DOT, type Tone } from '@/lib/design/sentiment'
+import { UI_COPY } from '@/constants/copy'
 import { cn } from '@/lib/utils'
 
 // Mirrors api.services.tool_registry.ToolMetadata serialization.
@@ -38,6 +38,8 @@ interface ToolRegistryResponse {
   count: number
 }
 
+const COPY = UI_COPY.toolGovernance
+
 // DAG phase order — perception → memory → risk → execution → optimization.
 const PHASE_ORDER = ['perception', 'memory', 'risk', 'execution', 'optimization'] as const
 
@@ -46,23 +48,35 @@ const PHASE_ORDER = ['perception', 'memory', 'risk', 'execution', 'optimization'
 // design — not because they are broken.
 const REASONING_PHASES = new Set(['perception', 'memory'])
 
-const TOOL_COLUMNS = ['Tool', 'Status', 'Calls', 'Alpha', 'Latency', 'Err'] as const
+const TOOL_COLUMNS = [
+  COPY.columns.tool,
+  COPY.columns.status,
+  COPY.columns.calls,
+  COPY.columns.alpha,
+  COPY.columns.latency,
+  COPY.columns.err,
+] as const
 
 // Plain-English WHY a tool has never been called, so "unused" is never a mystery.
 function unusedReason(tool: Tool): string {
   if (!REASONING_PHASES.has(tool.phase)) {
-    return 'downstream tool — runs on a live order/risk event, not at reasoning time'
+    return COPY.unusedDownstream
   }
   if (tool.required_state_flags.length > 0) {
-    return `gated — eligible only once ${tool.required_state_flags.join(', ')} is set`
+    return `${COPY.unusedGatedPrefix} ${tool.required_state_flags.join(', ')} ${COPY.unusedGatedSuffix}`
   }
-  return 'eligible — the reasoning LLM has not selected it yet'
+  return COPY.unusedEligible
 }
 
-function actionBadgeClass(action: string): string {
-  if (action === 'disable') return 'bg-danger/15 text-danger'
-  if (action === 'prioritize') return 'bg-success/15 text-success'
-  return 'bg-slate-500/15 text-slate-500 dark:text-slate-400'
+// Governance actions are a vocabulary of their own (disable/prioritize/review),
+// resolved to Tones here — distinct from the BUY/SELL actionBadgeClass.
+const GOVERNANCE_ACTION_TONES: Record<string, Tone> = {
+  disable: 'danger',
+  prioritize: 'success',
+}
+
+function governanceActionBadge(action: string): string {
+  return TONE_BADGE[GOVERNANCE_ACTION_TONES[action] ?? 'neutral']
 }
 
 function SuggestionRow({ suggestion }: { suggestion: Suggestion }) {
@@ -70,24 +84,20 @@ function SuggestionRow({ suggestion }: { suggestion: Suggestion }) {
     <div
       className={cn(
         'flex items-start gap-2 rounded-lg border px-3 py-2',
-        suggestion.severity === 'warning'
-          ? 'border-warning/30 bg-warning/10'
-          : 'border-slate-200 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/20',
+        suggestion.severity === 'warning' ? 'border-warning/30 bg-warning/10' : 'bg-muted/30',
       )}
     >
       <span
         className={cn(
           'shrink-0 rounded px-1.5 py-0.5 text-xs font-semibold uppercase',
-          actionBadgeClass(suggestion.action),
+          governanceActionBadge(suggestion.action),
         )}
       >
         {suggestion.action}
       </span>
       <div className="min-w-0">
-        <span className="font-mono text-xs text-slate-800 dark:text-slate-200">
-          {suggestion.tool}
-        </span>
-        <p className="text-xs leading-snug text-slate-500 dark:text-slate-400">{suggestion.reason}</p>
+        <span className="font-mono text-xs text-foreground/80">{suggestion.tool}</span>
+        <p className="text-xs leading-snug text-muted-foreground">{suggestion.reason}</p>
       </div>
     </div>
   )
@@ -99,78 +109,63 @@ const TD_NUM = 'px-3 py-2 text-right align-top font-mono text-xs tabular-nums wh
 function ToolTableRow({ tool }: { tool: Tool }) {
   const exercised = tool.call_count > 0
   return (
-    <tr className="border-t border-slate-100 dark:border-slate-800/70">
+    <tr className="border-t">
       {/* Tool name + gating / unlock / unused-reason sublines */}
       <td className={TD}>
         <span
           className={cn(
             'font-mono text-sm',
-            tool.enabled
-              ? 'text-slate-800 dark:text-slate-200'
-              : 'text-slate-400 line-through dark:text-slate-600',
+            tool.enabled ? 'text-foreground/80' : 'text-muted-foreground/60 line-through',
           )}
         >
           {tool.name}
         </span>
         {tool.required_state_flags.length > 0 && (
           <p className="mt-0.5 font-mono text-xs text-warning">
-            requires: {tool.required_state_flags.join(', ')}
+            {COPY.requires} {tool.required_state_flags.join(', ')}
           </p>
         )}
         {tool.unlocks.length > 0 && (
-          <p className="mt-0.5 truncate font-mono text-xs text-slate-400">
-            → unlocks {tool.unlocks.join(', ')}
+          <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground/70">
+            {COPY.unlocks} {tool.unlocks.join(', ')}
           </p>
         )}
-        {!exercised && (
-          <p className="mt-0.5 text-xs italic text-slate-400">{unusedReason(tool)}</p>
-        )}
+        {!exercised && <p className="mt-0.5 text-xs italic text-muted-foreground/70">{unusedReason(tool)}</p>}
       </td>
 
       {/* Enabled / disabled */}
       <td className={TD}>
         <span className="inline-flex items-center gap-1.5 text-xs">
-          <span
-            className={cn(
-              'h-2 w-2 shrink-0 rounded-full',
-              tool.enabled ? 'bg-success' : 'bg-slate-400',
-            )}
-          />
-          <span className="text-slate-600 dark:text-slate-400">
-            {tool.enabled ? 'on' : 'off'}
-          </span>
+          <span className={cn('h-2 w-2 shrink-0 rounded-full', tool.enabled ? TONE_DOT.success : TONE_DOT.neutral)} />
+          <span className="text-foreground/70">{tool.enabled ? COPY.on : COPY.off}</span>
         </span>
       </td>
 
       {/* Calls ledger */}
       <td className={TD_NUM}>
         {exercised ? (
-          <span className="text-slate-700 dark:text-slate-300">
-            {tool.call_count}× · {tool.success_count} ok
+          <span className="text-foreground/80">
+            {tool.call_count}× · {tool.success_count} {COPY.ok}
           </span>
         ) : (
-          <span className="italic text-slate-400 dark:text-slate-600">unused</span>
+          <span className="italic text-muted-foreground/60">{COPY.unused}</span>
         )}
       </td>
 
       {/* Alpha attribution */}
       <td className={TD_NUM}>
-        <span className={exercised ? sentimentTextClass(tool.alpha_score) : 'text-slate-400'}>
+        <span className={exercised ? sentimentTextClass(tool.alpha_score) : 'text-muted-foreground/70'}>
           {tool.alpha_score >= 0 ? '+' : ''}
           {tool.alpha_score.toFixed(2)}
         </span>
-        {!exercised && <span className="ml-1 text-slate-400 dark:text-slate-600">prior</span>}
+        {!exercised && <span className="ml-1 text-muted-foreground/60">{COPY.prior}</span>}
       </td>
 
       {/* Latency */}
-      <td className={cn(TD_NUM, 'text-slate-500 dark:text-slate-400')}>
-        {tool.latency_ms.toFixed(0)}ms
-      </td>
+      <td className={cn(TD_NUM, 'text-muted-foreground')}>{tool.latency_ms.toFixed(0)}ms</td>
 
       {/* Failure rate */}
-      <td
-        className={cn(TD_NUM, tool.failure_rate > 0.5 ? 'text-danger' : 'text-slate-400')}
-      >
+      <td className={cn(TD_NUM, tool.failure_rate > 0.5 ? 'text-danger' : 'text-muted-foreground/70')}>
         {(tool.failure_rate * 100).toFixed(0)}%
       </td>
     </tr>
@@ -180,18 +175,16 @@ function ToolTableRow({ tool }: { tool: Tool }) {
 function PhaseTable({ phase, tools }: { phase: string; tools: Tool[] }) {
   return (
     <div>
-      <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-        {phase}
-      </p>
-      <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+      <p className={cn(sectionTitleClass, 'mb-1')}>{phase}</p>
+      <div className="overflow-x-auto rounded-lg border">
         <table className="min-w-full">
           <thead>
-            <tr className="border-b border-slate-200 bg-slate-50/60 dark:border-slate-800 dark:bg-slate-900/30">
+            <tr className="border-b bg-muted/50">
               {TOOL_COLUMNS.map((head, i) => (
                 <th
                   key={head}
                   className={cn(
-                    'px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400',
+                    'px-3 py-2 text-xs font-semibold uppercase tracking-caps text-muted-foreground',
                     i === 0 ? 'text-left' : 'text-right',
                   )}
                 >
@@ -212,29 +205,10 @@ function PhaseTable({ phase, tools }: { phase: string; tools: Tool[] }) {
 }
 
 export function ToolGovernancePanel() {
-  const [data, setData] = useState<ToolRegistryResponse | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    const load = async () => {
-      try {
-        const res = await apiFetch<ToolRegistryResponse>(API_ENDPOINTS.DASHBOARD_TOOLS)
-        if (!cancelled) {
-          setData(res)
-          setError(null)
-        }
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'fetch_failed')
-      }
-    }
-    load()
-    const id = window.setInterval(load, LEARNING_REFRESH_MS)
-    return () => {
-      cancelled = true
-      window.clearInterval(id)
-    }
-  }, [])
+  const { data, error } = usePolledApi<ToolRegistryResponse>(
+    API_ENDPOINTS.DASHBOARD_TOOLS,
+    LEARNING_REFRESH_MS,
+  )
 
   const tools = data?.tools ?? []
   const suggestions = data?.suggestions ?? []
@@ -248,45 +222,25 @@ export function ToolGovernancePanel() {
   return (
     <div className={cardClass}>
       <div className="mb-1 flex items-center justify-between">
-        <p className={sectionTitleClass}>Tool Governance · Runtime Registry</p>
+        <p className={sectionTitleClass}>{COPY.title}</p>
         {error ? (
           <span className={errorTextClass}>err: {error}</span>
         ) : (
-          <span className="font-mono text-xs text-slate-400">
-            {enabledCount}/{tools.length} enabled
+          <span className="font-mono text-xs text-muted-foreground/70">
+            {enabledCount}/{tools.length} {COPY.enabled}
           </span>
         )}
       </div>
       {/* One-line plain-language framing, then the column legend. */}
-      <p className={cn(mutedClass, 'mb-1')}>
-        The data look-ups the reasoning LLM may consult before a buy/sell call — each is graded by
-        the realized PnL of the trades it influenced, and money-losing (negative-alpha) tools are
-        proposed for automatic disable.
-      </p>
+      <p className={cn(mutedClass, 'mb-1')}>{COPY.description}</p>
       <p className={cn(mutedClass, 'mb-3')}>
-        <span className="font-semibold">On</span> = the AI may use it ·{' '}
-        <span className="font-semibold">Off</span> = switched off.{' '}
-        <span className="font-mono">Alpha</span> = profit credited to the tool (a{' '}
-        <span className="font-mono">prior</span> tag = an early estimate before any trade has
-        scored it). <span className="font-mono">Calls</span> = how many times it&apos;s been used.{' '}
-        {exercisedCount}/{tools.length} have run on a live trade so far.
+        {COPY.legend} {exercisedCount}/{tools.length} {COPY.haveRun}
       </p>
 
       {suggestions.length > 0 && (
         <div className="mb-4 space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            What the system suggests
-          </p>
-          <p className="text-xs leading-snug text-slate-400">
-            <span className="font-semibold text-danger">Disable</span> = losing
-            money, switch it off ·{' '}
-            <span className="font-semibold text-success">Prioritize</span> =
-            the best earner, keep it ·{' '}
-            <span className="font-semibold">Review</span> = not used yet, just watching. Disable
-            suggestions become a proposal on the{' '}
-            <span className="font-semibold">Proposals</span> page; approve it there and the tool is
-            switched off automatically.
-          </p>
+          <p className={sectionTitleClass}>{COPY.suggestionsTitle}</p>
+          <p className="text-xs leading-snug text-muted-foreground/70">{COPY.suggestionsLegend}</p>
           {suggestions.map((s, i) => (
             <SuggestionRow key={`${s.tool}-${s.action}-${i}`} suggestion={s} />
           ))}
@@ -294,18 +248,14 @@ export function ToolGovernancePanel() {
       )}
 
       {tools.length === 0 ? (
-        <p className="text-sm text-slate-500">No tools registered.</p>
+        <p className="text-sm text-muted-foreground">{COPY.noTools}</p>
       ) : exercisedCount === 0 ? (
         // No telemetry yet: a full table of zeroed counters/prior alphas reads
         // as broken. Collapse to one explanatory state + the registered names.
-        <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-4 py-5 text-center dark:border-slate-800 dark:bg-slate-900/30">
-          <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
-            No tool calls yet
-          </p>
-          <p className="mx-auto mt-1 max-w-md text-xs leading-snug text-slate-500 dark:text-slate-400">
-            {tools.length} tools are registered and waiting; every alpha is still a seeded prior.
-            The full ledger appears once the reasoning LLM starts consulting tools and closed
-            trades let the GradeAgent attribute realized PnL to them.
+        <div className="rounded-lg border border-dashed bg-muted/30 px-4 py-5 text-center">
+          <p className="text-sm font-medium text-foreground/70">{COPY.noCallsTitle}</p>
+          <p className="mx-auto mt-1 max-w-md text-xs leading-snug text-muted-foreground">
+            {tools.length} {COPY.noCallsBodyPrefix} {COPY.noCallsBodySuffix}
           </p>
           <div className="mt-3 flex flex-wrap justify-center gap-1.5">
             {tools.map((tool) => (
@@ -313,10 +263,8 @@ export function ToolGovernancePanel() {
                 key={tool.name}
                 title={`${tool.phase} · ${tool.enabled ? 'enabled' : 'disabled'}`}
                 className={cn(
-                  'rounded-md border border-slate-200 bg-white px-2 py-0.5 font-mono text-[11px] dark:border-slate-700 dark:bg-slate-800/50',
-                  tool.enabled
-                    ? 'text-slate-600 dark:text-slate-300'
-                    : 'text-slate-400 line-through dark:text-slate-600',
+                  'rounded-md border bg-card px-2 py-0.5 font-mono text-2xs dark:bg-muted/50',
+                  tool.enabled ? 'text-foreground/70' : 'text-muted-foreground/60 line-through',
                 )}
               >
                 {tool.name}
