@@ -21,6 +21,7 @@ from api.events.dlq import DLQManager
 from api.observability import log_structured
 from api.schema_version import ACCEPTED_DB_SCHEMA_VERSIONS
 from api.services.agent_state import AgentStateRegistry
+from api.telemetry import agent_process_span, record_error, record_retry
 
 ACCEPTED_SCHEMA_VERSIONS = ACCEPTED_DB_SCHEMA_VERSIONS
 
@@ -418,7 +419,10 @@ class BaseStreamConsumer(ABC):
 
         send_to_dlq = False
         try:
-            await self._process_with_timeout(data)
+            with agent_process_span(
+                self.consumer, self.stream, trace_id=data.get(FieldName.TRACE_ID)
+            ):
+                await self._process_with_timeout(data)
             await self.bus.acknowledge(self.stream, self.group, msg_id)
             self._events_processed += 1
             if self.agent_state:
@@ -432,6 +436,7 @@ class BaseStreamConsumer(ABC):
                 trace_id=data.get(FieldName.TRACE_ID),
             )
         except Exception as exc:  # noqa: BLE001
+            record_error(self.consumer)
             try:
                 send_to_dlq = await self.dlq.should_dlq(msg_id)
                 if send_to_dlq:
@@ -448,6 +453,7 @@ class BaseStreamConsumer(ABC):
                         trace_id=data.get(FieldName.TRACE_ID),
                     )
                 else:
+                    record_retry(self.stream)
                     log_structured(
                         "warning",
                         "Message processing failed, will retry",
