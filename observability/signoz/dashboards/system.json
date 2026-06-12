@@ -1,0 +1,132 @@
+{
+  "title": "System Dashboard",
+  "description": "Host + HTTP service health for trading-control",
+  "tags": ["trading-control", "system"],
+  "variables": {},
+  "widgets": [
+    {
+      "id": "cpu",
+      "title": "CPU utilization",
+      "panelTypes": "graph",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "queryName": "A",
+              "aggregateOperator": "avg",
+              "aggregateAttribute": { "key": "system_cpu_utilization", "type": "Gauge" },
+              "expression": "A"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "memory",
+      "title": "Memory usage",
+      "panelTypes": "graph",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "queryName": "A",
+              "aggregateOperator": "avg",
+              "aggregateAttribute": { "key": "system_memory_usage", "type": "Gauge" },
+              "groupBy": [{ "key": "state", "type": "tag" }],
+              "expression": "A"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "request-rate",
+      "title": "HTTP requests / s by route",
+      "panelTypes": "graph",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "queryName": "A",
+              "aggregateOperator": "sum_rate",
+              "aggregateAttribute": { "key": "http_server_duration_count", "type": "Sum" },
+              "groupBy": [{ "key": "http_route", "type": "tag" }],
+              "expression": "A"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "http-errors",
+      "title": "HTTP 5xx / s",
+      "panelTypes": "graph",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "queryName": "A",
+              "aggregateOperator": "sum_rate",
+              "aggregateAttribute": { "key": "http_server_duration_count", "type": "Sum" },
+              "filters": {
+                "items": [
+                  { "key": { "key": "http_status_code" }, "op": ">=", "value": "500" }
+                ],
+                "op": "AND"
+              },
+              "expression": "A"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "http-p95",
+      "title": "HTTP p95 latency (ms)",
+      "panelTypes": "graph",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "queryName": "A",
+              "aggregateOperator": "p95",
+              "aggregateAttribute": { "key": "http_server_duration", "type": "Histogram" },
+              "groupBy": [{ "key": "http_route", "type": "tag" }],
+              "expression": "A"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "app-errors",
+      "title": "Application errors / s by component",
+      "panelTypes": "graph",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "queryName": "A",
+              "aggregateOperator": "sum_rate",
+              "aggregateAttribute": { "key": "error_count", "type": "Sum" },
+              "groupBy": [{ "key": "trading.component", "type": "tag" }],
+              "expression": "A"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
