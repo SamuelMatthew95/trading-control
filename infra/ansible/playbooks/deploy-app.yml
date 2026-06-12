@@ -1,0 +1,52 @@
+---
+# Deploy the trading-control stack with Docker Compose.
+# Secrets come from the controller environment (-e or --extra-vars files
+# encrypted with ansible-vault), never from the repository.
+- name: Deploy trading-control (Docker Compose)
+  hosts: docker_hosts
+
+  vars:
+    app_env:
+      LOG_LEVEL: INFO
+      OTEL_ENABLED: "false"
+      # ALPACA_API_KEY / GEMINI_API_KEY etc. — supply via vault:
+      #   ansible-playbook playbooks/deploy-app.yml -e @secrets.vault.yml --ask-vault-pass
+
+  tasks:
+    - name: Check out the repository
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ project_root }}"
+        version: "{{ repo_version }}"
+      register: checkout
+
+    - name: Write .env for compose interpolation
+      ansible.builtin.copy:
+        dest: "{{ project_root }}/.env"
+        content: |
+          {% for key, value in app_env.items() %}
+          {{ key }}={{ value }}
+          {% endfor %}
+        mode: "0600"
+      no_log: true
+
+    - name: Build and start the stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ project_root }}"
+        build: always
+        state: present
+        remove_orphans: true
+      register: compose_up
+
+    - name: Wait for API health
+      ansible.builtin.uri:
+        url: "{{ api_health_url }}"
+        status_code: 200
+      register: health
+      retries: 30
+      delay: 2
+      until: health.status == 200
+
+    - name: Deployment summary
+      ansible.builtin.debug:
+        msg: "API healthy at {{ api_health_url }} (changed={{ compose_up.changed }})"

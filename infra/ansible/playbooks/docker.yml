@@ -1,0 +1,57 @@
+---
+# Docker Engine installation from Docker's official apt repository.
+- name: Install Docker
+  hosts: docker_hosts:k8s_hosts:monitoring_hosts
+  become: true
+
+  tasks:
+    - name: Add Docker apt signing key
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+
+    - name: Add Docker apt repository
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }}
+          signed-by=/etc/apt/keyrings/docker.asc]
+          https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
+        state: present
+        filename: docker
+
+    - name: Install Docker packages
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+
+    - name: Ensure Docker is enabled and running
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Add ops user to docker group
+      ansible.builtin.user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: true
+
+    - name: Install Python Docker SDK (for Ansible docker modules)
+      ansible.builtin.apt:
+        name: python3-docker
+        state: present
+
+    - name: Verify Docker works
+      community.docker.docker_host_info:
+      register: docker_info
+
+    - name: Show Docker version
+      ansible.builtin.debug:
+        msg: "Docker {{ docker_info.host_info.ServerVersion }} ready"

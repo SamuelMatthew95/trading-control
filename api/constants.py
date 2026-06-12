@@ -248,6 +248,7 @@ class LifecyclePhase(StrEnum):
 class FieldName(StrEnum):
     """Canonical payload / JSON field names used across services."""
 
+    ACCOUNT_BALANCE = "account_balance"
     ACCURACY = "accuracy"
     ACKNOWLEDGED = "acknowledged"
     ACTION = "action"
@@ -729,6 +730,8 @@ class FieldName(StrEnum):
     ORDER_TYPE = "order_type"
     ORIGINAL_ID = "original_id"
     ORIGINAL_STREAM = "original_stream"
+    OTEL_SPAN_ID = "otel_span_id"
+    OTEL_TRACE_ID = "otel_trace_id"
     OUTCOME = "outcome"
     OUTPUT = "output"
     OUTPUT_DATA = "output_data"

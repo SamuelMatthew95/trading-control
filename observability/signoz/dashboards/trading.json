@@ -1,0 +1,177 @@
+{
+  "title": "Trading Dashboard",
+  "description": "Trade flow, PnL, win rate, and execution latency for trading-control",
+  "tags": ["trading-control", "trading"],
+  "variables": {},
+  "widgets": [
+    {
+      "id": "signals-rate",
+      "title": "Signals generated / min",
+      "panelTypes": "graph",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "queryName": "A",
+              "aggregateOperator": "sum_rate",
+              "aggregateAttribute": { "key": "signals_generated_total", "type": "Sum" },
+              "groupBy": [{ "key": "trading.symbol", "type": "tag" }],
+              "expression": "A"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "trades-flow",
+      "title": "Trades submitted vs completed vs failed",
+      "panelTypes": "graph",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "queryName": "A",
+              "aggregateOperator": "sum_rate",
+              "aggregateAttribute": { "key": "trades_submitted_total", "type": "Sum" },
+              "expression": "A"
+            },
+            {
+              "dataSource": "metrics",
+              "queryName": "B",
+              "aggregateOperator": "sum_rate",
+              "aggregateAttribute": { "key": "trades_completed_total", "type": "Sum" },
+              "expression": "B"
+            },
+            {
+              "dataSource": "metrics",
+              "queryName": "C",
+              "aggregateOperator": "sum_rate",
+              "aggregateAttribute": { "key": "trades_failed_total", "type": "Sum" },
+              "expression": "C"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "win-rate",
+      "title": "Win rate",
+      "panelTypes": "value",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "queryName": "A",
+              "aggregateOperator": "latest",
+              "aggregateAttribute": { "key": "win_rate", "type": "Gauge" },
+              "expression": "A"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "daily-pnl",
+      "title": "Daily PnL (USD)",
+      "panelTypes": "value",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "queryName": "A",
+              "aggregateOperator": "latest",
+              "aggregateAttribute": { "key": "daily_pnl", "type": "Gauge" },
+              "expression": "A"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "account-balance",
+      "title": "Account balance (USD)",
+      "panelTypes": "value",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "queryName": "A",
+              "aggregateOperator": "latest",
+              "aggregateAttribute": { "key": "account_balance", "type": "Gauge" },
+              "expression": "A"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "open-positions",
+      "title": "Open positions",
+      "panelTypes": "value",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "queryName": "A",
+              "aggregateOperator": "latest",
+              "aggregateAttribute": { "key": "open_positions", "type": "Gauge" },
+              "expression": "A"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "execution-latency",
+      "title": "Trade execution latency p95 (ms)",
+      "panelTypes": "graph",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "queryName": "A",
+              "aggregateOperator": "p95",
+              "aggregateAttribute": { "key": "trade_execution_duration", "type": "Histogram" },
+              "groupBy": [{ "key": "trading.symbol", "type": "tag" }],
+              "expression": "A"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "agent-latency",
+      "title": "Agent processing p95 by agent (ms)",
+      "panelTypes": "graph",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "queryName": "A",
+              "aggregateOperator": "p95",
+              "aggregateAttribute": { "key": "agent_process_duration", "type": "Histogram" },
+              "groupBy": [{ "key": "trading.agent", "type": "tag" }],
+              "expression": "A"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

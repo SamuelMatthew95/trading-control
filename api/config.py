@@ -205,6 +205,24 @@ class Settings(BaseSettings):
     NEXT_PUBLIC_APP_URL: str = "http://localhost:3000"
     ALLOWED_ORIGINS: str = "http://localhost:3000,https://*.vercel.app,https://*.onrender.com,https://trading-control-khaki.vercel.app"
     ALLOWED_HOSTS: str = "localhost,127.0.0.1,*.vercel.app,*.onrender.com"
+    # OpenTelemetry — disabled by default; the app runs identically without
+    # the SDK installed. Point the endpoint at a SigNoz / OTLP collector.
+    # Managed backends (SigNoz Cloud, Grafana Cloud): set the ingest URL,
+    # OTEL_EXPORTER_OTLP_INSECURE=false, and the auth header, e.g.
+    #   OTEL_EXPORTER_OTLP_HEADERS="signoz-ingestion-key=<token>"
+    OTEL_ENABLED: bool = False
+    OTEL_SERVICE_NAME: str = "trading-control"
+    OTEL_EXPORTER_OTLP_ENDPOINT: str = "http://localhost:4317"
+    # "grpc" (local collectors, port 4317) or "http/protobuf" (SigNoz Cloud's
+    # documented protocol, port 443/4318).
+    OTEL_EXPORTER_OTLP_PROTOCOL: str = "grpc"
+    # Plaintext gRPC is for local collectors only; cloud backends need TLS.
+    OTEL_EXPORTER_OTLP_INSECURE: bool = True
+    # Standard OTel format: comma-separated key=value pairs.
+    OTEL_EXPORTER_OTLP_HEADERS: str = ""
+    # Seconds between business-gauge refreshes (PnL / positions / balance).
+    OTEL_GAUGE_POLL_SECONDS: float = 30.0
+
     API_TIMEOUT_MS: int = 30000
     MAX_RETRIES: int = 3
     RETRY_BACKOFF_MS: int = 250

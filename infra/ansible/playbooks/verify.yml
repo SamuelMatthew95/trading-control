@@ -1,0 +1,41 @@
+---
+# Verification checks — safe to run any time, changes nothing.
+- name: Verify trading-control deployment
+  hosts: docker_hosts
+
+  tasks:
+    - name: API /health responds 200
+      ansible.builtin.uri:
+        url: "{{ api_health_url }}"
+        return_content: true
+      register: health
+
+    - name: API reports healthy or starting
+      ansible.builtin.assert:
+        that:
+          - health.json.status is defined
+        fail_msg: "/health returned no status field: {{ health.content }}"
+
+    - name: API /readiness responds
+      ansible.builtin.uri:
+        url: "{{ api_health_url | replace('/health', '/readiness') }}"
+        return_content: true
+      register: readiness
+
+    - name: Containers are running and healthy
+      community.docker.docker_container_info:
+        name: "{{ item }}"
+      loop:
+        - trading-control-api-1
+        - trading-control-db-1
+        - trading-control-redis-1
+      register: containers
+      failed_when: >-
+        not containers.exists or
+        containers.container.State.Status != 'running'
+
+    - name: Verification summary
+      ansible.builtin.debug:
+        msg:
+          - "health: {{ health.json.status | default('unknown') }}"
+          - "readiness: {{ readiness.json.status | default('unknown') }}"

@@ -1,0 +1,35 @@
+# HPA for the API tier.
+#
+# CURRENTLY PINNED 1–1: the trading agents run inside the API process and are
+# not leader-elected, so horizontal scaling would double-trade (see api.yaml).
+# This object exists so the scaling contract is explicit and version-controlled.
+# Once agents are split into their own singleton Deployment, raise
+# maxReplicas on this (then stateless) API tier — the metrics block below is
+# already what you want.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api
+  namespace: trading-control
+  labels:
+    app.kubernetes.io/name: api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api
+  minReplicas: 1
+  maxReplicas: 1 # raise ONLY after agents are externalized
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

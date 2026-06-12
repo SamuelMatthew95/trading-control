@@ -1,0 +1,27 @@
+# Requires ingress-nginx on the Kind cluster:
+#   kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+# trading.localtest.me resolves to 127.0.0.1 (public wildcard DNS) — no
+# /etc/hosts editing needed.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api
+  namespace: trading-control
+  labels:
+    app.kubernetes.io/name: api
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600" # WebSocket
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: trading.localtest.me
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  name: http

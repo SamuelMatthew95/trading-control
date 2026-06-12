@@ -131,6 +131,14 @@ async def telemetry_and_security_middleware(request: Request, call_next):
     elapsed = (time.perf_counter() - started) * 1000
     metrics_store.register_request(elapsed, is_error=response.status_code >= 500)
     response.headers["X-Request-ID"] = request_id
+    # Security headers — API-appropriate set (no CSP: this service serves
+    # JSON, and a restrictive CSP here would be theatre, not defense).
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Cache-Control"] = response.headers.get("Cache-Control", "no-store")
+    if request.url.scheme == "https":
+        response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
     return response
 
 

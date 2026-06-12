@@ -1,0 +1,16 @@
+# Trivy ignore list — every entry must carry a reason and an exit condition.
+#
+# Next.js findings fixable ONLY in Next 15.5+/16 (a major framework migration:
+# React 19, async request APIs). The dashboard stays on the latest patched
+# 14.x (14.2.35 — clears CRITICAL CVE-2025-29927 middleware auth bypass and
+# the 14.x-fixable DoS advisories). All entries below are DoS / middleware
+# hardening issues in app classes mitigated here by deployment shape: the
+# dashboard is a static-ish Vercel app with no custom middleware auth and no
+# self-hosted WebSocket upgrade path.
+# EXIT CONDITION: remove this block when the frontend migrates to Next >= 15.5.16
+# (tracked as a follow-up in docs/platform/security.md).
+CVE-2026-44573
+CVE-2026-44578
+GHSA-8h8q-6873-q5fj
+GHSA-h25m-26qc-wcjf
+GHSA-q4gf-8mx6-v5v3

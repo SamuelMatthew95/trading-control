@@ -1,0 +1,43 @@
+# Anything not needed inside the backend image — keeps build context small
+# and prevents secrets/artifacts from leaking into layers.
+.git
+.github
+.claude
+.windsurf
+.render
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Local environments & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Frontend is deployed separately (Vercel) — never ship it in the API image
+frontend/
+
+# Local tooling / docs that have no runtime role
+docs/
+tests/
+scripts/
+*.md
+!README.md
+
+# Docker / IaC files themselves
+Dockerfile
+docker-compose*.yml
+deploy/
+infra/
+
+# OS noise
+.DS_Store

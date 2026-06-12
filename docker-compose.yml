@@ -1,0 +1,88 @@
+# Production-like local stack: API + PostgreSQL (pgvector) + Redis.
+#
+#   docker compose up --build          start everything
+#   docker compose logs -f api         follow the backend
+#   docker compose down                stop (keeps data volumes)
+#   docker compose down -v             stop and wipe data
+#
+# Dev loop with hot reload: docker compose -f docker-compose.yml \
+#   -f docker-compose.dev.yml up --build
+#
+# Secrets: put real API keys in a local `.env` (git-ignored); compose passes
+# them through. The stack boots without any of them — the app degrades
+# gracefully (LLM fail-closed, paper broker).
+
+name: trading-control
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: trading-control-api:local
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PORT: "8000"
+      DATABASE_URL: postgresql://trading:trading@db:5432/trading_control
+      REDIS_URL: redis://redis:6379/0
+      USE_MEMORY_MODE: "false"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Paper trading only — never set live credentials in compose.
+      ALPACA_PAPER: "true"
+      BROKER_MODE: ${BROKER_MODE:-paper}
+      ALPACA_API_KEY: ${ALPACA_API_KEY:-}
+      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ALLOWED_HOSTS: localhost,127.0.0.1,api
+      ALLOWED_ORIGINS: http://localhost:3000
+      # OpenTelemetry (Phase 4) — point at SigNoz / an OTLP collector.
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://host.docker.internal:4317}
+    ports:
+      - "8000:8000"
+    # Container HEALTHCHECK is defined in the Dockerfile (GET /health).
+
+  db:
+    image: pgvector/pgvector:pg15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: trading
+      POSTGRES_PASSWORD: trading
+      POSTGRES_DB: trading_control
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/docker/init-db.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trading -d trading_control"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # Not published to the host by default; uncomment for psql access.
+    # ports:
+    #   - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # ports:
+    #   - "6379:6379"
+
+volumes:
+  pgdata:
+  redisdata:

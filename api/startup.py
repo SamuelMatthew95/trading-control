@@ -80,6 +80,7 @@ from api.services.tool_telemetry import (
 )
 from api.services.trading import TradingService
 from api.services.websocket_broadcaster import get_broadcaster
+from api.telemetry import init_telemetry, start_gauge_poller, stop_gauge_poller
 from api.workers.price_poller import poll_prices
 from backtest.challenger import BASELINE_STRATEGY
 from backtest.strategies import STRATEGIES
@@ -392,6 +393,7 @@ def _start_background_tasks(app: FastAPI) -> None:
 
 async def _shutdown(app: FastAPI, pipeline: EventPipeline | None, broadcaster) -> None:
     """Tear down tasks, agents, and connections in reverse dependency order."""
+    await stop_gauge_poller()
     for task_name in (
         "poller_task",
         "keep_alive_task",
@@ -445,9 +447,14 @@ async def lifespan(app: FastAPI):
     mcp_lifespan_cm = mcp_lifespan_context()
     await mcp_lifespan_cm.__aenter__()
 
+    # OpenTelemetry first so spans cover the rest of startup. No-op unless
+    # OTEL_ENABLED=true and the SDK is installed.
+    init_telemetry(app)
+
     try:
         await _init_persistence(app)
         redis_client = await _init_redis(app)
+        start_gauge_poller(redis_client)
         await _probe_lmstudio()
 
         event_bus = EventBus(redis_client)

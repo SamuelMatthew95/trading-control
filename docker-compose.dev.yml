@@ -1,0 +1,37 @@
+# Development override — hot reload with the source tree bind-mounted.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+#
+# Differences from the base stack:
+#   * uvicorn --reload instead of gunicorn (instant code reload)
+#   * backend packages bind-mounted read-only into the container
+#   * DB/Redis ports published for psql / redis-cli from the host
+#   * DEBUG logging
+
+services:
+  api:
+    command:
+      [
+        "uvicorn",
+        "api.main:app",
+        "--host", "0.0.0.0",
+        "--port", "8000",
+        "--reload",
+        "--reload-dir", "api",
+      ]
+    environment:
+      LOG_LEVEL: DEBUG
+      NODE_ENV: development
+    volumes:
+      - ./api:/app/api:ro
+      - ./backtest:/app/backtest:ro
+      - ./cognitive:/app/cognitive:ro
+      - ./config:/app/config:ro
+
+  db:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"

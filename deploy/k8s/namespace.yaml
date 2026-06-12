@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: trading-control
+  labels:
+    app.kubernetes.io/name: trading-control
+    # Pod Security Standards: everything in this namespace must run
+    # non-root, no privilege escalation, default seccomp.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted

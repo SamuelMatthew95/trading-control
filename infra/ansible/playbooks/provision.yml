@@ -1,0 +1,76 @@
+---
+# Base machine provisioning — packages, ops user, basic hardening.
+# Idempotent: every task converges to a declared state.
+- name: Provision base system
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Install base packages
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - git
+          - gnupg
+          - python3
+          - python3-pip
+          - ufw
+          - unattended-upgrades
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Create ops user
+      ansible.builtin.user:
+        name: "{{ ansible_user }}"
+        groups: sudo
+        append: true
+        shell: /bin/bash
+        state: present
+
+    - name: Disable SSH password authentication
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^#?PasswordAuthentication"
+        line: "PasswordAuthentication no"
+        validate: "sshd -t -f %s"
+      notify: Restart sshd
+
+    - name: Enable automatic security updates
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+        mode: "0644"
+
+    - name: Allow SSH through firewall
+      community.general.ufw:
+        rule: allow
+        name: OpenSSH
+
+    - name: Allow API port
+      community.general.ufw:
+        rule: allow
+        port: "8000"
+        proto: tcp
+
+    - name: Enable firewall (default deny incoming)
+      community.general.ufw:
+        state: enabled
+        policy: deny
+        direction: incoming
+
+    - name: Create project directory
+      ansible.builtin.file:
+        path: "{{ project_root }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        mode: "0755"
+
+  handlers:
+    - name: Restart sshd
+      ansible.builtin.service:
+        name: ssh
+        state: restarted
