@@ -15,6 +15,7 @@ Trading logic itself is documented in `docs/` and the hosted Fern docs.
 | [opentofu.md](opentofu.md) | Module design, environment separation, state strategy |
 | [ansible.md](ansible.md) | Playbooks, idempotency, vault-based secrets |
 | [security.md](security.md) | Controls, review findings, supply-chain recommendations |
+| [validation.md](validation.md) | Verification matrix — what was tested with which tool, bugs found, residual risks |
 | [../runbooks/](../runbooks/README.md) | Incident response: bot stopped, broker down, DB down, latency, deploys, monitoring, trade failures, alert handling |
 | [../troubleshooting/](../troubleshooting/README.md) | Bug history per subsystem (pre-existing, self-updating) |
 
