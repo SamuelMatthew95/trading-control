@@ -2,6 +2,7 @@
  * Pure derivation layer for the System dashboard — wire shapes in, render
  * models out. No JSX in here; everything is unit-testable in isolation.
  */
+import { NO_DATA, UI_COPY } from '@/constants/copy'
 import { parseTimestampMs, signedUSD, toFiniteNum as toFiniteNumber } from "@/lib/formatters";
 import {
   ALL_AGENT_NAMES,
@@ -39,12 +40,12 @@ export type AgentActivityRow = {
 
 export const SURFACED_DECISION_LIMIT = 48;
 export const TRACE_COLUMNS = [
-  "Signal",
-  "Reasoning",
-  "Risk Evaluation",
-  "Position Sizing",
-  "Execution",
-  "Outcome",
+  UI_COPY.system.traceColumns.signal,
+  UI_COPY.system.traceColumns.reasoning,
+  UI_COPY.system.traceColumns.risk,
+  UI_COPY.system.traceColumns.sizing,
+  UI_COPY.system.traceColumns.execution,
+  UI_COPY.system.traceColumns.outcome,
 ] as const;
 
 // Dual-theme surface classes shared with the rest of the dashboard. Light is the
@@ -69,7 +70,7 @@ export function startOfUtcDayMs(now: number): number {
 
 export function formatClock(value: string | null): string {
   const date = parseTimestampDate(value);
-  if (!date) return "--:--:--";
+  if (!date) return UI_COPY.header.clockEmpty;
   return new Intl.DateTimeFormat("en-US", {
     hour: "2-digit",
     minute: "2-digit",
@@ -80,7 +81,7 @@ export function formatClock(value: string | null): string {
 
 export function formatAge(secondsAgo: number | null | undefined): string {
   const seconds = toFiniteNumber(secondsAgo);
-  if (seconds == null || seconds < 0) return "--";
+  if (seconds == null || seconds < 0) return NO_DATA;
   if (seconds < 60) return `${Math.round(seconds)}s ago`;
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;

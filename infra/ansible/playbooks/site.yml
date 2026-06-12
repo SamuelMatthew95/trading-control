@@ -1,0 +1,9 @@
+---
+# Full bring-up, in dependency order:
+#   ansible-playbook playbooks/site.yml
+- ansible.builtin.import_playbook: provision.yml
+- ansible.builtin.import_playbook: docker.yml
+- ansible.builtin.import_playbook: kubernetes.yml
+- ansible.builtin.import_playbook: monitoring.yml
+- ansible.builtin.import_playbook: deploy-app.yml
+- ansible.builtin.import_playbook: verify.yml

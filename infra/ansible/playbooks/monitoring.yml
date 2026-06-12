@@ -1,0 +1,34 @@
+---
+# Deploy SigNoz (observability backend) from its official compose bundle.
+- name: Deploy SigNoz
+  hosts: monitoring_hosts
+
+  vars:
+    signoz_root: /opt/signoz
+    signoz_version: main
+
+  tasks:
+    - name: Check out SigNoz
+      ansible.builtin.git:
+        repo: https://github.com/SigNoz/signoz.git
+        dest: "{{ signoz_root }}"
+        version: "{{ signoz_version }}"
+        depth: 1
+
+    - name: Start SigNoz stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ signoz_root }}/deploy/docker"
+        state: present
+
+    - name: Wait for SigNoz UI
+      ansible.builtin.uri:
+        url: http://localhost:8080
+        status_code: [200, 302]
+      register: ui
+      retries: 60
+      delay: 5
+      until: ui.status in [200, 302]
+
+    - name: SigNoz ready
+      ansible.builtin.debug:
+        msg: "SigNoz UI on :8080, OTLP ingest on :4317 — set OTEL_EXPORTER_OTLP_ENDPOINT accordingly"

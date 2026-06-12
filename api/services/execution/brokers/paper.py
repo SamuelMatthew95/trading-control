@@ -20,6 +20,7 @@ from api.constants import (
     OrderStatus,
     PositionSide,
 )
+from api.telemetry import traced_broker_call
 
 
 class PaperBroker:
@@ -30,6 +31,7 @@ class PaperBroker:
     def __init__(self, redis_client: Redis):
         self.redis = redis_client
 
+    @traced_broker_call("place_order", "paper", is_order=True)
     async def place_order(self, symbol: str, side: str, qty: float, price: float) -> dict[str, Any]:
         await self.redis.setnx(REDIS_KEY_PAPER_CASH, DEFAULT_PAPER_CASH)
         normalized_side = side.lower()

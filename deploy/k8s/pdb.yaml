@@ -1,0 +1,27 @@
+# Disruption budgets.
+#
+# api: maxUnavailable 0 — the trading singleton must never be voluntarily
+# evicted (node drains wait for an operator to fail it over deliberately;
+# pair with the "Bot stopped" runbook). For involuntary failures the
+# Deployment reschedules as usual.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api
+  namespace: trading-control
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis
+  namespace: trading-control
+spec:
+  maxUnavailable: 0 # Redis is a hard dependency — same protection
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis

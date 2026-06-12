@@ -21,6 +21,7 @@ import { ALL_AGENT_NAMES, canonicalAgentKey } from '@/constants/agents'
 import type { AgentSummary } from '@/lib/agent-pipeline'
 import { isLifecycleLog } from '@/lib/activity-timeline'
 import { systemStatusBadgeClass, agentTierFromStatus } from '@/lib/dashboard-helpers'
+import { PageHeader } from '@/components/ui/page-header'
 import {
   BackendOfflineBanner,
   BackendOfflineEmptyState,
@@ -28,58 +29,8 @@ import {
 
 type Section = 'overview' | 'trading' | 'agents' | 'challengers' | 'learning' | 'proposals' | 'system'
 
-const SECTION_META: Record<Section, { eyebrow: string; title: string; description: string }> = {
-  overview: {
-    eyebrow: 'Trading terminal',
-    title: 'Live equities trading desk',
-    description: 'Watchlist, chart, order book, ticket, and blotter in one dense terminal.',
-  },
-  trading: {
-    eyebrow: 'Execution',
-    title: 'Trades, fills, and traceable execution',
-    description: 'Monitor open risk, fills, grades, and execution provenance without decorative cards.',
-  },
-  agents: {
-    eyebrow: 'Runtime agents',
-    title: 'Agent health and production activity',
-    description: 'Inspect agent heartbeats, streams, decisions, and diagnostics in a dense operations layout.',
-  },
-  challengers: {
-    eyebrow: 'Challenger shadows',
-    title: 'Rival strategies on live data',
-    description: 'Follow each shadow challenger: its record, the baseline comparison, and exactly what still blocks promotion.',
-  },
-  learning: {
-    eyebrow: 'Learning loop',
-    title: 'Performance attribution and learning outcomes',
-    description: 'Review outcomes, model performance, and learning-loop movement with clear evidence.',
-  },
-  proposals: {
-    eyebrow: 'Proposal review',
-    title: 'Candidate changes and challenger verdicts',
-    description: 'Approve or reject strategy mutations from a table-first queue with explicit expected impact.',
-  },
-  system: {
-    eyebrow: 'Command Center',
-    title: 'Decisions, risk, execution, and traceability',
-    description: 'A live view of what the system is thinking, doing, and changing right now.',
-  },
-}
-
-function SectionHeader({ section }: { section: Section }) {
-  const meta = SECTION_META[section]
-  return (
-    <section className="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm shadow-slate-900/5 dark:border-slate-800/80 dark:bg-slate-950/90 dark:shadow-black/20">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{meta.eyebrow}</p>
-      <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">{meta.title}</h1>
-          <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500 dark:text-slate-400">{meta.description}</p>
-        </div>
-      </div>
-    </section>
-  )
-}
+// Page heading copy lives in the central registry (UI_COPY.pages).
+const SECTION_META = UI_COPY.pages
 
 // Liveness window mirrors the backend heartbeat contract (api/constants.py):
 //   AGENT_STALE_THRESHOLD_SECONDS = 120 → an agent stays "Live" while its last
@@ -338,9 +289,9 @@ export function DashboardView({ section }: { section: Section }) {
 
   const memoryBanner = dashboardData?.degraded_mode ? (
     <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
-      <span className="mt-0.5 shrink-0">⚠</span>
+      <span className="mt-0.5 shrink-0" aria-hidden>⚠</span>
       <span>
-        <strong>{UI_COPY.banners.memoryModeTitle}</strong> — database unavailable
+        <strong>{UI_COPY.banners.memoryModeTitle}</strong> {UI_COPY.banners.memoryModeUnavailable}
         {dashboardData.degraded_reason === 'db_unavailable' ? UI_COPY.banners.memoryModeDbReason : ''}.
         {' '}{UI_COPY.banners.memoryModeBody}
       </span>
@@ -352,7 +303,7 @@ export function DashboardView({ section }: { section: Section }) {
   // shared light section frame used by every other section.
   if (section === 'overview') {
     return (
-      <div className="min-h-[calc(100vh-3rem)] bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+      <div className="min-h-[calc(100vh-3rem)] bg-background text-foreground">
         <div className="space-y-2 px-2 pt-2 empty:hidden">
           <LLMDegradedBanner />
           {memoryBanner}
@@ -448,16 +399,16 @@ export function DashboardView({ section }: { section: Section }) {
   )
 
   return (
-    <div className="min-h-screen bg-slate-100 pb-20 text-slate-900 dark:bg-slate-950 dark:text-slate-100 lg:pb-4">
-      <main className={cn('mx-auto space-y-3 px-3 py-4 sm:px-4', 'max-w-screen-2xl')}>
-        <SectionHeader section={section} />
+    <div className="min-h-screen bg-background pb-20 text-foreground lg:pb-4">
+      <main className="mx-auto max-w-screen-2xl space-y-3 px-3 py-4 sm:px-4">
+        <PageHeader {...SECTION_META[section]} />
         <div
           className={cn(
-            'rounded-lg border px-3 py-2 text-xs font-semibold uppercase tracking-widest',
+            'rounded-lg border px-3 py-2 text-xs font-semibold uppercase tracking-caps',
             systemStatusBadgeClass(systemStatus),
           )}
         >
-          System Status: {systemStatus}
+          {UI_COPY.pages.statusLabel} {systemStatus}
         </div>
         {/* Reasoning-LLM degraded/down — page-level indicator (fail-closed warning) */}
         <LLMDegradedBanner />

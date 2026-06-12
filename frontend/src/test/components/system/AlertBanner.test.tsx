@@ -35,7 +35,7 @@ describe('AlertBanner', () => {
 
   it('uses info palette for info variant', () => {
     render(<AlertBanner variant="info" icon={AlertTriangle} message="x" />)
-    expect(screen.getByRole('alert').className).toContain('blue')
+    expect(screen.getByRole('alert').className).toContain('brand')
   })
 
   it('uses ok palette for ok variant', () => {

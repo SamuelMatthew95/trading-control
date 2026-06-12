@@ -1,0 +1,52 @@
+---
+# Kubernetes tooling: kubectl + Kind, then the trading cluster from
+# deploy/k8s/kind-config.yaml. Requires docker.yml to have run first.
+- name: Install Kubernetes tooling and create cluster
+  hosts: k8s_hosts
+  become: true
+
+  vars:
+    kubectl_version: v1.31.4
+    kind_version: v0.26.0
+    arch: "{{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }}"
+
+  tasks:
+    - name: Install kubectl
+      ansible.builtin.get_url:
+        url: "https://dl.k8s.io/release/{{ kubectl_version }}/bin/linux/{{ arch }}/kubectl"
+        dest: /usr/local/bin/kubectl
+        mode: "0755"
+
+    - name: Install Kind
+      ansible.builtin.get_url:
+        url: "https://kind.sigs.k8s.io/dl/{{ kind_version }}/kind-linux-{{ arch }}"
+        dest: /usr/local/bin/kind
+        mode: "0755"
+
+    - name: Check out the repository (for deploy/k8s manifests)
+      become: false
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ project_root }}"
+        version: "{{ repo_version }}"
+
+    - name: List existing Kind clusters
+      become: false
+      ansible.builtin.command: kind get clusters
+      register: kind_clusters
+      changed_when: false
+
+    - name: Create trading cluster
+      become: false
+      ansible.builtin.command: >-
+        kind create cluster --name trading
+        --config {{ project_root }}/deploy/k8s/kind-config.yaml
+      when: "'trading' not in kind_clusters.stdout_lines"
+
+    - name: Install ingress-nginx
+      become: false
+      ansible.builtin.command: >-
+        kubectl apply -f
+        https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+      register: ingress_apply
+      changed_when: "'configured' in ingress_apply.stdout or 'created' in ingress_apply.stdout"

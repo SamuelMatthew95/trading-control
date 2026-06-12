@@ -4,6 +4,7 @@ import { AlertTriangle, ZapOff } from 'lucide-react'
 
 import { AlertBanner } from '@/components/dashboard/system/AlertBanner'
 import { LLMStatus, useLlmHealth } from '@/lib/llm-health'
+import { UI_COPY } from '@/constants/copy'
 
 /**
  * Page-level banner shown whenever the reasoning LLM is DEGRADED or DOWN.
@@ -23,27 +24,17 @@ export function LLMDegradedBanner() {
   const down = data.status === LLMStatus.DOWN
   const successPct = Math.round(Number(data.success_rate_pct ?? 0))
   const fallbackNote = data.llm_fallback_enabled
-    ? 'Cloud fallback is enabled.'
-    : 'Cloud fallback is disabled — reasoning fails closed (new signals are rejected, no naive trades).'
-  // Spell out the downstream cascade so an operator does not read the quiet
-  // pipeline as "everything is broken": while reasoning is degraded few/no
-  // trades close, so the learning agents stay idle — the wiring is intact, the
-  // pipeline is just waiting for the LLM to recover.
-  const cascade =
-    ' Knock-on: with reasoning degraded, few/no trades close, so the learning agents' +
-    ' (Grade · IC · Reflection · Proposer) sit idle until trading resumes — wiring is intact,' +
-    ' the pipeline is waiting on the LLM.'
+    ? UI_COPY.llmDegraded.fallbackEnabled
+    : UI_COPY.llmDegraded.fallbackDisabled
+  // The downstream cascade is spelled out (UI_COPY.llmDegraded.cascade) so an
+  // operator does not read the quiet pipeline as "everything is broken".
 
   return (
     <AlertBanner
       variant={down ? 'err' : 'warn'}
       icon={down ? ZapOff : AlertTriangle}
-      message={
-        down
-          ? `Reasoning LLM down — running in fallback mode (provider: ${data.active_provider}).`
-          : `Reasoning LLM degraded — decision quality reduced (provider: ${data.active_provider}).`
-      }
-      detail={`LLM success rate ${successPct}% over the last window. ${fallbackNote}${cascade}`}
+      message={`${down ? UI_COPY.llmDegraded.downMessage : UI_COPY.llmDegraded.degradedMessage} (${UI_COPY.llmDegraded.providerLabel} ${data.active_provider}).`}
+      detail={`${UI_COPY.llmDegraded.successRateStem} ${successPct}% ${UI_COPY.llmDegraded.successRateWindow} ${fallbackNote}${UI_COPY.llmDegraded.cascade}`}
     />
   )
 }

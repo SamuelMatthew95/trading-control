@@ -223,7 +223,8 @@ export function signedUSD(value: number | null | undefined): string {
   if (value == null || isNaN(value) || !isFinite(value)) return '--'
   const abs = Math.abs(value)
   if (abs < 0.005) return '$0.00'
-  return `${value > 0 ? '+' : '-'}$${abs.toFixed(2)}`
+  const amount = abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return `${value > 0 ? '+' : '-'}$${amount}`
 }
 
 /**

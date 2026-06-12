@@ -1,13 +1,17 @@
 'use client'
 
 import { useState } from 'react'
-import { UI_COPY } from '@/constants/copy'
+import { NO_DATA, UI_COPY } from '@/constants/copy'
+import { SIDE_BUY, SIDE_SELL } from '@/constants/trading'
 
 import { cn } from '@/lib/utils'
 import { cardClass, sectionTitleClass } from '@/lib/dashboard-styles'
+import { actionBadgeClass } from '@/lib/dashboard-helpers'
 import { extractToolInvocations, summarizeToolOutputs } from '@/lib/decision-tools'
 import { formatTimestamp } from '@/lib/formatters'
+import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
+import { TraceButton } from '@/components/dashboard/TraceButton'
 import type { DecisionStats } from '@/hooks/useRestPoll'
 
 // A decision is a rule-based fallback (not real model reasoning) when the agent
@@ -18,10 +22,6 @@ function isFallbackDecision(d: Record<string, unknown>): boolean {
   if (d.llm_succeeded === false) return true
   const summary = typeof d.reasoning_summary === 'string' ? d.reasoning_summary : ''
   return summary.startsWith('fallback:')
-}
-
-function EmptyDecisions() {
-  return <EmptyState message={UI_COPY.empty.decisions} />
 }
 
 export function RecentDecisionsPanel({
@@ -37,7 +37,7 @@ export function RecentDecisionsPanel({
 }) {
   const actionable = recent.filter((d) => {
     const action = String(d.action ?? '').toLowerCase()
-    return action === 'buy' || action === 'sell'
+    return action === SIDE_BUY || action === SIDE_SELL
   })
   const fallbackCount = actionable.filter(isFallbackDecision).length
   // Which decision's reasoning chain (tool ledger) is expanded. One at a time.
@@ -47,138 +47,117 @@ export function RecentDecisionsPanel({
     <div className={cardClass}>
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <p className={sectionTitleClass}>Recent Decisions</p>
+          <p className={sectionTitleClass}>{UI_COPY.decisions.title}</p>
           {fallbackCount > 0 && (
             <span
-              title="LLM unavailable — these are rule-based fallback decisions, not model reasoning."
-              className="rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning"
+              title={UI_COPY.decisions.ruleBasedHeaderTitle}
+              className="rounded-full bg-warning/15 px-2 py-0.5 text-3xs font-semibold uppercase tracking-caps text-warning"
             >
-              {fallbackCount}/{actionable.length} rule-based
+              {fallbackCount}/{actionable.length} {UI_COPY.decisions.ruleBased}
             </span>
           )}
         </div>
         {stats && (
-          <div className="flex items-center gap-2 font-mono text-xs tabular-nums text-slate-500 dark:text-slate-400">
-            <span className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600">
-              last 1h
+          <div className="flex items-center gap-2 font-mono text-xs tabular-nums text-muted-foreground">
+            <span className="text-3xs uppercase tracking-caps text-muted-foreground/70">
+              {UI_COPY.decisions.lastHour}
             </span>
             <span className="text-success">
-              Buys: {stats.last_hour.buys}
+              {UI_COPY.decisions.buys} {stats.last_hour.buys}
             </span>
             <span className="text-danger">
-              Sells: {stats.last_hour.sells}
+              {UI_COPY.decisions.sells} {stats.last_hour.sells}
             </span>
-            <span>Holds: {stats.last_hour.holds}</span>
-            <span className="text-slate-300 dark:text-slate-700">·</span>
-            <span
-              title="All decisions stored (most-recent, capped at 50) — not a last-hour figure, so it won't equal Buys + Sells + Holds"
-              className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600"
-            >
-              all-time
+            <span>
+              {UI_COPY.decisions.holds} {stats.last_hour.holds}
             </span>
-            <span title="All decisions stored (most-recent, capped at 50) — not a last-hour figure, so it won't equal Buys + Sells + Holds">
-              Total: {stats.total}
+            <span className="text-muted-foreground/50">·</span>
+            <span title={UI_COPY.decisions.allTimeTitle} className="text-3xs uppercase tracking-caps text-muted-foreground/70">
+              {UI_COPY.decisions.allTime}
+            </span>
+            <span title={UI_COPY.decisions.allTimeTitle}>
+              {UI_COPY.decisions.total} {stats.total}
             </span>
           </div>
         )}
       </div>
 
       {actionable.length === 0 ? (
-        <EmptyDecisions />
+        <EmptyState message={UI_COPY.empty.decisions} />
       ) : (
         <div className="max-h-64 space-y-2 overflow-y-auto">
           {actionable.slice(0, 10).map((d, index) => {
             const action = String(d.action ?? '').toLowerCase()
-            const symbol = String(d.symbol ?? '--')
+            const symbol = String(d.symbol ?? NO_DATA)
             const priceNum = Number(d.price)
             const priceTxt = Number.isFinite(priceNum)
               ? `$${priceNum.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
-              : '--'
+              : NO_DATA
             const confNum = Number(d.confidence)
-            const confTxt = Number.isFinite(confNum) ? `${(confNum * 100).toFixed(0)}%` : '--'
+            const confTxt = Number.isFinite(confNum) ? `${(confNum * 100).toFixed(0)}%` : NO_DATA
             const ts = formatTimestamp(d.timestamp ? String(d.timestamp) : null)
-            const badgeClass =
-              action === 'buy'
-                ? 'bg-success/15 text-success'
-                : 'bg-danger/15 text-danger'
             const decisionId = `${String(d.id ?? d.trace_id ?? index)}-${index}`
             const traceId = d.trace_id ? String(d.trace_id) : null
             const tools = extractToolInvocations(d)
             const isOpen = openId === decisionId
             return (
-              <div
-                key={decisionId}
-                className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800"
-              >
+              <div key={decisionId} className="rounded-lg border px-3 py-2">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <span className={cn('rounded px-2 py-0.5 text-xs font-semibold uppercase', badgeClass)}>
-                      {action || 'hold'}
+                    <span className={cn('rounded px-2 py-0.5 text-xs font-semibold uppercase', actionBadgeClass(action.toUpperCase()))}>
+                      {action || UI_COPY.terminal.defaultAction}
                     </span>
-                    <span className="font-mono text-sm font-semibold text-slate-900 dark:text-slate-100">
-                      {symbol}
-                    </span>
+                    <span className="font-mono text-sm font-semibold text-foreground">{symbol}</span>
                     {isFallbackDecision(d) && (
                       <span
-                        title="LLM unavailable — rule-based fallback, not model reasoning."
-                        className="rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning"
+                        title={UI_COPY.decisions.ruleBasedRowTitle}
+                        className="rounded bg-warning/15 px-1.5 py-0.5 text-3xs font-semibold uppercase tracking-caps text-warning"
                       >
-                        rule-based
+                        {UI_COPY.decisions.ruleBased}
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-3 font-mono text-xs tabular-nums text-slate-600 dark:text-slate-300">
+                  <div className="flex items-center gap-3 font-mono text-xs tabular-nums text-foreground/70">
                     {tools.length > 0 && (
-                      <button
-                        type="button"
+                      <Button
+                        variant="outline"
+                        size="xs"
                         onClick={() => setOpenId(isOpen ? null : decisionId)}
                         aria-expanded={isOpen}
-                        className="rounded border border-slate-300 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:border-slate-400 hover:text-slate-700 dark:border-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                        className="h-5 px-1.5 text-3xs font-semibold uppercase tracking-caps"
                       >
                         {tools.length} tool{tools.length === 1 ? '' : 's'} {isOpen ? '▾' : '▸'}
-                      </button>
+                      </Button>
                     )}
-                    {traceId && onSelectTrace && (
-                      <button
-                        type="button"
-                        onClick={() => onSelectTrace(traceId)}
-                        title="View the full trace (runs, logs, grades) for this decision"
-                        className="rounded border border-slate-300 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:border-slate-400 hover:text-slate-700 dark:border-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-                      >
-                        trace
-                      </button>
-                    )}
+                    {traceId && onSelectTrace && <TraceButton onClick={() => onSelectTrace(traceId)} />}
                     <span>{priceTxt}</span>
-                    <span className="text-slate-400">·</span>
+                    <span className="text-muted-foreground/50">·</span>
                     <span>{confTxt}</span>
-                    <span className="text-slate-400">·</span>
+                    <span className="text-muted-foreground/50">·</span>
                     <span>{ts}</span>
                   </div>
                 </div>
 
                 {isOpen && tools.length > 0 && (
-                  <div className="mt-2 space-y-1 rounded-md border border-slate-200 bg-slate-50/60 p-2 dark:border-slate-800 dark:bg-slate-900/40">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                      Reasoning chain · tools this decision used
+                  <div className="mt-2 space-y-1 rounded-md border bg-muted/40 p-2">
+                    <p className="text-3xs font-semibold uppercase tracking-caps text-muted-foreground/70">
+                      {UI_COPY.decisions.reasoningChain}
                     </p>
                     {tools.map((tool, toolIndex) => {
                       const outputs = summarizeToolOutputs(tool.outputs)
                       return (
                         <div
                           key={`${decisionId}-tool-${toolIndex}`}
-                          className="flex items-center gap-2 font-mono text-[11px] tabular-nums"
+                          className="flex items-center gap-2 font-mono text-2xs tabular-nums"
                         >
-                          <span
-                            className={tool.success === false ? 'text-danger' : 'text-success'}
-                            aria-hidden
-                          >
+                          <span className={tool.success === false ? 'text-danger' : 'text-success'} aria-hidden>
                             {tool.success === false ? '✗' : '✓'}
                           </span>
-                          <span className="text-slate-700 dark:text-slate-200">{tool.name ?? 'tool'}</span>
+                          <span className="text-foreground/80">{tool.name ?? UI_COPY.decisions.toolFallback}</span>
                           {typeof tool.latency_ms === 'number' && (
-                            <span className="text-slate-400">{tool.latency_ms.toFixed(0)}ms</span>
+                            <span className="text-muted-foreground/70">{tool.latency_ms.toFixed(0)}ms</span>
                           )}
-                          {outputs && <span className="text-slate-500 dark:text-slate-400">· {outputs}</span>}
+                          {outputs && <span className="text-muted-foreground">· {outputs}</span>}
                         </div>
                       )
                     })}

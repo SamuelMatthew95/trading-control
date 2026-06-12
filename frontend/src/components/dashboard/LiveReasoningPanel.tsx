@@ -1,11 +1,24 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
-import { API_ENDPOINTS, apiFetch } from '@/lib/apiClient'
+import { API_ENDPOINTS } from '@/lib/apiClient'
+import { usePolledApi } from '@/hooks/usePolledApi'
 import { LEARNING_REFRESH_MS } from '@/lib/grade-colors'
 import { cardClass, errorTextClass, mutedClass, sectionTitleClass } from '@/lib/dashboard-styles'
-import { sentimentTextClass } from '@/lib/design/sentiment'
+import {
+  sentimentTextClass,
+  TONE_BADGE_OUTLINED,
+  TONE_DOT,
+  TONE_TEXT,
+  type Tone,
+} from '@/lib/design/sentiment'
+import { proposalStatusTone } from '@/lib/dashboard-helpers'
+import { NO_DATA, UI_COPY } from '@/constants/copy'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty-state'
+import { Meter } from '@/components/ui/meter'
 import { cn } from '@/lib/utils'
 
 // Mirrors api/services/dashboard/prompt_os.py response models.
@@ -62,26 +75,26 @@ function coerceLlmStatus(value: unknown): LlmStatus {
 // Header indicator per LLM status. When the provider is degraded/down the live
 // strategy below is still the configured one, but decisions are rule-based
 // fallbacks — so the dot must stop claiming a healthy green "live".
-const LLM_INDICATOR: Record<LlmStatus, { label: string; text: string; dot: string; pulse: boolean }> = {
-  live: { label: 'live', text: 'text-success', dot: 'bg-success', pulse: true },
-  degraded: { label: 'LLM degraded', text: 'text-warning', dot: 'bg-warning', pulse: false },
-  down: { label: 'LLM down · fallback', text: 'text-danger', dot: 'bg-danger', pulse: false },
-  unknown: { label: 'awaiting LLM', text: 'text-slate-400', dot: 'bg-slate-400', pulse: false },
+const LLM_INDICATOR: Record<LlmStatus, { label: string; tone: Tone; pulse: boolean }> = {
+  live: { label: UI_COPY.liveReasoning.llmLive, tone: 'success', pulse: true },
+  degraded: { label: UI_COPY.liveReasoning.llmDegraded, tone: 'warning', pulse: false },
+  down: { label: UI_COPY.liveReasoning.llmDown, tone: 'danger', pulse: false },
+  unknown: { label: UI_COPY.liveReasoning.llmUnknown, tone: 'neutral', pulse: false },
 }
 
 function ToolChip({ tool }: { tool: ToolView }) {
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 dark:border-slate-700 dark:bg-slate-800/50"
+      className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-1"
       title={`${tool.phase} · α ${tool.alpha_score.toFixed(2)} · ${tool.latency_ms.toFixed(0)}ms · ${tool.call_count} calls`}
     >
-      <span className="font-mono text-[11px] text-slate-700 dark:text-slate-200">{tool.name}</span>
-      <span className={cn('font-mono text-[10px] tabular-nums', sentimentTextClass(tool.alpha_score))}>
+      <span className="font-mono text-2xs text-foreground/80">{tool.name}</span>
+      <span className={cn('font-mono text-3xs tabular-nums', sentimentTextClass(tool.alpha_score))}>
         α{tool.alpha_score >= 0 ? '+' : ''}
         {tool.alpha_score.toFixed(2)}
       </span>
       {tool.call_count > 0 && (
-        <span className="font-mono text-[10px] tabular-nums text-slate-400">
+        <span className="font-mono text-3xs tabular-nums text-muted-foreground/70">
           ×{tool.call_count}
         </span>
       )}
@@ -116,64 +129,55 @@ function ChallengerCard({ ch }: { ch: ChallengerView }) {
   const pct = ch.max_fills > 0 ? Math.min(100, Math.round((ch.fills / ch.max_fills) * 100)) : 0
   const diffs = diffEntries(ch.config_diff)
   return (
-    <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+    <div className="rounded-lg border p-3">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span
-            className={cn('h-2 w-2 rounded-full', ch.running ? 'bg-success' : 'bg-slate-400')}
-          />
-          <span className="font-mono text-xs text-slate-800 dark:text-slate-200">
+          <span className={cn('h-2 w-2 rounded-full', ch.running ? TONE_DOT.success : TONE_DOT.neutral)} />
+          <span className="font-mono text-xs text-foreground/80">
             challenger {ch.challenger_id}
           </span>
         </div>
         <span
-          title="What this challenger changes versus the live strategy"
-          className="rounded bg-indigo-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400"
+          title={UI_COPY.liveReasoning.differsByTitle}
+          className="rounded bg-brand/15 px-2 py-0.5 text-3xs font-semibold uppercase tracking-caps text-brand"
         >
-          differs by {ch.differs_by}
+          {UI_COPY.liveReasoning.differsBy} {ch.differs_by}
         </span>
       </div>
 
       <div className="mt-2">
-        <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-          <span title="Simulated fills observed so far out of the test window — the challenger trades in shadow, never with real orders">
-            shadow fills observed
+        <div className="flex items-center justify-between text-2xs text-muted-foreground">
+          <span title={UI_COPY.liveReasoning.shadowFillsTitle}>
+            {UI_COPY.liveReasoning.shadowFills}
           </span>
           <span className="font-mono tabular-nums">
             {ch.fills}/{ch.max_fills}
           </span>
         </div>
-        <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
-          <div className="h-full rounded-full bg-indigo-500" style={{ width: `${pct}%` }} />
-        </div>
+        <Meter value={pct} label={UI_COPY.liveReasoning.shadowFills} className="mt-1" />
       </div>
 
       {ch.variant && (
-        <p className="mt-2 rounded border border-warning/30 bg-warning/10 px-2 py-1 text-[11px] text-warning">
-          prompt variant: {ch.variant}
+        <p className={cn('mt-2 rounded border px-2 py-1 text-2xs', TONE_BADGE_OUTLINED.warning)}>
+          {UI_COPY.liveReasoning.promptVariant} {ch.variant}
         </p>
       )}
       {ch.tool_overrides && ch.tool_overrides.length > 0 && (
-        <p className="mt-2 font-mono text-[11px] text-slate-500 dark:text-slate-400">
-          tool set: {ch.tool_overrides.join(', ')}
+        <p className="mt-2 font-mono text-2xs text-muted-foreground">
+          {UI_COPY.liveReasoning.toolSet} {ch.tool_overrides.join(', ')}
         </p>
       )}
       {diffs.length > 0 ? (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {diffs.map(([k, v]) => (
-            <span
-              key={k}
-              className="rounded bg-slate-500/10 px-1.5 py-0.5 font-mono text-[10px] text-slate-600 dark:text-slate-300"
-            >
+            <Badge key={k} tone="neutral" size="xs" className="font-mono">
               {k}={v}
-            </span>
+            </Badge>
           ))}
         </div>
       ) : (
         !ch.variant && (
-          <p className="mt-2 text-[11px] text-slate-400">
-            Same prompt + tools as the live strategy.
-          </p>
+          <p className="mt-2 text-2xs text-muted-foreground/70">{UI_COPY.liveReasoning.sameAsLive}</p>
         )
       )}
     </div>
@@ -181,35 +185,29 @@ function ChallengerCard({ ch }: { ch: ChallengerView }) {
 }
 
 function ProposalRow({ p }: { p: ProposalView }) {
-  const statusClass =
-    p.status === 'approved'
-      ? 'bg-success/15 text-success'
-      : p.status === 'rejected'
-        ? 'bg-danger/15 text-danger'
-        : 'bg-slate-500/15 text-slate-500'
   return (
-    <div className="rounded-lg border border-slate-200 p-2.5 dark:border-slate-800">
+    <div className="rounded-lg border p-2.5">
       <div className="flex items-center justify-between gap-2">
-        <span className="rounded bg-slate-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        <Badge tone="neutral" size="xs" className="uppercase tracking-caps">
           {p.proposal_type.replace(/_/g, ' ')}
-        </span>
+        </Badge>
         <div className="flex items-center gap-1.5">
           {p.applied && (
-            <span className="rounded bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">
-              applied
+            <span className="rounded bg-brand/15 px-1.5 py-0.5 text-3xs font-semibold text-brand">
+              {UI_COPY.liveReasoning.applied}
             </span>
           )}
-          <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-semibold', statusClass)}>
+          <Badge tone={proposalStatusTone(p.status)} size="xs">
             {p.status}
-          </span>
+          </Badge>
         </div>
       </div>
-      <p className="mt-1 line-clamp-2 text-xs leading-snug text-slate-700 dark:text-slate-300">
-        {p.description || '—'}
+      <p className="mt-1 line-clamp-2 text-xs leading-snug text-foreground/80">
+        {p.description || NO_DATA}
       </p>
       {p.confidence != null && (
-        <p className="mt-0.5 font-mono text-[10px] text-slate-400">
-          confidence {(p.confidence * 100).toFixed(0)}%
+        <p className="mt-0.5 font-mono text-3xs text-muted-foreground/70">
+          {UI_COPY.liveReasoning.confidence} {(p.confidence * 100).toFixed(0)}%
         </p>
       )}
     </div>
@@ -217,39 +215,19 @@ function ProposalRow({ p }: { p: ProposalView }) {
 }
 
 export function LiveReasoningPanel() {
-  const [data, setData] = useState<LiveReasoningResponse | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [llmStatus, setLlmStatus] = useState<LlmStatus>('unknown')
+  const { data, error } = usePolledApi<LiveReasoningResponse>(
+    API_ENDPOINTS.DASHBOARD_PROMPT_OS,
+    LEARNING_REFRESH_MS,
+  )
+  // LLM health is best-effort: it drives the live/degraded indicator, but a
+  // failure here must not blank the reasoning cockpit — usePolledApi keeps the
+  // last good payload through transient failures.
+  const { data: health } = usePolledApi<{ status?: string }>(
+    API_ENDPOINTS.LLM_HEALTH,
+    LEARNING_REFRESH_MS,
+  )
+  const llmStatus = coerceLlmStatus(health?.status)
   const [showPrompt, setShowPrompt] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-    const load = async () => {
-      try {
-        const res = await apiFetch<LiveReasoningResponse>(API_ENDPOINTS.DASHBOARD_PROMPT_OS)
-        if (!cancelled) {
-          setData(res)
-          setError(null)
-        }
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'fetch_failed')
-      }
-      // LLM health is best-effort: it drives the live/degraded indicator, but a
-      // failure here must not blank the reasoning cockpit.
-      try {
-        const health = await apiFetch<{ status?: string }>(API_ENDPOINTS.LLM_HEALTH)
-        if (!cancelled) setLlmStatus(coerceLlmStatus(health?.status))
-      } catch {
-        /* keep the previous status */
-      }
-    }
-    load()
-    const id = window.setInterval(load, LEARNING_REFRESH_MS)
-    return () => {
-      cancelled = true
-      window.clearInterval(id)
-    }
-  }, [])
 
   const live = data?.champion
   // Drop placeholder rows (no liveness, no fills, no diff) so the section never
@@ -263,55 +241,52 @@ export function LiveReasoningPanel() {
   return (
     <div className={cardClass}>
       <div className="mb-1 flex items-center justify-between">
-        <p className={sectionTitleClass}>Live Reasoning</p>
+        <p className={sectionTitleClass}>{UI_COPY.liveReasoning.title}</p>
         {error ? (
           <span className={errorTextClass}>err: {error}</span>
         ) : (
-          <span className={cn('flex items-center gap-1.5 font-mono text-xs', indicator.text)}>
+          <span className={cn('flex items-center gap-1.5 font-mono text-xs', TONE_TEXT[indicator.tone])}>
             <span className="relative flex h-2 w-2">
               {indicator.pulse && (
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-60" />
               )}
-              <span className={cn('relative inline-flex h-2 w-2 rounded-full', indicator.dot)} />
+              <span className={cn('relative inline-flex h-2 w-2 rounded-full', TONE_DOT[indicator.tone])} />
             </span>
             {indicator.label}
           </span>
         )}
       </div>
-      <p className={cn(mutedClass, 'mb-3')}>
-        Exactly what the buy/sell AI is running now: the fixed rulebook + the tools it&apos;s
-        allowed to use + the answer format. Challengers shadow it; proposals would change it.
-      </p>
+      <p className={cn(mutedClass, 'mb-3')}>{UI_COPY.liveReasoning.description}</p>
 
       {llmDegraded && (
-        <div className="mb-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] leading-snug text-warning">
-          LLM provider is {llmStatus === 'down' ? 'unavailable' : 'degraded'} right now — live
-          decisions are <strong>rule-based fallbacks</strong>, not model reasoning. The prompt and
-          tools below are still the configured strategy.
+        <div className={cn('mb-3 rounded-lg border px-3 py-2 text-2xs leading-snug', TONE_BADGE_OUTLINED.warning)}>
+          LLM provider is{' '}
+          {llmStatus === 'down'
+            ? UI_COPY.liveReasoning.degradedBannerDown
+            : UI_COPY.liveReasoning.degradedBannerDegraded}{' '}
+          right now — live decisions are <strong>rule-based fallbacks</strong>, not model
+          reasoning. The prompt and tools below are still the configured strategy.
         </div>
       )}
 
       {/* ── Live strategy: the prompt + active tools ───────────────────────── */}
-      <div className="rounded-lg border border-slate-200 bg-slate-50/40 p-3 dark:border-slate-800 dark:bg-slate-900/30">
+      <div className="rounded-lg border bg-muted/30 p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span className="rounded bg-success/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-success">
-              live
-            </span>
-            <span className="font-mono text-xs text-slate-600 dark:text-slate-300">
+            <Badge tone="success" size="xs" className="uppercase tracking-caps font-bold">
+              {UI_COPY.liveReasoning.liveBadge}
+            </Badge>
+            <span className="font-mono text-xs text-foreground/70">
               node={live?.node ?? 'reasoning'} · strategy={versionLabel}
             </span>
           </div>
-          <button
-            onClick={() => setShowPrompt((s) => !s)}
-            className="rounded border border-slate-300 px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:border-slate-400 dark:border-slate-700 dark:text-slate-300"
-          >
-            {showPrompt ? 'Hide prompt' : 'View live prompt'}
-          </button>
+          <Button variant="outline" size="xs" onClick={() => setShowPrompt((s) => !s)}>
+            {showPrompt ? UI_COPY.liveReasoning.hidePrompt : UI_COPY.liveReasoning.viewPrompt}
+          </Button>
         </div>
 
-        <p className="mt-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          Tools the AI may use ({live?.active_tools.length ?? 0})
+        <p className={cn(sectionTitleClass, 'mt-2')}>
+          {UI_COPY.liveReasoning.toolsHeading} ({live?.active_tools.length ?? 0})
         </p>
         {live && live.active_tools.length > 0 ? (
           <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -320,11 +295,11 @@ export function LiveReasoningPanel() {
             ))}
           </div>
         ) : (
-          <p className="mt-1 text-[11px] text-slate-400">No tools eligible for this node.</p>
+          <p className="mt-1 text-2xs text-muted-foreground/70">{UI_COPY.liveReasoning.noTools}</p>
         )}
 
         {showPrompt && live && (
-          <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-900 p-3 text-[11px] leading-relaxed text-slate-100 dark:bg-black/40">
+          <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-foreground/90 p-3 text-2xs leading-relaxed text-background dark:bg-black/40 dark:text-foreground">
             {live.assembled_prompt}
           </pre>
         )}
@@ -333,14 +308,9 @@ export function LiveReasoningPanel() {
       {/* ── Challengers being tested + proposed changes ────────────────────── */}
       <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
         <div>
-          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Challengers being tested
-          </p>
+          <p className={cn(sectionTitleClass, 'mb-1.5')}>{UI_COPY.liveReasoning.challengersHeading}</p>
           {challengers.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-slate-200 px-3 py-6 text-center text-xs text-slate-400 dark:border-slate-800">
-              No challenger strategy under test — the live strategy runs uncontested until the
-              learning loop spawns a rival to shadow it.
-            </p>
+            <EmptyState message={UI_COPY.liveReasoning.challengersEmpty} className="min-h-0 py-6" />
           ) : (
             <div className="space-y-2">
               {challengers.map((ch) => (
@@ -351,13 +321,9 @@ export function LiveReasoningPanel() {
         </div>
 
         <div>
-          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Proposed changes
-          </p>
+          <p className={cn(sectionTitleClass, 'mb-1.5')}>{UI_COPY.liveReasoning.proposalsHeading}</p>
           {proposals.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-slate-200 px-3 py-6 text-center text-xs text-slate-400 dark:border-slate-800">
-              No proposals yet — they arrive from the ReflectionAgent.
-            </p>
+            <EmptyState message={UI_COPY.liveReasoning.proposalsEmpty} className="min-h-0 py-6" />
           ) : (
             <div className="space-y-2">
               {proposals.map((p) => (

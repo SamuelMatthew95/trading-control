@@ -1043,7 +1043,43 @@ panel now clips and scrolls inside its own bounds.
 existing terminal render tests; layout constraints are structural
 (grid `minmax(0,1fr)` + `h-full`), not content-dependent.
 
----
+## `bg-primary` / `text-primary` classes silently rendered nothing
+
+**Symptom:** The Learning Console's grade-score meter fill and primary-tinted
+icon chips were invisible/untinted — components referenced `bg-primary`,
+`text-primary`, `bg-primary/10`, but no tint ever rendered.
+
+**Root cause:** `tailwind.config.js` never declared a `primary` colour, so
+Tailwind's JIT generated no CSS for those classes; `--primary` existed only
+as a CSS variable.
+
+**Fix:** The design-token migration added a `brand` colour token
+(`hsl(var(--primary) / <alpha-value>)`) in `tailwind.config.js` and migrated
+every `primary` class usage to `brand` (`text-brand`, `bg-brand/10`); meters
+now go through the shared `<Meter>` whose default fill is `bg-brand`.
+
+**Regression test:** `src/test/guardrails/design-system.test.ts` (arbitrary
+utility scan) + `src/test/components/ui-primitives.test.tsx` (Meter contract).
+
+## Light theme rendered dark-mode trading colours and scrollbars
+
+**Symptom:** In the light theme, the terminal's up/down price colours stayed
+at their dark-theme values and panel scrollbars rendered near-black thumbs on
+white surfaces.
+
+**Root cause:** `--up`/`--down` were hardcoded hex (`#10b981`/`#f43f5e`) that
+never flipped with the theme, and `.thin-scroll` hardcoded `#1e293b`/`#334155`
+(slate-800/700) thumbs.
+
+**Fix:** `src/styles/globals.css` derives `--up`/`--down` from the semantic
+tone tokens (`hsl(var(--success))`/`hsl(var(--danger))`), which flip per theme,
+and `.thin-scroll` uses `hsl(var(--border-strong))`/`hsl(var(--muted-foreground))`.
+Component-level `txt-up`/`txt-down`/`badge-up`/`badge-down` classes were
+replaced by Tone token classes and deleted.
+
+**Regression test:** `src/test/guardrails/design-system.test.ts` (hardcoded
+hue scan now also covers indigo; inline-style and arbitrary-utility scans
+prevent reintroduction).
 
 ## Open Exposure KPI undercounted memory-mode positions and rendered as a signed gain
 

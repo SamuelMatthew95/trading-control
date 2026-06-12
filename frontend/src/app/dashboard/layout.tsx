@@ -1,7 +1,6 @@
 'use client'
 
 import Link from 'next/link'
-import { UI_COPY } from '@/constants/copy'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard,
@@ -17,23 +16,27 @@ import {
   Power,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { UI_COPY } from '@/constants/copy'
 import { useDashboardStore } from '@/stores/useDashboardStore'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { Button } from '@/components/ui/button'
 import { useGlobalWebSocket } from '@/hooks/useGlobalWebSocket'
 import { api } from '@/lib/apiClient'
 import { formatUSD } from '@/lib/formatters'
+import { pnlColorClass } from '@/lib/dashboard-helpers'
+import { TONE_DOT } from '@/lib/design/sentiment'
 import { cn } from '@/lib/utils'
 import { useTerminalAccount } from '@/components/dashboard/terminal'
 
 const NAV = [
-  { href: '/dashboard', label: 'Overview', Icon: LayoutDashboard },
-  { href: '/dashboard/trading', label: 'Trading', Icon: CandlestickChart },
-  { href: '/dashboard/agents', label: 'Agents', Icon: Bot },
-  { href: '/dashboard/challengers', label: 'Challengers', Icon: Swords },
-  { href: '/dashboard/learning', label: 'Learning', Icon: TrendingUp },
-  { href: '/dashboard/proposals', label: 'Proposals', Icon: Lightbulb },
-  { href: '/dashboard/cognitive', label: 'Cognitive', Icon: Brain },
-  { href: '/dashboard/system', label: 'System', Icon: Settings2 },
+  { href: '/dashboard', label: UI_COPY.nav.overview, Icon: LayoutDashboard },
+  { href: '/dashboard/trading', label: UI_COPY.nav.trading, Icon: CandlestickChart },
+  { href: '/dashboard/agents', label: UI_COPY.nav.agents, Icon: Bot },
+  { href: '/dashboard/challengers', label: UI_COPY.nav.challengers, Icon: Swords },
+  { href: '/dashboard/learning', label: UI_COPY.nav.learning, Icon: TrendingUp },
+  { href: '/dashboard/proposals', label: UI_COPY.nav.proposals, Icon: Lightbulb },
+  { href: '/dashboard/cognitive', label: UI_COPY.nav.cognitive, Icon: Brain },
+  { href: '/dashboard/system', label: UI_COPY.nav.system, Icon: Settings2 },
 ]
 
 const LogoGlyph = () => (
@@ -48,8 +51,8 @@ const LogoGlyph = () => (
 )
 
 const Wordmark = () => (
-  <span className="text-[13px] font-bold uppercase tracking-[0.2em] text-slate-900 dark:text-slate-100">
-    Trading<span style={{ color: 'var(--brand)' }}>Control</span>
+  <span className="text-sm font-bold uppercase tracking-caps-wide text-foreground">
+    Trading<span className="text-brand">Control</span>
   </span>
 )
 
@@ -61,19 +64,23 @@ function Clock() {
     const id = setInterval(update, 1000)
     return () => clearInterval(id)
   }, [])
-  return <span className="font-mono text-[11px] tabular-nums text-slate-500">{now ? `${now} ET` : '--:--:-- ET'}</span>
+  return (
+    <span className="font-mono text-2xs tabular-nums text-muted-foreground">
+      {`${now || UI_COPY.header.clockEmpty} ${UI_COPY.header.timezone}`}
+    </span>
+  )
 }
 
 function HeaderStat({ label, value, className }: { label: string; value: string; className?: string }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">{label}</span>
-      <span className={cn('font-mono text-xs font-bold tabular-nums text-slate-700 dark:text-slate-200', className)}>{value}</span>
+      <span className="text-3xs font-semibold uppercase tracking-caps text-muted-foreground">{label}</span>
+      <span className={cn('font-mono text-xs font-bold tabular-nums text-foreground/80', className)}>{value}</span>
     </div>
   )
 }
 
-const HeaderDivider = () => <div className="h-4 w-px bg-slate-300 dark:bg-slate-800" />
+const HeaderDivider = () => <div className="h-4 w-px bg-border" />
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   useGlobalWebSocket()
@@ -88,7 +95,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Real account stats — broker-truth cash with live-marked positions on top
   // (see useTerminalAccount). P&L is lifetime paper P&L vs starting capital.
   const { equity, pnl, buyingPower } = useTerminalAccount()
-  const pnlUp = pnl >= 0
 
   const live = !killSwitchActive
 
@@ -133,14 +139,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="flex min-h-screen bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+    <div className="flex min-h-screen bg-background text-foreground">
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-slate-200 bg-white transition-transform dark:border-slate-800 dark:bg-slate-950 md:static md:translate-x-0',
+          'fixed inset-y-0 left-0 z-sidebar flex w-64 flex-col border-r bg-card transition-transform md:static md:translate-x-0',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full',
         )}
       >
-        <div className="flex h-12 items-center gap-2.5 border-b border-slate-200 px-4 dark:border-slate-800">
+        <div className="flex h-12 items-center gap-2.5 border-b px-4">
           <LogoGlyph />
           <Wordmark />
         </div>
@@ -152,94 +158,107 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 key={href}
                 href={href}
                 onClick={() => setSidebarOpen(false)}
+                aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'flex min-h-10 items-center gap-2 rounded-lg border px-3 text-sm font-sans font-semibold transition-colors',
+                  'flex min-h-10 items-center gap-2 rounded-lg px-3 text-sm font-sans font-semibold transition-colors',
                   active
-                    ? 'border-transparent text-[var(--brand)]'
-                    : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-200',
+                    ? 'bg-brand/10 text-brand'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                 )}
-                style={active ? { background: 'var(--brand-soft)' } : undefined}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="h-4 w-4" aria-hidden />
                 {label}
               </Link>
             )
           })}
         </nav>
-        <div className="mt-auto border-t border-slate-200 p-3 dark:border-slate-800">
-          <div className="flex items-center gap-2 text-xs font-sans text-slate-500 dark:text-slate-400">
-            <Activity className="h-4 w-4" />
-            Phase 2 · Paper Mode
+        <div className="mt-auto border-t p-3">
+          <div className="flex items-center gap-2 text-xs font-sans text-muted-foreground">
+            <Activity className="h-4 w-4" aria-hidden />
+            {UI_COPY.header.sidebarFooter}
           </div>
         </div>
       </aside>
 
-      {sidebarOpen && <button className="fixed inset-0 z-30 bg-slate-950/50 md:hidden" onClick={() => setSidebarOpen(false)} aria-label="Close sidebar" />}
+      {sidebarOpen && (
+        <button
+          type="button"
+          className="fixed inset-0 z-overlay bg-black/50 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+          aria-label={UI_COPY.aria.closeSidebar}
+        />
+      )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-50 h-12 border-b border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
+        <header className="sticky top-0 z-header h-12 border-b bg-card/95 backdrop-blur">
           <div className="flex h-full items-center gap-4 px-3 sm:px-4">
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => setSidebarOpen(true)}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100 md:hidden"
-              aria-label="Open sidebar"
+              className="md:hidden"
+              aria-label={UI_COPY.aria.openSidebar}
             >
               <Menu className="h-4 w-4" />
-            </button>
+            </Button>
 
             {/* Account stats — hidden on small screens like the terminal design */}
             <div className="hidden items-center gap-2 lg:flex">
-              <HeaderStat label="Equity" value={formatUSD(equity)} className="text-slate-900 dark:text-slate-100" />
+              <HeaderStat label={UI_COPY.header.equity} value={formatUSD(equity)} className="text-foreground" />
               <HeaderDivider />
               <HeaderStat
-                label="P&L"
-                value={`${pnlUp ? '+' : '-'}${formatUSD(pnl)}`}
-                className={pnlUp ? 'txt-up' : 'txt-down'}
+                label={UI_COPY.header.pnl}
+                value={`${pnl >= 0 ? '+' : '-'}${formatUSD(pnl)}`}
+                className={pnlColorClass(pnl)}
               />
               <HeaderDivider />
-              <HeaderStat label="Buying Power" value={formatUSD(buyingPower)} />
+              <HeaderStat label={UI_COPY.header.buyingPower} value={formatUSD(buyingPower)} />
             </div>
 
             <div className="ml-auto flex items-center gap-3">
               <div className="flex items-center gap-1.5">
-                <span className={cn('h-1.5 w-1.5 rounded-full', live ? 'animate-pulse bg-[var(--up)]' : 'bg-slate-500')} />
-                <span className="font-mono text-[10px] uppercase tracking-wider text-slate-500">{live ? 'Live · Paper' : 'Halted'}</span>
+                <span className={cn('h-1.5 w-1.5 rounded-full', live ? `animate-pulse ${TONE_DOT.success}` : TONE_DOT.neutral)} />
+                <span className="font-mono text-3xs uppercase tracking-caps text-muted-foreground">
+                  {live ? UI_COPY.header.live : UI_COPY.header.halted}
+                </span>
               </div>
               {mounted && <Clock />}
               <ThemeToggle />
               <HeaderDivider />
 
               {!killConfirm ? (
-                <button
+                <Button
+                  variant={killSwitchActive ? 'solid' : 'outline'}
+                  tone="danger"
                   onClick={() => setKillConfirm(true)}
                   className={cn(
-                    'flex h-7 items-center gap-1.5 whitespace-nowrap rounded-md border px-3 font-mono text-[11px] font-bold uppercase tracking-wider transition-colors',
-                    killSwitchActive
-                      ? 'border-[var(--down)] bg-[var(--down)] text-slate-950'
-                      : 'border-slate-300 text-slate-600 hover:border-[var(--down)] hover:text-[var(--down)] dark:border-slate-700 dark:text-slate-300',
+                    'px-3 font-mono text-2xs font-bold uppercase tracking-caps',
+                    !killSwitchActive && 'hover:border-danger hover:text-danger',
                   )}
                 >
-                  <Power className="h-[11px] w-[11px]" />
-                  {killSwitchActive ? 'Halted' : 'Kill Switch'}
-                </button>
+                  <Power className="h-3 w-3" aria-hidden />
+                  {killSwitchActive ? UI_COPY.killSwitch.halted : UI_COPY.killSwitch.label}
+                </Button>
               ) : (
                 <div className="flex items-center gap-1">
-                  <span className="font-mono text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    {killSwitchActive ? 'Resume?' : 'Halt all?'}
+                  <span className="font-mono text-3xs uppercase tracking-caps text-muted-foreground">
+                    {killSwitchActive ? UI_COPY.killSwitch.confirmResume : UI_COPY.killSwitch.confirmHalt}
                   </span>
-                  <button
+                  <Button
+                    variant="solid"
+                    tone="danger"
                     onClick={() => handleKillSwitch(!killSwitchActive)}
                     disabled={killSwitchPending}
-                    className="h-7 rounded-md bg-[var(--down)] px-2.5 font-mono text-[11px] font-bold uppercase tracking-wider text-slate-950 disabled:opacity-50"
+                    className="font-mono text-2xs font-bold uppercase tracking-caps"
                   >
-                    {killSwitchPending ? '…' : 'Confirm'}
-                  </button>
-                  <button
+                    {killSwitchPending ? '…' : UI_COPY.killSwitch.confirm}
+                  </Button>
+                  <Button
                     onClick={() => setKillConfirm(false)}
-                    className="h-7 rounded-md border border-slate-300 px-2.5 font-mono text-[11px] uppercase tracking-wider text-slate-500 hover:text-slate-800 dark:border-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                    className="font-mono text-2xs uppercase tracking-caps"
                   >
-                    Esc
-                  </button>
+                    {UI_COPY.killSwitch.cancel}
+                  </Button>
                 </div>
               )}
             </div>

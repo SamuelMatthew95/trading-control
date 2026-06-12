@@ -17,6 +17,7 @@ from api.constants import (
     PositionSide,
 )
 from api.observability import log_structured
+from api.telemetry import traced_broker_call
 
 # Shared timeout for all aiohttp sessions — prevents indefinite blocking on
 # Alpaca order endpoints when the upstream is slow or the connection is stale.
@@ -42,6 +43,7 @@ class AlpacaBroker:
             "Content-Type": "application/json",
         }
 
+    @traced_broker_call("place_order", "alpaca", is_order=True)
     async def place_order(self, symbol: str, side: str, qty: float, price: float) -> dict[str, Any]:
         """Place order via Alpaca paper trading API."""
         # Normalize symbol - Alpaca uses "AAPL" not "AAPL/USD"
@@ -148,6 +150,7 @@ class AlpacaBroker:
             FieldName.STATUS: status if status == OrderStatus.FILLED else OrderStatus.PENDING,
         }
 
+    @traced_broker_call("get_position", "alpaca")
     async def get_position(self, symbol: str) -> dict[str, Any]:
         """Get current position from Alpaca."""
         alpaca_symbol = symbol.replace("/USD", "").replace("/", "")
@@ -173,6 +176,7 @@ class AlpacaBroker:
                     FieldName.CURRENT_PRICE: float(body.get(FieldName.CURRENT_PRICE, 0.0)),
                 }
 
+    @traced_broker_call("get_cash", "alpaca")
     async def get_cash(self) -> float:
         """Get available buying power from Alpaca account."""
         async with aiohttp.ClientSession() as session:
@@ -183,6 +187,7 @@ class AlpacaBroker:
                 body = await resp.json()
                 return float(body.get(FieldName.BUYING_POWER, 0.0))
 
+    @traced_broker_call("get_order_status", "alpaca")
     async def get_order_status(self, broker_order_id: str) -> dict[str, Any] | None:
         """Get order status from Alpaca."""
         async with aiohttp.ClientSession() as session:

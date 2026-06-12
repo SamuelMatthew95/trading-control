@@ -3,12 +3,14 @@ import type { ApiHealth } from '@/hooks/useRestPoll'
 import { cn } from '@/lib/utils'
 import { cardClass, sectionTitleClass, mutedClass } from '@/lib/dashboard-styles'
 import { apiHealthBadgeClass } from '@/lib/dashboard-helpers'
+import { TONE_DOT } from '@/lib/design/sentiment'
 import { formatAgeFromMs } from '@/lib/formatters'
+import { NO_DATA, UI_COPY } from '@/constants/copy'
 import type { WiringFreshness } from './shared'
 
 function formatWiringAge(ageMs: number | null): string {
   const age = formatAgeFromMs(ageMs)
-  return age === '--' ? 'No recent timestamp' : `last ${age} ago`
+  return age === NO_DATA ? UI_COPY.agentsPage.noRecentTimestamp : `last ${age} ago`
 }
 
 export interface SystemDiagnosticsProps {
@@ -36,10 +38,8 @@ export function SystemDiagnostics({
   ]
   return (
     <div className={cardClass}>
-      <p className={sectionTitleClass}>System Diagnostics</p>
-      <p className={cn(mutedClass, 'mb-2')}>
-        Data-wiring health — where these numbers come from. For debugging.
-      </p>
+      <p className={sectionTitleClass}>{UI_COPY.agentsPage.diagnosticsTitle}</p>
+      <p className={cn(mutedClass, 'mb-2')}>{UI_COPY.agentsPage.diagnosticsSubtitle}</p>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <span
           className={cn(
@@ -48,26 +48,26 @@ export function SystemDiagnostics({
           )}
         >
           <span
-            className={cn('inline-block h-2 w-2 rounded-full', isInMemoryMode ? 'bg-warning' : 'bg-success')}
+            className={cn('inline-block h-2 w-2 rounded-full', isInMemoryMode ? TONE_DOT.warning : TONE_DOT.success)}
           />
-          {isInMemoryMode ? 'DB: In-Memory Fallback' : 'DB: Connected'}
+          {isInMemoryMode ? UI_COPY.agentsPage.dbMemory : UI_COPY.agentsPage.dbConnected}
         </span>
       </div>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <p className={mutedClass}>
-          Heartbeats (in-memory/Redis):{' '}
-          <span className="font-mono text-slate-700 dark:text-slate-200">{agentStatuses.length}</span>
-          <span className="ml-2 text-[11px]">{formatWiringAge(wiringFreshness.heartbeatAgeMs)}</span>
+          {UI_COPY.agentsPage.wiringHeartbeats}{' '}
+          <span className="font-mono text-foreground/80">{agentStatuses.length}</span>
+          <span className="ml-2 text-2xs">{formatWiringAge(wiringFreshness.heartbeatAgeMs)}</span>
         </p>
         <p className={mutedClass}>
-          Lifecycle rows (DB):{' '}
-          <span className="font-mono text-slate-700 dark:text-slate-200">{agentInstances.length}</span>
-          <span className="ml-2 text-[11px]">{formatWiringAge(wiringFreshness.instanceAgeMs)}</span>
+          {UI_COPY.agentsPage.wiringLifecycle}{' '}
+          <span className="font-mono text-foreground/80">{agentInstances.length}</span>
+          <span className="ml-2 text-2xs">{formatWiringAge(wiringFreshness.instanceAgeMs)}</span>
         </p>
         <p className={mutedClass}>
-          Agent logs (DB/WS):{' '}
-          <span className="font-mono text-slate-700 dark:text-slate-200">{agentLogs.length}</span>
-          <span className="ml-2 text-[11px]">{formatWiringAge(wiringFreshness.logAgeMs)}</span>
+          {UI_COPY.agentsPage.wiringLogs}{' '}
+          <span className="font-mono text-foreground/80">{agentLogs.length}</span>
+          <span className="ml-2 text-2xs">{formatWiringAge(wiringFreshness.logAgeMs)}</span>
         </p>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -75,7 +75,7 @@ export function SystemDiagnostics({
           <span
             key={apiRow.label}
             className={cn(
-              'rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+              'rounded px-2 py-0.5 text-3xs font-semibold uppercase tracking-caps',
               apiHealthBadgeClass(apiRow.value),
             )}
           >

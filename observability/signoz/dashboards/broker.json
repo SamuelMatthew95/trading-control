@@ -1,0 +1,109 @@
+{
+  "title": "Broker Dashboard",
+  "description": "Broker API performance, failures, and retries",
+  "tags": ["trading-control", "broker"],
+  "variables": {},
+  "widgets": [
+    {
+      "id": "broker-latency",
+      "title": "Broker API latency p50/p95/p99 (ms)",
+      "panelTypes": "graph",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "queryName": "A",
+              "aggregateOperator": "p50",
+              "aggregateAttribute": { "key": "broker_api_latency", "type": "Histogram" },
+              "groupBy": [{ "key": "trading.operation", "type": "tag" }],
+              "expression": "A"
+            },
+            {
+              "dataSource": "metrics",
+              "queryName": "B",
+              "aggregateOperator": "p95",
+              "aggregateAttribute": { "key": "broker_api_latency", "type": "Histogram" },
+              "groupBy": [{ "key": "trading.operation", "type": "tag" }],
+              "expression": "B"
+            },
+            {
+              "dataSource": "metrics",
+              "queryName": "C",
+              "aggregateOperator": "p99",
+              "aggregateAttribute": { "key": "broker_api_latency", "type": "Histogram" },
+              "groupBy": [{ "key": "trading.operation", "type": "tag" }],
+              "expression": "C"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "broker-failures",
+      "title": "Broker call failures / s",
+      "panelTypes": "graph",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "queryName": "A",
+              "aggregateOperator": "sum_rate",
+              "aggregateAttribute": { "key": "broker_api_latency_count", "type": "Sum" },
+              "filters": {
+                "items": [
+                  { "key": { "key": "trading.success" }, "op": "=", "value": "false" }
+                ],
+                "op": "AND"
+              },
+              "groupBy": [{ "key": "trading.operation", "type": "tag" }],
+              "expression": "A"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "retries",
+      "title": "Event retries / s by stream",
+      "panelTypes": "graph",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "queryName": "A",
+              "aggregateOperator": "sum_rate",
+              "aggregateAttribute": { "key": "retry_count", "type": "Sum" },
+              "groupBy": [{ "key": "trading.stream", "type": "tag" }],
+              "expression": "A"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "db-latency",
+      "title": "Database query p95 (ms)",
+      "panelTypes": "graph",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "queryName": "A",
+              "aggregateOperator": "p95",
+              "aggregateAttribute": { "key": "database_query_duration", "type": "Histogram" },
+              "expression": "A"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
