@@ -44,6 +44,21 @@ class TestDisabledNoOps:
         assert FieldName.OTEL_TRACE_ID not in event
 
 
+class TestOtlpHeaderParsing:
+    def test_standard_format(self):
+        parsed = telemetry.parse_otlp_headers("signoz-ingestion-key=abc123,x-env=prod")
+        assert parsed == {"signoz-ingestion-key": "abc123", "x-env": "prod"}
+
+    def test_value_containing_equals(self):
+        assert telemetry.parse_otlp_headers("authorization=Basic dXNlcg==") == {
+            "authorization": "Basic dXNlcg=="
+        }
+
+    def test_malformed_entries_skipped_never_raise(self):
+        assert telemetry.parse_otlp_headers("") == {}
+        assert telemetry.parse_otlp_headers("no-equals-sign,=novalue,, ok=1") == {"ok": "1"}
+
+
 class TestTracedBrokerCall:
     async def test_passthrough_result(self):
         @telemetry.traced_broker_call("place_order", "paper", is_order=True)
