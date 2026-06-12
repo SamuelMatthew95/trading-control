@@ -213,6 +213,9 @@ class Settings(BaseSettings):
     OTEL_ENABLED: bool = False
     OTEL_SERVICE_NAME: str = "trading-control"
     OTEL_EXPORTER_OTLP_ENDPOINT: str = "http://localhost:4317"
+    # "grpc" (local collectors, port 4317) or "http/protobuf" (SigNoz Cloud's
+    # documented protocol, port 443/4318).
+    OTEL_EXPORTER_OTLP_PROTOCOL: str = "grpc"
     # Plaintext gRPC is for local collectors only; cloud backends need TLS.
     OTEL_EXPORTER_OTLP_INSECURE: bool = True
     # Standard OTel format: comma-separated key=value pairs.
