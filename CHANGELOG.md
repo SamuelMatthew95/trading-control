@@ -1,5 +1,10 @@
 # Changelog
 
+## [2026-06-12] — Cooling-off gate no longer blocks risk exits
+
+### Fixed
+- **One losing close pinned every other position open** — the cooling-off gate (revenge-entry throttle) applied to SELLs too, so after a single loss the ExecutionEngine blocked RiskGuardian's take-profit / trailing-stop / stale / further stop-loss closes for the whole cooldown window. SELLs in this long-only book only reduce exposure and now bypass the gate; BUY entries are still throttled (`docs/troubleshooting/execution-engine.md`, `tests/agents/test_execution_engine.py::test_cooling_off_never_blocks_sell_close`)
+
 ## [2026-06-12] — RiskGuardian: memory-mode exits, trailing-stop ratchet, stale-position reaper
 
 ### Fixed
