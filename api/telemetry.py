@@ -69,6 +69,21 @@ def _attrs(**kwargs: Any) -> dict[str, Any]:
     return {f"{_ATTR_PREFIX}{key}": value for key, value in kwargs.items() if value is not None}
 
 
+def parse_otlp_headers(raw: str) -> dict[str, str]:
+    """Parse the standard OTLP headers format: ``key1=value1,key2=value2``.
+
+    Used for managed-backend auth (e.g. ``signoz-ingestion-key=<token>``).
+    Malformed entries are skipped rather than raising — a bad header must
+    never prevent the app from starting.
+    """
+    headers: dict[str, str] = {}
+    for pair in raw.split(","):
+        key, sep, value = pair.partition("=")
+        if sep and key.strip():
+            headers[key.strip()] = value.strip()
+    return headers
+
+
 # ---------------------------------------------------------------------------
 # Initialisation
 # ---------------------------------------------------------------------------
@@ -110,13 +125,21 @@ def init_telemetry(app: Any = None) -> bool:
     endpoint = settings.OTEL_EXPORTER_OTLP_ENDPOINT
     resource = Resource.create({"service.name": settings.OTEL_SERVICE_NAME})
 
+    # insecure=True (plaintext gRPC) suits local collectors; managed backends
+    # (SigNoz Cloud, Grafana Cloud) need TLS + an auth header instead.
+    exporter_kwargs: dict[str, Any] = {
+        "endpoint": endpoint,
+        "insecure": settings.OTEL_EXPORTER_OTLP_INSECURE,
+    }
+    headers = parse_otlp_headers(settings.OTEL_EXPORTER_OTLP_HEADERS)
+    if headers:
+        exporter_kwargs["headers"] = headers
+
     tracer_provider = TracerProvider(resource=resource)
-    tracer_provider.add_span_processor(
-        BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint, insecure=True))
-    )
+    tracer_provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(**exporter_kwargs)))
     trace.set_tracer_provider(tracer_provider)
 
-    reader = PeriodicExportingMetricReader(OTLPMetricExporter(endpoint=endpoint, insecure=True))
+    reader = PeriodicExportingMetricReader(OTLPMetricExporter(**exporter_kwargs))
     metrics.set_meter_provider(MeterProvider(resource=resource, metric_readers=[reader]))
 
     _trace_api = trace
