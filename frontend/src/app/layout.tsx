@@ -4,6 +4,7 @@ import { ThemeProvider } from 'next-themes'
 import { Analytics } from '@vercel/analytics/react'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 import '../styles/globals.css'
+import { UI_COPY } from '@/constants/copy'
 import { WebSocketProvider } from '@/components/WebSocketProvider'
 
 // Load the typefaces the design system declares (Tailwind fontFamily). Without
@@ -21,14 +22,14 @@ const plexMono = IBM_Plex_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'Trading Control',
-  description: 'AI Trading Control Dashboard',
+  title: UI_COPY.app.title,
+  description: UI_COPY.app.description,
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning className={`${inter.variable} ${plexMono.variable}`}>
-      <body className="min-h-screen bg-slate-100 font-sans text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100">
+      <body className="min-h-screen bg-background font-sans text-foreground antialiased">
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
           <WebSocketProvider>{children}</WebSocketProvider>
         </ThemeProvider>
