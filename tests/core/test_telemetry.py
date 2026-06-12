@@ -59,6 +59,29 @@ class TestOtlpHeaderParsing:
         assert telemetry.parse_otlp_headers("no-equals-sign,=novalue,, ok=1") == {"ok": "1"}
 
 
+class TestHttpEndpointBuilding:
+    def test_signoz_cloud_form(self):
+        assert (
+            telemetry.build_http_endpoint(
+                "https://ingest.us2.signoz.cloud:443", "traces", insecure=False
+            )
+            == "https://ingest.us2.signoz.cloud:443/v1/traces"
+        )
+
+    def test_scheme_added_from_insecure_flag(self):
+        assert telemetry.build_http_endpoint(
+            "ingest.eu.signoz.cloud:443", "metrics", insecure=False
+        ) == ("https://ingest.eu.signoz.cloud:443/v1/metrics")
+        assert telemetry.build_http_endpoint("localhost:4318", "traces", insecure=True) == (
+            "http://localhost:4318/v1/traces"
+        )
+
+    def test_trailing_slash_normalized(self):
+        assert telemetry.build_http_endpoint("https://host/", "traces", insecure=False) == (
+            "https://host/v1/traces"
+        )
+
+
 class TestTracedBrokerCall:
     async def test_passthrough_result(self):
         @telemetry.traced_broker_call("place_order", "paper", is_order=True)
