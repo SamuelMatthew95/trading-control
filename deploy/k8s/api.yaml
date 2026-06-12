@@ -1,0 +1,106 @@
+# trading-control API + agent fleet.
+#
+# SINGLE REPLICA BY DESIGN: the trading agents and price poller run inside
+# this process and are not leader-elected — two replicas would consume the
+# same Redis streams twice and double-trade. `strategy: Recreate` extends the
+# same invariant to rollouts (never old+new pod trading concurrently).
+# Scale-out path: split agents into their own singleton Deployment, then HPA
+# the stateless API tier — see docs/platform/kubernetes.md.
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: trading-control
+  labels:
+    app.kubernetes.io/name: api
+spec:
+  selector:
+    app.kubernetes.io/name: api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: trading-control
+  labels:
+    app.kubernetes.io/name: api
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          # CI publishes :latest and :sha-<commit> from main (docker-build.yml).
+          # For Kind without a registry:
+          #   docker build -t trading-control-api:local .
+          #   kind load docker-image trading-control-api:local --name trading
+          # then set image: trading-control-api:local
+          image: ghcr.io/samuelmatthew95/trading-control:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          envFrom:
+            - configMapRef:
+                name: trading-control-config
+            - secretRef:
+                name: trading-control-secrets
+                optional: true # boots without keys (LLM fail-closed, paper broker)
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          # /health answers "starting" during the 60s grace period, so the
+          # startup probe passes as soon as the server binds; readiness then
+          # tracks Redis/DB via /readiness.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24 # up to 2 min for migrations on first boot
+          readinessProbe:
+            httpGet:
+              path: /readiness
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
