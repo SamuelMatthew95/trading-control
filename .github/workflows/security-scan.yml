@@ -33,7 +33,11 @@ jobs:
           pip install pip-audit
           # Audit the declared dependency set; report-only on schedule runs is
           # avoided on purpose — a finding should fail loudly everywhere.
-          pip-audit -r requirements.txt --strict
+          # Ignores (each must carry a reason):
+          #   CVE-2025-69872 — diskcache 5.6.3 (transitive); no fixed release
+          #   exists upstream yet. Remove the flag once a fix version ships.
+          pip-audit -r requirements.txt --strict \
+            --ignore-vuln CVE-2025-69872
 
   secret-scan:
     name: Secret scan (gitleaks)
@@ -43,9 +47,13 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # full history — secrets hide in old commits
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # The gitleaks binary directly, not gitleaks-action: the action demands
+      # a paid GITLEAKS_LICENSE for org-type accounts; the CLI is MIT-free.
+      - name: Run gitleaks over full git history
+        run: |
+          curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            | tar xz gitleaks
+          ./gitleaks git --redact --no-banner --exit-code 1 --config .gitleaks.toml .
 
   filesystem-scan:
     name: Filesystem CVE/misconfig scan (Trivy)
@@ -54,7 +62,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Trivy fs scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -77,7 +85,7 @@ jobs:
           tags: scan-target:ci
           cache-from: type=gha
       - name: Trivy image scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: scan-target:ci
@@ -86,7 +94,7 @@ jobs:
           ignore-unfixed: true
 
       - name: Generate SBOM (SPDX)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: scan-target:ci
