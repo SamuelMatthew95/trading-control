@@ -32,13 +32,16 @@ container, CI, Kubernetes, IaC.
 3. **[Fixed] Vulnerable pinned dependencies.** The first pip-audit run
    surfaced ~40 CVEs in the previous pins. Remediated by upgrading
    `aiohttp 3.9.1→3.14.0`, `fastapi 0.115→0.136` (starlette 1.3.1),
-   `fastmcp 2.9→2.14.7` (mcp 1.27), `gunicorn 21.2→23.0`,
-   `uvicorn 0.24→0.38`, `python-dotenv`, and the pytest toolchain
-   (`pytest 9`, `pytest-asyncio 1.3`). Verified: full test suite green
-   (1,473 + 89 + 605) and the gunicorn/UvicornWorker production boot path
-   serves `/health`. One audit ignore remains — `CVE-2025-69872`
-   (`diskcache`, transitive): no fixed release exists; documented in
-   `security-scan.yml`, remove when upstream ships a fix.
+   `fastmcp 2.9→3.4.2` (mcp 1.27; clears the SSRF/OAuthProxy CVEs Trivy
+   flagged in the image — the API surface this repo uses was unchanged),
+   `gunicorn 21.2→23.0`, `uvicorn 0.24→0.38`, `python-dotenv`, and the
+   pytest toolchain (`pytest 9`, `pytest-asyncio 1.3`). The Dockerfile also
+   upgrades pip/setuptools/wheel in both stages — stock setuptools 79
+   vendors jaraco.context 5.3.0 (CVE-2026-23949) and wheel 0.45.1
+   (CVE-2026-24049); setuptools ≥ 82 drops the vendored copies. Verified:
+   full test suite green (1,473 + 89 + 605), gunicorn/UvicornWorker boot
+   serves `/health`, `/mcp` mount answers. pip-audit is clean with **zero
+   ignore flags**.
    **[Still open]** `groq`, `alpaca-py` float; adopt `pip-compile`
    (uv/pip-tools) for a fully-pinned lock layer used by the Dockerfile.
 4. **[Open] No image signing.** Supply-chain recommendation below.
