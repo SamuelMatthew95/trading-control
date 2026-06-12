@@ -382,14 +382,9 @@ class RiskGuardian:
         if abs(pnl_pct) >= STALE_POSITION_PNL_BAND_PCT:
             return None
         opened_raw = pos.get(FieldName.OPENED_AT) if hasattr(pos, "get") else None
-        if not opened_raw:
+        opened = RiskGuardian._parse_utc_datetime(opened_raw)
+        if opened is None:
             return None
-        try:
-            opened = datetime.fromisoformat(str(opened_raw).replace("Z", "+00:00"))
-        except ValueError:
-            return None
-        if opened.tzinfo is None:
-            opened = opened.replace(tzinfo=timezone.utc)
         age_seconds = (datetime.now(timezone.utc) - opened).total_seconds()
         if age_seconds < STALE_POSITION_MAX_AGE_SECONDS:
             return None
@@ -458,7 +453,10 @@ class RiskGuardian:
                             FROM trade_performance
                             WHERE created_at >= :today
                         """),
-                        {FieldName.TODAY: date.today().isoformat()},
+                        # UTC calendar day — must match the memory-mode mirror
+                        # filter below, or the kill switch trips on different
+                        # trade sets depending on the server's local timezone.
+                        {FieldName.TODAY: datetime.now(timezone.utc).date().isoformat()},
                     )
                     return float(result.scalar() or 0)
             except Exception:
@@ -487,8 +485,14 @@ class RiskGuardian:
         return total
 
     @staticmethod
-    def _parse_utc_date(value: Any) -> date | None:
-        """UTC calendar date of an ISO timestamp string, or None if unparseable."""
+    def _parse_utc_datetime(value: Any) -> datetime | None:
+        """Timezone-aware UTC datetime of an ISO timestamp string, or None.
+
+        Accepts a trailing ``Z`` suffix; naive timestamps are assumed UTC.
+        Single parser for every timestamp the guardian reads (position
+        ``opened_at``, closed-trade ``filled_at``) so the two paths can
+        never drift in format handling.
+        """
         if not value:
             return None
         try:
@@ -497,7 +501,13 @@ class RiskGuardian:
             return None
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc).date()
+        return parsed.astimezone(timezone.utc)
+
+    @staticmethod
+    def _parse_utc_date(value: Any) -> date | None:
+        """UTC calendar date of an ISO timestamp string, or None if unparseable."""
+        parsed = RiskGuardian._parse_utc_datetime(value)
+        return parsed.date() if parsed else None
 
     async def _portfolio_drawdown_pct(self) -> float:
         """Today's realized loss as a fraction of paper capital (0.0 if flat/up)."""
