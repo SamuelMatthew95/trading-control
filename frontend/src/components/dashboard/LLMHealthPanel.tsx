@@ -2,6 +2,9 @@
 
 import { TONE_DOT, TONE_TEXT, type Tone } from '@/lib/design/sentiment'
 import { cardClass, monoValueClass, mutedClass, sectionTitleClass } from '@/lib/dashboard-styles'
+import { formatTimeAgo } from '@/lib/formatters'
+import { Skeleton } from '@/components/ui/loading'
+import { NO_DATA, UI_COPY } from '@/constants/copy'
 import {
   LLMCallResult,
   LLMStatus,
@@ -9,6 +12,8 @@ import {
   type CallRecord,
   type LocalInferenceData,
 } from '@/lib/llm-health'
+
+const COPY = UI_COPY.llmHealth
 
 // LLM health status → semantic Tone (colours resolve through the design tokens).
 const LLM_TONE: Record<LLMStatus, Tone> = {
@@ -18,10 +23,10 @@ const LLM_TONE: Record<LLMStatus, Tone> = {
   [LLMStatus.UNKNOWN]: 'neutral',
 }
 const STATUS_LABEL: Record<LLMStatus, string> = {
-  [LLMStatus.LIVE]: 'Live',
-  [LLMStatus.DEGRADED]: 'Degraded',
-  [LLMStatus.DOWN]: 'Down',
-  [LLMStatus.UNKNOWN]: 'Unknown',
+  [LLMStatus.LIVE]: COPY.statusLive,
+  [LLMStatus.DEGRADED]: COPY.statusDegraded,
+  [LLMStatus.DOWN]: COPY.statusDown,
+  [LLMStatus.UNKNOWN]: COPY.statusUnknown,
 }
 
 function StatusDot({ status }: { status: LLMStatus }) {
@@ -39,8 +44,8 @@ function CallDot({ call }: { call: CallRecord }) {
   if (call.result === LLMCallResult.SUCCESS) {
     return (
       <span
-        title={`Success — ${call.latency_ms?.toFixed(0) ?? '?'}ms`}
-        className="flex items-center gap-0.5 rounded bg-success/10 px-1 py-0.5 text-[10px] font-mono text-success"
+        title={`${COPY.callSuccess} — ${call.latency_ms?.toFixed(0) ?? '?'}ms`}
+        className="flex items-center gap-0.5 rounded bg-success/10 px-1 py-0.5 font-mono text-3xs text-success"
       >
         ✓ {call.latency_ms?.toFixed(0) ?? '?'}ms
       </span>
@@ -49,29 +54,29 @@ function CallDot({ call }: { call: CallRecord }) {
   if (call.result === LLMCallResult.RATE_LIMITED) {
     return (
       <span
-        title="Rate limited"
-        className="rounded bg-warning/10 px-1 py-0.5 text-[10px] font-mono text-warning"
+        title={COPY.callRateLimited}
+        className="rounded bg-warning/10 px-1 py-0.5 font-mono text-3xs text-warning"
       >
-        RL
+        {COPY.callRateLimitedAbbr}
       </span>
     )
   }
   if (call.result === LLMCallResult.TIMEOUT) {
     return (
       <span
-        title="Timeout"
-        className="rounded bg-danger/10 px-1 py-0.5 text-[10px] font-mono text-danger"
+        title={COPY.callTimeout}
+        className="rounded bg-danger/10 px-1 py-0.5 font-mono text-3xs text-danger"
       >
-        TO
+        {COPY.callTimeoutAbbr}
       </span>
     )
   }
   return (
     <span
-      title="Error"
-      className="rounded bg-slate-200 px-1 py-0.5 text-[10px] font-mono text-slate-600 dark:bg-slate-500/10 dark:text-slate-400"
+      title={COPY.callError}
+      className="rounded bg-muted-foreground/10 px-1 py-0.5 font-mono text-3xs text-muted-foreground"
     >
-      ERR
+      {COPY.callErrorAbbr}
     </span>
   )
 }
@@ -83,28 +88,26 @@ const LABEL = sectionTitleClass
 const VALUE = monoValueClass
 
 function successRateColor(pct: number): string {
-  if (pct >= 80) return 'font-semibold text-success'
-  if (pct >= 50) return 'font-semibold text-warning'
-  return 'font-semibold text-danger'
+  if (pct >= 80) return `font-semibold ${TONE_TEXT.success}`
+  if (pct >= 50) return `font-semibold ${TONE_TEXT.warning}`
+  return `font-semibold ${TONE_TEXT.danger}`
 }
 
 function LocalInferenceStrip({ data }: { data: LocalInferenceData }) {
   if (!data.lm_studio_enabled) return null
 
   const healthy = data.lm_studio_healthy
-  const dotColor = healthy ? 'bg-success' : 'bg-slate-400'
-  const labelColor = healthy
-    ? 'text-success'
-    : 'text-slate-500 dark:text-slate-400'
+  const dotColor = healthy ? TONE_DOT.success : TONE_DOT.neutral
+  const labelColor = healthy ? TONE_TEXT.success : 'text-muted-foreground'
 
   return (
-    <div className="mb-3 rounded-lg border border-indigo-300/30 bg-indigo-500/5 px-3 py-2 text-xs">
+    <div className="mb-3 rounded-lg border border-brand/30 bg-brand/5 px-3 py-2 text-xs">
       <div className="mb-1.5 flex items-center justify-between">
-        <span className={LABEL}>Local GPU / LM Studio</span>
+        <span className={LABEL}>{COPY.localStripTitle}</span>
         <span className="flex items-center gap-1.5">
           <span className={`inline-block h-2 w-2 rounded-full ${dotColor}`} />
           <span className={`text-xs font-semibold ${labelColor}`}>
-            {healthy ? 'Active' : 'Offline'}
+            {healthy ? COPY.localActive : COPY.localOffline}
           </span>
         </span>
       </div>
@@ -112,13 +115,11 @@ function LocalInferenceStrip({ data }: { data: LocalInferenceData }) {
       {/* Remote-to-localhost mismatch warning */}
       {data.remote_localhost_mismatch && (
         <div className="mb-2 rounded border border-warning/40 bg-warning/10 px-2 py-1.5 text-warning">
-          <span className="font-semibold">Remote backend cannot reach localhost.</span>
-          <span className="ml-1">
-            Use Tailscale, a public tunnel, or run the backend locally.
-          </span>
+          <span className="font-semibold">{COPY.mismatchTitle}</span>
+          <span className="ml-1">{COPY.mismatchHint}</span>
           {data.base_url_host && (
             <span className={`${MUTED} ml-1`}>
-              (host: <span className="font-mono">{data.base_url_host}</span>)
+              ({COPY.host} <span className="font-mono">{data.base_url_host}</span>)
             </span>
           )}
         </div>
@@ -127,47 +128,38 @@ function LocalInferenceStrip({ data }: { data: LocalInferenceData }) {
       <div className="grid grid-cols-2 gap-x-4 gap-y-1">
         {data.local_model && (
           <span className={`${MUTED} col-span-2 truncate`}>
-            Model: <span className="font-mono">{data.local_model}</span>
+            {COPY.model} <span className="font-mono">{data.local_model}</span>
           </span>
         )}
         {data.base_url_host && !data.remote_localhost_mismatch && (
           <span className={`${MUTED} col-span-2`}>
-            Host: <span className="font-mono">{data.base_url_host}</span>
+            {COPY.hostLabel} <span className="font-mono">{data.base_url_host}</span>
           </span>
         )}
         {data.local_latency_ms != null && (
           <span className={MUTED}>
-            Latency: <span className={VALUE}>{data.local_latency_ms}ms</span>
+            {COPY.latency} <span className={VALUE}>{data.local_latency_ms}ms</span>
           </span>
         )}
         <span className={MUTED}>
-          Fallbacks:{' '}
-          <span
-            className={
-              data.local_fallback_count > 0
-                ? 'font-semibold text-warning'
-                : VALUE
-            }
-          >
+          {COPY.fallbacks}{' '}
+          <span className={data.local_fallback_count > 0 ? 'font-semibold text-warning' : VALUE}>
             {data.local_fallback_count}
           </span>
         </span>
         {!data.llm_fallback_enabled && (
           <span className={`${MUTED} col-span-2`}>
-            Fallback: <span className="font-mono text-slate-500 dark:text-slate-400">disabled</span>
+            {COPY.fallback} <span className="font-mono text-muted-foreground">{COPY.disabled}</span>
           </span>
         )}
         {data.last_local_error && !data.remote_localhost_mismatch && (
           <span className={`${MUTED} col-span-2`}>
-            Error:{' '}
-            <span className="font-mono text-danger">
-              {data.last_local_error}
-            </span>
+            {COPY.errorLabel} <span className="font-mono text-danger">{data.last_local_error}</span>
           </span>
         )}
         {data.available_models && data.available_models.length > 0 && (
           <span className={`${MUTED} col-span-2 truncate`}>
-            Loaded: <span className="font-mono">{data.available_models.join(', ')}</span>
+            {COPY.loaded} <span className="font-mono">{data.available_models.join(', ')}</span>
           </span>
         )}
       </div>
@@ -175,21 +167,11 @@ function LocalInferenceStrip({ data }: { data: LocalInferenceData }) {
   )
 }
 
-function timeAgo(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime()
-  const diffMin = Math.round(diffMs / 60_000)
-  if (diffMin < 1) return 'just now'
-  if (diffMin < 60) return `${diffMin}m ago`
-  const diffHrs = Math.floor(diffMin / 60)
-  if (diffHrs < 24) return `${diffHrs}h ${diffMin % 60}m ago`
-  return `${Math.floor(diffHrs / 24)}d ago`
-}
-
 function DelayValue({ delayMs, gradeAdjusted }: { delayMs: number; gradeAdjusted: boolean }) {
   const color = gradeAdjusted
     ? delayMs >= 1000
-      ? 'font-semibold text-danger'
-      : 'font-semibold text-warning'
+      ? `font-semibold ${TONE_TEXT.danger}`
+      : `font-semibold ${TONE_TEXT.warning}`
     : VALUE
   return (
     <span className={color}>
@@ -204,8 +186,8 @@ export function LLMHealthPanel() {
   if (error) {
     return (
       <div className={CARD}>
-        <p className={LABEL}>LLM Health</p>
-        <p className={`mt-2 text-sm ${MUTED}`}>Metrics unavailable</p>
+        <p className={LABEL}>{COPY.title}</p>
+        <p className={`mt-2 text-sm ${MUTED}`}>{COPY.unavailable}</p>
       </div>
     )
   }
@@ -213,10 +195,10 @@ export function LLMHealthPanel() {
   if (!data) {
     return (
       <div className={CARD}>
-        <p className={LABEL}>LLM Health</p>
+        <p className={LABEL}>{COPY.title}</p>
         <div className="mt-2 space-y-2">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="h-3 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
+            <Skeleton key={i} className="h-3" />
           ))}
         </div>
       </div>
@@ -229,64 +211,64 @@ export function LLMHealthPanel() {
     <div className={CARD}>
       {/* Header */}
       <div className="mb-3 flex items-center justify-between">
-        <p className={LABEL}>LLM Health</p>
+        <p className={LABEL}>{COPY.title}</p>
         <StatusDot status={data.status} />
       </div>
 
       {/* Primary metrics grid */}
       <div className="mb-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
         <span className={MUTED}>
-          Model: <span className={VALUE}>{data.model}</span>
+          {COPY.model} <span className={VALUE}>{data.model}</span>
         </span>
         <span className={MUTED}>
-          Provider: <span className={VALUE}>{data.active_provider}</span>
+          {COPY.provider} <span className={VALUE}>{data.active_provider}</span>
         </span>
 
         <span className={MUTED}>
-          Success Rate:{' '}
+          {COPY.successRate}{' '}
           <span className={successRateColor(data.success_rate_pct)}>
             {Number(data.success_rate_pct ?? 0).toFixed(0)}%
           </span>{' '}
           <span className={MUTED}>
-            ({data.success_count}/{data.total_in_window} last {windowMin}m)
+            ({data.success_count}/{data.total_in_window} {COPY.last} {windowMin}m)
           </span>
         </span>
 
         <span className={MUTED}>
-          Avg Latency:{' '}
+          {COPY.avgLatency}{' '}
           <span className={VALUE}>
-            {(data.avg_latency_ms ?? 0) > 0 ? `${Number(data.avg_latency_ms).toFixed(0)}ms` : '--'}
+            {(data.avg_latency_ms ?? 0) > 0 ? `${Number(data.avg_latency_ms).toFixed(0)}ms` : NO_DATA}
           </span>
         </span>
 
         <span className={MUTED}>
-          Rate Limited:{' '}
+          {COPY.rateLimited}{' '}
           <span className={data.rate_limited_count > 0 ? 'font-semibold text-warning' : VALUE}>
             {data.rate_limited_count}
           </span>{' '}
-          <span className={MUTED}>(last {windowMin}m)</span>
+          <span className={MUTED}>({COPY.last} {windowMin}m)</span>
         </span>
 
         <span className={MUTED}>
-          Timeouts:{' '}
+          {COPY.timeouts}{' '}
           <span className={data.timeout_count > 0 ? 'font-semibold text-danger' : VALUE}>
             {data.timeout_count}
           </span>{' '}
-          <span className={MUTED}>(last {windowMin}m)</span>
+          <span className={MUTED}>({COPY.last} {windowMin}m)</span>
         </span>
 
         <span className={MUTED}>
-          Daily Calls: <span className={VALUE}>{data.daily_calls}</span>
+          {COPY.dailyCalls} <span className={VALUE}>{data.daily_calls}</span>
         </span>
 
         <span className={MUTED}>
-          Lifetime: <span className={VALUE}>{data.total_calls_lifetime}</span>
+          {COPY.lifetime} <span className={VALUE}>{data.total_calls_lifetime}</span>
         </span>
 
         {data.total_in_window === 0 && data.last_success_at && (
           <span className={`${MUTED} col-span-2 italic`}>
-            No calls in window — last:{' '}
-            <span className={VALUE}>{timeAgo(data.last_success_at)}</span>
+            {COPY.noCallsInWindow}{' '}
+            <span className={VALUE}>{formatTimeAgo(data.last_success_at)}</span>
           </span>
         )}
       </div>
@@ -295,22 +277,20 @@ export function LLMHealthPanel() {
 
       {data.last_error?.message && (
         <div className="mb-3 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
-          Last error: <span className="font-mono">{data.last_error.message}</span>
+          {COPY.lastError} <span className="font-mono">{data.last_error.message}</span>
         </div>
       )}
 
       {/* GradeAgent call-rate adjustment banner */}
       <div
         className={`mb-3 flex items-center justify-between rounded-lg border px-3 py-2 text-xs ${
-          data.grade_adjusted_delay
-            ? 'border-warning/30 bg-warning/5'
-            : 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/40'
+          data.grade_adjusted_delay ? 'border-warning/30 bg-warning/5' : 'bg-muted/40'
         }`}
       >
         <span className={MUTED}>
-          Call Delay{' '}
-          <span className={`${MUTED} text-[10px]`}>
-            (GradeAgent {data.grade_adjusted_delay ? 'adjusted' : 'default'})
+          {COPY.callDelay}{' '}
+          <span className={`${MUTED} text-3xs`}>
+            ({COPY.gradeAgent} {data.grade_adjusted_delay ? COPY.gradeAdjusted : COPY.gradeDefault})
           </span>
           :
         </span>
@@ -320,8 +300,8 @@ export function LLMHealthPanel() {
       {/* Recent call history */}
       {data.recent_results.length > 0 && (
         <div>
-          <p className={`mb-1.5 text-[10px] font-semibold uppercase tracking-widest ${MUTED}`}>
-            Last {data.recent_results.length} calls
+          <p className={`mb-1.5 ${LABEL}`}>
+            {COPY.lastCallsPrefix} {data.recent_results.length} {COPY.lastCalls}
           </p>
           <div className="flex flex-wrap gap-1">
             {data.recent_results.map((call, i) => (
