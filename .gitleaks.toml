@@ -1,0 +1,16 @@
+# Gitleaks configuration — extends the default ruleset.
+#
+# Allowlist entries must be PRECISE (match the placeholder, not the file):
+# a real key pasted into these files would still be caught by other rules.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documented placeholder credentials in examples"
+regexes = [
+  # LM Studio's well-known dummy bearer token used in curl examples
+  # (.env.example, docs/local-inference.md). Matches the captured secret
+  # exactly — nothing else is exempted. Not a secret.
+  '''^lm-studio$''',
+]
