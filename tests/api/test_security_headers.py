@@ -7,9 +7,7 @@ from api.main import app
 
 async def test_security_headers_present():
     # base_url must be http://localhost — TrustedHostMiddleware rejects "test".
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://localhost"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         response = await client.get("/health")
 
     assert response.headers["X-Content-Type-Options"] == "nosniff"
