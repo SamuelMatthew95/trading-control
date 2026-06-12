@@ -105,12 +105,6 @@ def init_telemetry(app: Any = None) -> bool:
     try:
         # Optional dependency — only imported when OTEL_ENABLED=true.
         from opentelemetry import metrics, trace  # noqa: PLC0415
-        from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (  # noqa: PLC0415
-            OTLPMetricExporter,
-        )
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # noqa: PLC0415
-            OTLPSpanExporter,
-        )
         from opentelemetry.sdk.metrics import MeterProvider  # noqa: PLC0415
         from opentelemetry.sdk.metrics.export import (  # noqa: PLC0415
             PeriodicExportingMetricReader,
@@ -118,28 +112,20 @@ def init_telemetry(app: Any = None) -> bool:
         from opentelemetry.sdk.resources import Resource  # noqa: PLC0415
         from opentelemetry.sdk.trace import TracerProvider  # noqa: PLC0415
         from opentelemetry.sdk.trace.export import BatchSpanProcessor  # noqa: PLC0415
+
+        span_exporter, metric_exporter = _build_exporters()
     except ImportError:
         log_structured("warning", "telemetry_sdk_missing_running_without_otel")
         return False
 
-    endpoint = settings.OTEL_EXPORTER_OTLP_ENDPOINT
+    # service.version etc. merge in from OTEL_RESOURCE_ATTRIBUTES automatically.
     resource = Resource.create({"service.name": settings.OTEL_SERVICE_NAME})
 
-    # insecure=True (plaintext gRPC) suits local collectors; managed backends
-    # (SigNoz Cloud, Grafana Cloud) need TLS + an auth header instead.
-    exporter_kwargs: dict[str, Any] = {
-        "endpoint": endpoint,
-        "insecure": settings.OTEL_EXPORTER_OTLP_INSECURE,
-    }
-    headers = parse_otlp_headers(settings.OTEL_EXPORTER_OTLP_HEADERS)
-    if headers:
-        exporter_kwargs["headers"] = headers
-
     tracer_provider = TracerProvider(resource=resource)
-    tracer_provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(**exporter_kwargs)))
+    tracer_provider.add_span_processor(BatchSpanProcessor(span_exporter))
     trace.set_tracer_provider(tracer_provider)
 
-    reader = PeriodicExportingMetricReader(OTLPMetricExporter(**exporter_kwargs))
+    reader = PeriodicExportingMetricReader(metric_exporter)
     metrics.set_meter_provider(MeterProvider(resource=resource, metric_readers=[reader]))
 
     _trace_api = trace
@@ -151,10 +137,68 @@ def init_telemetry(app: Any = None) -> bool:
     log_structured(
         "info",
         "telemetry_initialized",
-        endpoint=endpoint,
+        endpoint=settings.OTEL_EXPORTER_OTLP_ENDPOINT,
+        protocol=settings.OTEL_EXPORTER_OTLP_PROTOCOL,
         service_name=settings.OTEL_SERVICE_NAME,
     )
     return True
+
+
+def build_http_endpoint(base: str, signal: str, *, insecure: bool) -> str:
+    """Build the per-signal URL the OTLP/HTTP exporters require.
+
+    The HTTP exporters take a FULL url including the signal path
+    (``https://host:443/v1/traces``), unlike gRPC which takes ``host:port``.
+    A missing scheme is filled in from the insecure flag.
+    """
+    base = base.rstrip("/")
+    if not base.startswith(("http://", "https://")):
+        base = f"{'http' if insecure else 'https'}://{base}"
+    return f"{base}/v1/{signal}"
+
+
+def _build_exporters() -> tuple[Any, Any]:
+    """Construct span+metric exporters for the configured OTLP protocol.
+
+    ``grpc`` (default) suits local collectors on :4317; ``http/protobuf`` is
+    what SigNoz Cloud's onboarding documents (TLS on :443). Raises
+    ImportError when the relevant exporter package is missing — handled by
+    the caller as "run without telemetry".
+    """
+    headers = parse_otlp_headers(settings.OTEL_EXPORTER_OTLP_HEADERS) or None
+    endpoint = settings.OTEL_EXPORTER_OTLP_ENDPOINT
+    insecure = settings.OTEL_EXPORTER_OTLP_INSECURE
+
+    if settings.OTEL_EXPORTER_OTLP_PROTOCOL.strip().lower() == "http/protobuf":
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import (  # noqa: PLC0415
+            OTLPMetricExporter as HTTPMetricExporter,
+        )
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (  # noqa: PLC0415
+            OTLPSpanExporter as HTTPSpanExporter,
+        )
+
+        return (
+            HTTPSpanExporter(
+                endpoint=build_http_endpoint(endpoint, "traces", insecure=insecure),
+                headers=headers,
+            ),
+            HTTPMetricExporter(
+                endpoint=build_http_endpoint(endpoint, "metrics", insecure=insecure),
+                headers=headers,
+            ),
+        )
+
+    from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (  # noqa: PLC0415
+        OTLPMetricExporter as GRPCMetricExporter,
+    )
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # noqa: PLC0415
+        OTLPSpanExporter as GRPCSpanExporter,
+    )
+
+    return (
+        GRPCSpanExporter(endpoint=endpoint, insecure=insecure, headers=headers),
+        GRPCMetricExporter(endpoint=endpoint, insecure=insecure, headers=headers),
+    )
 
 
 def _create_instruments(meter: Any) -> None:
