@@ -79,6 +79,19 @@ export const TONE_BADGE_OUTLINED: Record<Tone, string> = {
   neutral: 'bg-muted-foreground/10 text-muted-foreground border-muted-foreground/20',
 }
 
+/**
+ * Canonical tonal-button colour recipe per Tone — outlined chip colours plus a
+ * hover fill step. Consumed by the shared `Button` component (`variant="tonal"`);
+ * never re-declare a toned button colour at a call site.
+ */
+export const TONE_BUTTON: Record<Tone, string> = {
+  success: 'border-success/30 bg-success/10 text-success hover:bg-success/20',
+  danger: 'border-danger/30 bg-danger/10 text-danger hover:bg-danger/20',
+  warning: 'border-warning/30 bg-warning/10 text-warning hover:bg-warning/20',
+  neutral:
+    'border-muted-foreground/20 bg-muted-foreground/10 text-muted-foreground hover:bg-muted-foreground/20',
+}
+
 /** Directional text colour — the directional subset of {@link TONE_TEXT}. */
 export const SENTIMENT_TEXT: Record<Sentiment, string> = {
   positive: TONE_TEXT.success,
