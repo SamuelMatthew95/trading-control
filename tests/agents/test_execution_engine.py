@@ -628,3 +628,44 @@ async def test_process_in_memory_deduplicates_replayed_messages(
     assert mock_broker.place_order.call_count == 1, (
         "Broker must NOT be called a second time for a replayed message"
     )
+
+
+# ---------------------------------------------------------------------------
+# Cooling-off gate — throttles entries only, never exits
+# ---------------------------------------------------------------------------
+
+
+async def test_cooling_off_blocks_buy_after_loss_streak(
+    engine, mock_bus, mock_redis, mock_broker, monkeypatch
+):
+    """With recent losses dominating, a new BUY entry is gated."""
+    monkeypatch.setattr("api.services.execution.execution_engine.is_db_available", lambda: False)
+
+    mock_redis.lrange = AsyncMock(return_value=["-2000.0"])
+
+    await engine.process(_make_order("buy"))
+
+    mock_broker.place_order.assert_not_awaited()
+
+
+async def test_cooling_off_never_blocks_sell_close(
+    engine, mock_bus, mock_redis, mock_broker, monkeypatch
+):
+    """Regression: a SELL close must execute even while cooling-off is armed.
+
+    One losing close used to arm the cooling-off gate and pin every other
+    position open for the cooldown window — RiskGuardian's stop-loss /
+    take-profit / trailing closes all arrive as SELLs and were blocked
+    exactly when getting flat mattered most. Long-only book: SELLs only
+    reduce exposure, so the entry throttle must never apply to them.
+    """
+    monkeypatch.setattr("api.services.execution.execution_engine.is_db_available", lambda: False)
+
+    mock_redis.lrange = AsyncMock(return_value=["-2000.0"])
+    mock_broker.get_position = AsyncMock(
+        return_value={"symbol": "BTC/USD", "side": "long", "qty": 1.0, "entry_price": 50000.0}
+    )
+
+    await engine.process(_make_order("sell"))
+
+    mock_broker.place_order.assert_awaited_once()
