@@ -1293,6 +1293,13 @@ class ExecutionEngine(BaseStreamConsumer):
         """Block execution if recent trade outcomes are dominated by losses."""
         if side in NO_ORDER_ACTIONS:
             return None
+        if side in (OrderSide.SELL, PositionSide.SHORT):
+            # Long-only book: a SELL only reduces exposure. The cooling-off
+            # gate exists to stop revenge ENTRIES after a loss streak —
+            # gating exits would pin breached positions open (stop-loss /
+            # take-profit / trailing closes all arrive as SELLs) for the
+            # whole cooldown window, exactly when getting flat is safest.
+            return None
         try:
             raw = await self.redis.lrange(REDIS_KEY_RECENT_OUTCOMES, 0, COOLING_OFF_WINDOW - 1)
             # LPUSH makes index 0 the newest; cooling_off_score treats the last
