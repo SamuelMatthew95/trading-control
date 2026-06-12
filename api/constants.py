@@ -719,6 +719,7 @@ class FieldName(StrEnum):
     OPEN = "open"
     OLD_VALUE = "old_value"
     OPENAI = "openai"
+    OPENED_AT = "opened_at"
     OPEN_POSITION_QTY = "open_position_qty"
     OPEN_POSITIONS = "open_positions"
     ORCHESTRATOR = "orchestrator"
@@ -740,6 +741,7 @@ class FieldName(StrEnum):
     PATTERNS = "patterns"
     PAYLOAD = "payload"
     PCT = "pct"
+    PEAK_PNL_PCT = "peak_pnl_pct"
     PENDING = "pending"
     PENDING_ORDERS_LAST_HOUR = "pending_orders_last_hour"
     PERFORMANCE = "performance"
@@ -1441,6 +1443,13 @@ PROPOSAL_GUARDRAIL_TTL_SECONDS: Final[int] = 172_800  # 48h — survives the day
 REDIS_KEY_KILL_SWITCH: Final[str] = "kill_switch:active"
 REDIS_KEY_KILL_SWITCH_UPDATED_AT: Final[str] = "kill_switch:updated_at"
 REDIS_KEY_IC_WEIGHTS: Final[str] = "alpha:ic_weights"
+# Trailing-stop ratchet state — owner: RiskGuardian. One JSON value per open
+# position: {peak_pnl_pct, avg_cost}. avg_cost identifies the position; a basis
+# change (new entry / add) resets the ratchet. Deleted when the guardian closes
+# the position; the TTL (refreshed on every scan) reaps keys orphaned by closes
+# the guardian didn't issue (opposite-signal exits via ReasoningAgent).
+REDIS_KEY_RISK_PEAK_PNL: Final[str] = "risk:peak_pnl:{symbol}"
+REDIS_RISK_PEAK_TTL_SECONDS: Final[int] = 604_800  # 7 days — outlives any position
 
 # Learning-loop control plane — written by ProposalApplier, read by ExecutionEngine
 # and ReasoningAgent so grade-driven proposals actually change trading behavior.
@@ -1677,6 +1686,20 @@ TAKE_PROFIT_PCT: Final[float] = 0.10
 DAILY_LOSS_LIMIT_PCT: Final[float] = 0.02
 # How often (seconds) RiskGuardian scans open positions
 RISK_CHECK_INTERVAL_SECONDS: Final[int] = 30
+# Trailing-stop profit ratchet. Without it a +9% winner that reverses rides all
+# the way back to the -5% hard stop — a 14-point round trip given back. Once a
+# position's peak unrealized PnL reaches ARM_PCT the ratchet arms; it then
+# closes the position when current PnL falls below peak * (1 - GIVEBACK_FRAC),
+# so an armed winner always banks at least ARM_PCT * (1 - GIVEBACK_FRAC).
+# Hard STOP_LOSS_PCT / TAKE_PROFIT_PCT bounds still apply on either side.
+TRAILING_STOP_ARM_PCT: Final[float] = 0.03
+TRAILING_STOP_GIVEBACK_FRAC: Final[float] = 0.40
+# Stale-position reaper: a position older than MAX_AGE whose PnL is still inside
+# the dead band (|pnl| < BAND_PCT) is going nowhere — momentum has decayed. Close
+# it to free the capital instead of letting chop bleed it into the hard stop.
+# Only enforced where the position payload carries opened_at (paper broker).
+STALE_POSITION_MAX_AGE_SECONDS: Final[int] = 14_400  # 4 hours
+STALE_POSITION_PNL_BAND_PCT: Final[float] = 0.01
 # Signal confidence gate — trades below this confidence are blocked pre-execution.
 # Set just below the MOMENTUM tier (signal composite score 0.55) so MOMENTUM and
 # STRONG signals can trade while LOW/noise (0.30) stays blocked. It MUST stay <=
