@@ -17,7 +17,18 @@
  *
  *   3. Raw `var(--accent)` colour reads — Tailwind consumes `--accent` as an
  *      HSL triple (`hsl(var(--accent))`), so reading it as a raw colour is
- *      invalid CSS in dark mode. The brand colour is `var(--brand)`.
+ *      invalid CSS in dark mode. The brand colour is the `brand` token (text-brand).
+ *
+ *   4. Inline `style={…}` props — presentation lives in the styling system.
+ *      The single sanctioned exception is the shared Meter primitive, whose
+ *      data-driven fill width cannot be a static class.
+ *
+ *   5. Arbitrary font-size / letter-spacing utilities (text-[11px],
+ *      tracking-[0.16em]) — the type scale lives in tailwind.config.js
+ *      (text-2xs/text-3xs, tracking-caps/tracking-caps-wide).
+ *
+ *   6. Numeric z-index utilities (z-10, z-50) — stacking uses the semantic
+ *      scale (z-sticky/z-overlay/z-sidebar/z-header/z-toast/z-modal).
  */
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'fs'
@@ -32,7 +43,18 @@ const CATEGORICAL_PALETTE_FILES = new Set(['lib/grade-colors.ts'])
 const CATEGORICAL_LINE_MARKER = 'categorical-hue:'
 
 const SEMANTIC_HUE_CLASS =
-  /\b(?:text|bg|border|ring|from|via|to|fill|stroke|outline|decoration|divide|shadow|accent|caret)-(?:emerald|green|rose|red|amber|yellow)-\d{2,3}\b/
+  /\b(?:text|bg|border|ring|from|via|to|fill|stroke|outline|decoration|divide|shadow|accent|caret)-(?:emerald|green|rose|red|amber|yellow|indigo)-\d{2,3}\b/
+
+/** The one component allowed an inline style: data-driven Meter fill width. */
+const INLINE_STYLE_EXEMPT_FILES = new Set(['components/ui/meter.tsx'])
+
+const INLINE_STYLE_PROP = /\bstyle=\{/
+
+/** Arbitrary px font sizes and em trackings — must use the configured scale. */
+const ARBITRARY_TYPE_UTILITY = /\b(?:text-\[\d+(?:\.\d+)?px\]|tracking-\[)/
+
+/** Numeric z-index utilities — must use the semantic stacking scale. */
+const NUMERIC_Z_UTILITY = /\bz-\d+\b/
 
 function walkSourceFiles(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
@@ -95,7 +117,62 @@ describe('design-system guardrails', () => {
     ).toEqual([])
   })
 
-  it('no raw var(--accent) colour reads (invalid CSS in dark mode — use var(--brand))', () => {
+  it('no inline style props outside the Meter primitive', () => {
+    const violations: string[] = []
+    for (const file of sourceFiles) {
+      const rel = relative(SRC_ROOT, file)
+      if (INLINE_STYLE_EXEMPT_FILES.has(rel)) continue
+      const lines = readFileSync(file, 'utf8').split('\n')
+      lines.forEach((line, i) => {
+        if (INLINE_STYLE_PROP.test(line)) {
+          violations.push(`${rel}:${i + 1}: ${line.trim()}`)
+        }
+      })
+    }
+    expect(
+      violations,
+      `Inline style props found — express presentation in Tailwind tokens, or use the ` +
+        `shared <Meter> for data-driven widths:\n${violations.join('\n')}`,
+    ).toEqual([])
+  })
+
+  it('no arbitrary font-size/tracking utilities (use text-2xs/3xs, tracking-caps)', () => {
+    const violations: string[] = []
+    for (const file of sourceFiles) {
+      const rel = relative(SRC_ROOT, file)
+      const lines = readFileSync(file, 'utf8').split('\n')
+      lines.forEach((line, i) => {
+        if (ARBITRARY_TYPE_UTILITY.test(line)) {
+          violations.push(`${rel}:${i + 1}: ${line.trim()}`)
+        }
+      })
+    }
+    expect(
+      violations,
+      `Arbitrary type utilities found — use the configured scale ` +
+        `(text-2xs/text-3xs, tracking-caps/tracking-caps-wide):\n${violations.join('\n')}`,
+    ).toEqual([])
+  })
+
+  it('no numeric z-index utilities (use the semantic stacking scale)', () => {
+    const violations: string[] = []
+    for (const file of sourceFiles) {
+      const rel = relative(SRC_ROOT, file)
+      const lines = readFileSync(file, 'utf8').split('\n')
+      lines.forEach((line, i) => {
+        if (NUMERIC_Z_UTILITY.test(line)) {
+          violations.push(`${rel}:${i + 1}: ${line.trim()}`)
+        }
+      })
+    }
+    expect(
+      violations,
+      `Numeric z-index utilities found — use z-sticky/z-overlay/z-sidebar/z-header/` +
+        `z-toast/z-modal (tailwind.config.js):\n${violations.join('\n')}`,
+    ).toEqual([])
+  })
+
+  it('no raw var(--accent) colour reads (invalid CSS in dark mode — use the brand token)', () => {
     const violations: string[] = []
     for (const file of sourceFiles) {
       const rel = relative(SRC_ROOT, file)
@@ -108,7 +185,7 @@ describe('design-system guardrails', () => {
     }
     expect(
       violations,
-      `var(--accent) is an HSL triple for Tailwind, not a colour — use var(--brand):\n${violations.join('\n')}`,
+      `var(--accent) is an HSL triple for Tailwind, not a colour — use the brand token classes:\n${violations.join('\n')}`,
     ).toEqual([])
   })
 })
