@@ -1,0 +1,25 @@
+# Non-secret runtime configuration. Secrets (API keys) live in the
+# `trading-control-secrets` Secret — see secret.example.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trading-control-config
+  namespace: trading-control
+  labels:
+    app.kubernetes.io/name: trading-control
+data:
+  PORT: "8000"
+  LOG_LEVEL: "INFO"
+  USE_MEMORY_MODE: "false"
+  DATABASE_URL: "postgresql://trading:trading@postgres:5432/trading_control"
+  REDIS_URL: "redis://redis:6379/0"
+  # Paper trading only. Switching BROKER_MODE off paper is a deliberate,
+  # human decision — never default it here.
+  ALPACA_PAPER: "true"
+  BROKER_MODE: "paper"
+  ALLOWED_HOSTS: "localhost,127.0.0.1,api,trading.localtest.me"
+  ALLOWED_ORIGINS: "http://localhost:3000,http://trading.localtest.me"
+  # OpenTelemetry → SigNoz (set OTEL_ENABLED=true once a collector exists).
+  OTEL_ENABLED: "false"
+  OTEL_SERVICE_NAME: "trading-control"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://signoz-otel-collector.observability:4317"
