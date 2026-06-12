@@ -168,3 +168,50 @@ async def test_get_positions_empty_symbols_is_no_op(broker, redis):
     redis.mget = _count_mget
     assert await broker.get_positions([]) == {}
     assert calls["mget"] == 0
+
+
+async def test_opened_at_stamped_on_new_position(broker):
+    """A fresh open must stamp opened_at — RiskGuardian's stale-position reaper
+    needs the position's true age."""
+    await broker.place_order(symbol="BTC/USD", side="buy", qty=1.0, price=50_000.0)
+    pos = await broker.get_position("BTC/USD")
+    assert pos["opened_at"], "new position must carry opened_at"
+
+
+async def test_opened_at_preserved_on_add_and_partial_close(broker):
+    """Adds and partial closes continue the same position — opened_at must keep
+    the ORIGINAL open time, not the last-fill time."""
+    await broker.place_order(symbol="BTC/USD", side="buy", qty=2.0, price=50_000.0)
+    original = (await broker.get_position("BTC/USD"))["opened_at"]
+
+    await broker.place_order(symbol="BTC/USD", side="buy", qty=1.0, price=52_000.0)
+    assert (await broker.get_position("BTC/USD"))["opened_at"] == original
+
+    await broker.place_order(symbol="BTC/USD", side="sell", qty=1.0, price=53_000.0)
+    assert (await broker.get_position("BTC/USD"))["opened_at"] == original
+
+
+async def test_opened_at_cleared_on_full_close(broker):
+    """A flat position has no age — opened_at must be cleared so the next open
+    starts a fresh clock."""
+    await broker.place_order(symbol="SOL/USD", side="buy", qty=1.0, price=100.0)
+    await broker.place_order(symbol="SOL/USD", side="sell", qty=1.0, price=120.0)
+    pos = await broker.get_position("SOL/USD")
+    assert pos["opened_at"] is None
+
+    # Flat default for never-traded symbols carries the same shape.
+    assert (await broker.get_position("ETH/USD"))["opened_at"] is None
+
+
+async def test_opened_at_reset_on_direction_flip(broker):
+    """An order that flips through zero opens a NEW position — opened_at must
+    restart, not inherit the old side's open time."""
+    await broker.place_order(symbol="ETH/USD", side="buy", qty=1.0, price=2_000.0)
+    original = (await broker.get_position("ETH/USD"))["opened_at"]
+
+    # Sell 2.0 against a 1.0 long → flips to a 1.0 short.
+    await broker.place_order(symbol="ETH/USD", side="sell", qty=2.0, price=2_000.0)
+    pos = await broker.get_position("ETH/USD")
+    assert pos["side"] == "short"
+    assert pos["opened_at"] is not None
+    assert pos["opened_at"] >= original  # restarted at flip time
