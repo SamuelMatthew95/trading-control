@@ -1042,3 +1042,15 @@ panel now clips and scrolls inside its own bounds.
 **Regression test:** visual/layout fix — verified via `pnpm build` +
 existing terminal render tests; layout constraints are structural
 (grid `minmax(0,1fr)` + `h-full`), not content-dependent.
+
+---
+
+## Open Exposure KPI undercounted memory-mode positions and rendered as a signed gain
+
+**Symptom:** `/dashboard/system` showed an Open Exposure figure (e.g. `+$67.92`) that didn't match the open positions visible elsewhere, and the `+` prefix made a capital-at-risk magnitude read like a profit.
+
+**Root cause:** `SystemDashboard.tsx` computed exposure from `position.quantity` / `position.entry_price` directly instead of the canonical dual-shape helpers. ORM rows carry `quantity`/`entry_price` but the memory-mode snapshot and PaperBroker REST rows carry `qty`/`avg_cost` — so REST-hydrated rows counted as $0 and only WebSocket-normalized rows were summed (the figure depended on which delivery path each position happened to arrive by). The value was then formatted with `signedUSD`, which prefixes `+`.
+
+**Fix:** Added `positionNotional()` / `positionEntryPrice()` to `frontend/src/lib/formatters.ts` (built on `positionQty`/`livePriceFor`, which now also fall back to `avg_cost`/`unrealized_pnl`); `SystemDashboard.tsx` sums `positionNotional(position, props.prices)` — so exposure also marks to the live price stream — counts active positions via `isActivePosition`, and formats with unsigned `formatUSD`.
+
+**Regression test:** `src/test/components/system/SystemDashboard.test.tsx` ("counts memory-mode (qty/avg_cost) rows and renders an unsigned magnitude") and `src/test/helpers/live-pnl.test.ts` ("memory-mode position shape" suite)
