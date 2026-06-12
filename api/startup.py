@@ -21,6 +21,8 @@ from datetime import datetime, timezone
 
 import httpx
 from fastapi import FastAPI
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from api.config import settings
 from api.constants import VALID_SYMBOLS, FieldName
@@ -194,13 +196,52 @@ async def _init_redis(app: FastAPI):
     return redis_client
 
 
+async def _ensure_streams_with_retry(redis_client) -> None:
+    """Run the stream/consumer-group startup barrier, retrying transient failures.
+
+    A transient Redis hiccup here (e.g. a momentarily saturated connection
+    pool surfacing as ``ConnectionError("No connection available.")``) used to
+    propagate straight out of the lifespan: the gunicorn worker exited and the
+    whole deploy crash-looped. The barrier is idempotent, so retrying with
+    backoff is always safe. After the final attempt the error propagates —
+    the system cannot run without its streams (fail closed).
+    """
+    delays = [2, 4, 8]
+    attempts = len(delays) + 1
+    for attempt in range(1, attempts + 1):
+        try:
+            await ensure_all_streams_ready(redis_client)
+            return
+        except (RedisConnectionError, RedisTimeoutError):
+            if attempt == attempts:
+                raise
+            backoff = delays[attempt - 1]
+            log_structured(
+                "warning",
+                "redis_streams_barrier_retry",
+                attempt=attempt,
+                max_attempts=attempts,
+                backoff_seconds=backoff,
+                exc_info=True,
+            )
+            await asyncio.sleep(backoff)
+
+
 async def _probe_lmstudio() -> None:
-    """Optional local-inference health probe. Non-blocking; never stops startup."""
+    """Optional local-inference health probe. Purely informational.
+
+    Runs as a background task off the boot-critical path: LM Studio is
+    optional (often not in use at all), so an absent/slow local-inference
+    host must never delay startup or fail the app. Never raises.
+    """
     if _is_lmstudio_effectively_enabled():
         lm_studio_log_startup_config()
         try:
             lm_ok = await asyncio.wait_for(lm_studio_check_health(), timeout=10.0)
         except asyncio.TimeoutError:
+            lm_ok = False
+        except Exception:
+            log_structured("warning", "lmstudio_startup_check_error", exc_info=True)
             lm_ok = False
         log_structured(
             "info",
@@ -400,6 +441,7 @@ async def _shutdown(app: FastAPI, pipeline: EventPipeline | None, broadcaster) -
         "backtest_refresh_task",
         "tool_telemetry_task",
         "agent_grade_snapshot_task",
+        "lmstudio_probe_task",
     ):
         task = getattr(app.state, task_name, None)
         if task is not None:
@@ -454,16 +496,15 @@ async def lifespan(app: FastAPI):
     try:
         await _init_persistence(app)
         redis_client = await _init_redis(app)
-        start_gauge_poller(redis_client)
-        await _probe_lmstudio()
-
-        event_bus = EventBus(redis_client)
-        dlq_manager = DLQManager(redis_client, event_bus)
 
         # STARTUP BARRIER: every stream + consumer group must exist before any
         # consumer starts. ensure_all_streams_ready() creates, verifies, and
-        # self-heals any missing groups atomically.
-        await ensure_all_streams_ready(redis_client)
+        # self-heals any missing groups atomically. It runs immediately after
+        # Redis init — before the gauge poller or any other background task can
+        # contend for the shared connection pool — and retries transient Redis
+        # failures so a boot-time hiccup delays startup instead of crash-looping
+        # the deploy.
+        await _ensure_streams_with_retry(redis_client)
         log_structured(
             "info",
             "redis_startup_barrier_passed",
@@ -472,6 +513,17 @@ async def lifespan(app: FastAPI):
             msg_id="none",
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
+
+        start_gauge_poller(redis_client)
+        # LM Studio is optional and its probe is informational only — run it in
+        # the background so an absent/slow local-inference host can never delay
+        # or fail the boot.
+        app.state.lmstudio_probe_task = asyncio.create_task(
+            _probe_lmstudio(), name="lmstudio-probe"
+        )
+
+        event_bus = EventBus(redis_client)
+        dlq_manager = DLQManager(redis_client, event_bus)
 
         await broadcaster.start(redis_client)
         log_structured(

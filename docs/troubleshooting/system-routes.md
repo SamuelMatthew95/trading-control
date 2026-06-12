@@ -264,3 +264,34 @@ False. Output shape per route is unchanged (`timestamp` vs `created_at` key,
 trace_id only on `/health/logs`).
 
 **Regression test:** `tests/core/test_agent_log_stream.py::test_initial_session_closed_before_first_frame_is_yielded`
+
+## Deploy crash-loop: startup barrier dies on `ConnectionError: No connection available.`
+
+**Symptom:** A Render deploy fails with the gunicorn worker exiting during
+startup (`Worker failed to boot`, exit code 3) and the service crash-loops.
+The `startup_failed` log shows `redis.exceptions.ConnectionError: No
+connection available.` raised from `ensure_all_streams_ready` →
+`create_groups` → `XGROUP CREATE`, exactly `REDIS_POOL_TIMEOUT_SECONDS` (5s)
+after the barrier started — even though `redis_connected` and
+`tool_telemetry_hydrated` succeeded seconds earlier on the same pool.
+
+**Root cause:** The streams startup barrier ran late in the lifespan — after
+`start_gauge_poller()` (whose background Redis reads begin immediately) and
+`_probe_lmstudio()` (a 10s `asyncio.wait_for` whose cancellation fires right
+before the barrier) — so its first `XGROUP CREATE` could time out waiting on
+the shared `BlockingConnectionPool` while it was contended. Unlike Postgres
+init (`_init_persistence`, retried with backoff), the barrier was single-shot:
+one transient Redis hiccup aborted the whole lifespan and failed the deploy.
+
+**Fix:** `api/startup.py` — the barrier now (1) runs immediately after
+`_init_redis()`, before any background task can touch the connection pool,
+and (2) is wrapped in `_ensure_streams_with_retry()` (backoff 2/4/8s on
+`ConnectionError`/`TimeoutError`, zero delay on the happy path, re-raising
+after the final attempt — the system cannot run without its streams, so it
+still fails closed on a real Redis outage). Additionally `_probe_lmstudio()`
+moved off the boot-critical path to a background task
+(`app.state.lmstudio_probe_task`): LM Studio is optional and informational,
+so an absent/slow local-inference host can no longer delay boot by 10s or
+interfere with startup at all.
+
+**Regression test:** `tests/core/test_startup_streams_barrier.py`
