@@ -4,6 +4,42 @@ Three signals, one pipeline: **OpenTelemetry → OTLP → SigNoz**.
 Everything is opt-in via `OTEL_ENABLED=true` — with the flag off (default)
 the hooks are no-ops and the app behaves exactly as before.
 
+## Quickstart — see production metrics in ~10 minutes (no servers, no cloning)
+
+This is the recommended path for the Render deployment. You host nothing.
+
+1. **Sign up at [signoz.io](https://signoz.io) → SigNoz Cloud.** After
+   signup, copy two things from Settings → Ingestion: your **ingestion key**
+   and your **region** (`us` / `eu` / `in`).
+2. **Render dashboard → your service → Environment → add four vars:**
+   ```
+   OTEL_ENABLED=true
+   OTEL_EXPORTER_OTLP_ENDPOINT=ingest.<region>.signoz.cloud:443
+   OTEL_EXPORTER_OTLP_INSECURE=false
+   OTEL_EXPORTER_OTLP_HEADERS=signoz-ingestion-key=<your-key>
+   ```
+   Saving triggers a redeploy automatically.
+3. **Verify it took:** Render → Logs → look for one line:
+   `telemetry_initialized`. (If you see `telemetry_disabled`, the
+   `OTEL_ENABLED` var didn't apply.)
+4. **Open SigNoz Cloud in your browser.** Within ~2 minutes of traffic:
+   **Services** shows `trading-control`; **Traces** shows each trade's full
+   journey with per-hop timing; **Dashboards → Import JSON** — load the
+   three files from `observability/signoz/dashboards/` for the Trading /
+   System / Broker views; alert rules to create are in
+   `observability/signoz/alerts.md`.
+
+**To turn it all off:** set `OTEL_ENABLED=false`. Telemetry is fail-open by
+design — if SigNoz is unreachable, the app logs a warning and trades on.
+
+Notes, so there are no surprises:
+- SigNoz Cloud is a paid product with a free trial — check current pricing.
+  The self-hosted route below is permanently free in exchange for you
+  operating it.
+- This app exports OTLP over **gRPC**. Backends that only accept OTLP over
+  HTTP (e.g. Grafana Cloud's gateway) won't work without swapping the
+  exporter package — that's why this guide says SigNoz specifically.
+
 ```
 ┌──────────────────────── trading-control (FastAPI) ────────────────────────┐
 │ traces   FastAPI auto-instr + agent.process spans + broker.* spans       │
@@ -28,18 +64,14 @@ the hooks are no-ops and the app behaves exactly as before.
 
 ## Choosing a backend (best-practice ladder)
 
-1. **Managed (recommended for Render-style deployments):** SigNoz Cloud or
-   Grafana Cloud free tier. Nothing to host — set three env vars on the
-   service and dashboards appear in the vendor UI:
-   ```bash
-   OTEL_ENABLED=true
-   OTEL_EXPORTER_OTLP_ENDPOINT=ingest.<region>.signoz.cloud:443
-   OTEL_EXPORTER_OTLP_INSECURE=false
-   OTEL_EXPORTER_OTLP_HEADERS=signoz-ingestion-key=<token>
-   ```
-2. **Self-hosted SigNoz** (`observability/signoz/README.md`): when data
-   control or volume-cost matters and you can operate ClickHouse. This is a
-   real ops commitment, not a default.
+1. **Managed — SigNoz Cloud (recommended for Render-style deployments).**
+   Nothing to host; see the Quickstart at the top of this page. Other OTLP
+   backends work too as long as they accept OTLP over **gRPC** (this app's
+   exporter); HTTP-only gateways (e.g. Grafana Cloud's) would need the
+   HTTP exporter package swapped in.
+2. **Self-hosted SigNoz** (`observability/signoz/README.md`): permanently
+   free, when data control or volume-cost matters and you can operate
+   ClickHouse. A real ops commitment, not a default.
 3. **Local clone + compose:** development and learning only.
 
 ## Where instrumentation lives
