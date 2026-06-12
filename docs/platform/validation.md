@@ -45,10 +45,30 @@ implied. Re-run column = how to reproduce locally.
    (state can contain secrets). Also added `deploy/k8s/secret.yaml` so the
    real-secret copy of the template can never land in git.
 
+## First CI run on PR #310 — results and fixes
+
+- ✅ `backend-tests` (3.10 + 3.11) and the **Docker build + boot smoke test
+  passed in CI** — the image builds and serves `/health` (closes the
+  sandbox gap noted below).
+- ❌→✅ `security-scan` initially failed on all four jobs; each was fixed
+  and re-verified locally:
+  - Trivy action pin `0.28.0` no longer resolves (tags became
+    `v`-prefixed upstream) → `@v0.36.0`.
+  - gitleaks-action demands a paid license for org accounts → replaced
+    with the MIT gitleaks CLI; full 927-commit history scan is clean after
+    a precise `.gitleaks.toml` allowlist for the documented `lm-studio`
+    placeholder token (46 false positives, verified individually).
+  - pip-audit found ~40 real CVEs in pre-existing pins → dependencies
+    upgraded (aiohttp 3.14, fastapi 0.136/starlette 1.3.1, fastmcp 2.14.7,
+    gunicorn 23, uvicorn 0.38, pytest 9 toolchain). Full suite re-run
+    green on the new stack AND the gunicorn `UvicornWorker` production
+    boot path verified against a live Redis. One no-fix-available ignore
+    (`CVE-2025-69872`, diskcache) documented in the workflow.
+
 ## Known residual risks (deliberate, tracked)
 
-- Docker image build/boot and Trivy image scan execute first in CI, not
-  locally — watch the first `docker-build.yml` / `security-scan.yml` runs.
+- Trivy image scan executes first in CI, not locally — watch the
+  `security-scan.yml` image job.
 - `tofu init` against the real provider registry and `ansible-galaxy`
   collection installs were network-blocked in the sandbox; both are
   standard first-run steps documented in their guides.
