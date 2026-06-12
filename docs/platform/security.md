@@ -53,6 +53,25 @@ container, CI, Kubernetes, IaC.
    repo's guardrail docs define this exact sequence as the contract; flagging
    for a deliberate follow-up.
 
+### Frontend (Trivy fs scan findings)
+
+`next 14.2.15 → 14.2.35` clears CRITICAL CVE-2025-29927 (middleware auth
+bypass) and the 14.x-fixable DoS advisories; `lodash → 4.18.1` (pnpm
+override) clears CVE-2026-4800. Verified: typecheck, 409 vitest tests, and
+the production build all pass. Five remaining Next.js advisories are fixed
+only in Next ≥ 15.5.16 — a major framework migration (React 19, async
+request APIs) deliberately out of scope here; they are listed in
+`.trivyignore` with reasons and an explicit exit condition.
+**Follow-up:** migrate the dashboard to Next 15.x and delete that block.
+
+### Secret-scan hygiene
+
+gitleaks scans all branches in CI (3,311 commits). Two allowlist entries in
+`.gitleaks.toml`, both precise: the documented `lm-studio` placeholder
+token, and `.next/` build output committed on old unmerged branches (the
+flagged values are Next.js auto-generated per-build preview-mode tokens,
+not external credentials).
+
 ## Supply-chain recommendations
 
 - **Sign images** with cosign keyless in `docker-build.yml`
