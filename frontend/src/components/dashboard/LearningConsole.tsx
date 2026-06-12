@@ -1,7 +1,8 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import { UI_COPY } from '@/constants/copy'
+import { NO_DATA, UI_COPY } from '@/constants/copy'
+import { PROPOSAL_APPROVED, PROPOSAL_PENDING } from '@/constants/trading'
 import { Activity, ArrowUpRight, Brain, Gauge, Lightbulb, TrendingDown, TrendingUp, type LucideIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
@@ -12,19 +13,21 @@ import { pnlColorClass, proposalStatusClass } from '@/lib/dashboard-helpers'
 // Reuse the shared learning-grade colour language (the Cognitive page uses the
 // same A/B/C/D/F scale) instead of re-deriving hardcoded emerald/rose classes.
 import { actionTone } from '@/lib/cognitive'
-import { gradeTone } from '@/lib/grade-colors'
+import { gradeChipClass, gradeTone } from '@/lib/grade-colors'
 import { EmptyState } from '@/components/ui/empty-state'
+import { Meter } from '@/components/ui/meter'
+import { StatTile } from '@/components/ui/stat-tile'
 
-// Decorative icon-chip tints. Neutral uses the slate chrome scale; the rest map
+// Decorative icon-chip tints. Neutral uses the muted chrome scale; the rest map
 // onto the semantic design tokens so the accents track the app palette.
-type Accent = 'primary' | 'success' | 'danger' | 'warning' | 'neutral'
+type Accent = 'brand' | 'success' | 'danger' | 'warning' | 'neutral'
 
 const ACCENT_CHIP: Record<Accent, string> = {
-  primary: 'bg-primary/10 text-primary',
+  brand: 'bg-brand/10 text-brand',
   success: 'bg-success/10 text-success',
   danger: 'bg-danger/10 text-danger',
   warning: 'bg-warning/10 text-warning',
-  neutral: 'bg-slate-100 text-slate-500 dark:bg-slate-800/60 dark:text-slate-400',
+  neutral: 'bg-muted text-muted-foreground',
 }
 
 // Icons are decorative throughout this view (every one sits beside a text
@@ -43,7 +46,7 @@ function toPct(value: unknown): number | null {
   return Math.abs(n) <= 1 ? n * 100 : n
 }
 
-function IconChip({ icon: Icon, accent = 'primary' }: { icon: IconType; accent?: Accent }) {
+function IconChip({ icon: Icon, accent = 'brand' }: { icon: IconType; accent?: Accent }) {
   return (
     <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', ACCENT_CHIP[accent])}>
       <Icon className="h-3.5 w-3.5" aria-hidden />
@@ -53,7 +56,7 @@ function IconChip({ icon: Icon, accent = 'primary' }: { icon: IconType; accent?:
 
 function PanelHeader({
   icon,
-  accent = 'primary',
+  accent = 'brand',
   title,
   subtitle,
   right,
@@ -78,41 +81,9 @@ function PanelHeader({
   )
 }
 
-function StatTile({
-  label,
-  value,
-  note,
-  icon,
-  accent = 'neutral',
-  valueTone,
-}: {
-  label: string
-  value: string
-  note?: string
-  icon: IconType
-  accent?: Accent
-  valueTone?: string
-}) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white px-3 py-3 transition-colors hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950/70 dark:hover:border-slate-700">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">{label}</p>
-        <IconChip icon={icon} accent={accent} />
-      </div>
-      <p className={cn('mt-2 font-mono text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100', valueTone)}>{value}</p>
-      <p className="mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400">{note ?? '\u00A0'}</p>
-    </div>
-  )
-}
-
-function Meter({ value, className }: { value: number | null; className?: string }) {
-  const pct = value == null ? 0 : Math.max(0, Math.min(100, value))
-  return (
-    <div className={cn('h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800', className)}>
-      <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
-    </div>
-  )
-}
+const tableWrapClass = 'overflow-x-auto rounded-lg border'
+const tableHeadRowClass = 'bg-muted/60 text-3xs uppercase tracking-caps text-muted-foreground'
+const tableRowClass = 'text-foreground/70 transition-colors hover:bg-muted/40'
 
 function sortedByTime<T extends { created_at?: string | null; filled_at?: string | null; graded_at?: string | null; timestamp?: string | null }>(rows: T[]): T[] {
   return [...rows].sort((a, b) => {
@@ -149,68 +120,76 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
   const avgGradeScore = gradedTrades.length > 0
     ? gradedTrades.reduce((sum, trade) => sum + (toFiniteNumber(trade.grade_score) ?? 0), 0) / gradedTrades.length
     : null
-  const pendingProposals = proposals.filter((proposal) => proposal.status === 'pending').length
-  const approvedProposals = proposals.filter((proposal) => proposal.status === 'approved').length
+  const pendingProposals = proposals.filter((proposal) => proposal.status === PROPOSAL_PENDING).length
+  const approvedProposals = proposals.filter((proposal) => proposal.status === PROPOSAL_APPROVED).length
   const learningLogs = recentLearningLogs(agentLogs)
 
   const latestGrade = sortedByTime(gradedTrades)[0]
   const latestProposal = sortedByTime(proposals)[0]
 
+  const statTileClass = 'px-3 py-3 sm:p-3'
+  const statValueClass = 'font-mono text-2xl font-semibold tabular-nums'
+
   return (
     <div className="space-y-3">
       {/* Hero summary band — title + headline KPIs */}
-      <section className="rounded-xl border border-slate-200 bg-gradient-to-br from-white via-white to-primary/5 p-3 shadow-sm shadow-slate-900/5 dark:border-slate-800/80 dark:from-slate-950/80 dark:via-slate-950/80 dark:to-primary/10 dark:shadow-black/20 sm:p-4">
+      <section className="rounded-xl border bg-gradient-to-br from-card via-card to-brand/5 p-3 shadow-card dark:from-card/80 dark:via-card/80 dark:to-brand/10 sm:p-4">
         <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-start gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand">
               <Brain className="h-5 w-5" aria-hidden />
             </span>
             <div>
-              <p className={sectionTitleClass}>Learning Control Plane</p>
-              <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500 dark:text-slate-400">
-                Live learning evidence from the dashboard store — graded fills, proposal outcomes, and learning-agent activity.
+              <p className={sectionTitleClass}>{UI_COPY.learning.title}</p>
+              <p className="mt-1 max-w-3xl text-xs leading-5 text-muted-foreground">
+                {UI_COPY.learning.description}
               </p>
             </div>
           </div>
-          <span className="rounded-full border border-slate-200 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:border-slate-800 dark:text-slate-400">
-            Source: live dashboard state
+          <span className="rounded-full border px-2 py-1 font-mono text-3xs uppercase tracking-caps text-muted-foreground">
+            {UI_COPY.learning.sourceBadge}
           </span>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
           <StatTile
-            label="Graded Trades"
+            label={UI_COPY.learning.statGradedTrades}
             value={String(gradedTrades.length)}
-            note={`of ${closedTrades.length} closed fills`}
-            icon={Activity}
-            accent="primary"
+            lines={[`of ${closedTrades.length} closed fills`]}
+            icon={<IconChip icon={Activity} accent="brand" />}
+            valueClassName={statValueClass}
+            className={statTileClass}
           />
           <StatTile
-            label="Win Rate"
-            value={winRate == null ? '--' : formatPercent(winRate, { signed: true })}
-            note={`${wins}W · ${losses}L`}
-            icon={TrendingUp}
-            accent="success"
+            label={UI_COPY.learning.statWinRate}
+            value={winRate == null ? NO_DATA : formatPercent(winRate, { signed: true })}
+            lines={[`${wins}W · ${losses}L`]}
+            icon={<IconChip icon={TrendingUp} accent="success" />}
+            valueClassName={statValueClass}
+            className={statTileClass}
           />
           <StatTile
-            label="Total PnL"
+            label={UI_COPY.learning.statTotalPnl}
             value={signedUSD(totalPnl)}
-            icon={totalPnl >= 0 ? TrendingUp : TrendingDown}
-            accent={totalPnl >= 0 ? 'success' : 'danger'}
-            valueTone={pnlColorClass(totalPnl)}
+            lines={[' ']}
+            icon={<IconChip icon={totalPnl >= 0 ? TrendingUp : TrendingDown} accent={totalPnl >= 0 ? 'success' : 'danger'} />}
+            valueClassName={cn(statValueClass, pnlColorClass(totalPnl))}
+            className={statTileClass}
           />
           <StatTile
-            label="Avg Grade Score"
+            label={UI_COPY.learning.statAvgGradeScore}
             value={formatPercent(avgGradeScore, { decimals: 0 })}
-            note={`${gradedTrades.length} graded`}
-            icon={Gauge}
-            accent="primary"
+            lines={[`${gradedTrades.length} ${UI_COPY.learning.graded}`]}
+            icon={<IconChip icon={Gauge} accent="brand" />}
+            valueClassName={statValueClass}
+            className={statTileClass}
           />
           <StatTile
-            label="Proposal Queue"
-            value={`${pendingProposals} pending`}
-            note={`${approvedProposals} approved`}
-            icon={Lightbulb}
-            accent="warning"
+            label={UI_COPY.learning.statProposalQueue}
+            value={`${pendingProposals} ${UI_COPY.learning.pending}`}
+            lines={[`${approvedProposals} ${UI_COPY.learning.approved}`]}
+            icon={<IconChip icon={Lightbulb} accent="warning" />}
+            valueClassName={statValueClass}
+            className={statTileClass}
           />
         </div>
       </section>
@@ -222,13 +201,13 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
           <section className={cardClass}>
             <PanelHeader
               icon={Activity}
-              accent="primary"
-              title="Graded Trade Outcomes"
-              subtitle="Recent fills with grades, P&L, and trace links."
+              accent="brand"
+              title={UI_COPY.learning.gradedOutcomesTitle}
+              subtitle={UI_COPY.learning.gradedOutcomesSubtitle}
               right={
                 latestGrade ? (
-                  <span className={cn('rounded border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase', gradeTone(latestGrade.grade))}>
-                    Latest {latestGrade.grade ?? 'NR'}
+                  <span className={cn(gradeChipClass, gradeTone(latestGrade.grade))}>
+                    {UI_COPY.learning.latest} {latestGrade.grade ?? UI_COPY.learning.notRated}
                   </span>
                 ) : undefined
               }
@@ -236,61 +215,64 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
             {tradeFeed.length === 0 ? (
               <EmptyState icon={Activity} message={UI_COPY.empty.learningOutcomes} />
             ) : (
-              <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+              <div className={tableWrapClass}>
                 <table className="w-full min-w-[760px] text-left text-xs">
-                  <thead className="bg-slate-100 dark:bg-slate-900/80 text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                  <thead className={tableHeadRowClass}>
                     <tr>
-                      <th className="px-3 py-2 font-semibold">Trade</th>
-                      <th className="px-3 py-2 font-semibold">P&L</th>
-                      <th className="px-3 py-2 font-semibold">Grade</th>
-                      <th className="px-3 py-2 font-semibold">Score</th>
-                      <th className="px-3 py-2 font-semibold">Lifecycle</th>
-                      <th className="px-3 py-2 text-right font-semibold">Trace</th>
+                      <th className="px-3 py-2 font-semibold">{UI_COPY.learning.columns.trade}</th>
+                      <th className="px-3 py-2 font-semibold">{UI_COPY.learning.columns.pnl}</th>
+                      <th className="px-3 py-2 font-semibold">{UI_COPY.learning.columns.grade}</th>
+                      <th className="px-3 py-2 font-semibold">{UI_COPY.learning.columns.score}</th>
+                      <th className="px-3 py-2 font-semibold">{UI_COPY.learning.columns.lifecycle}</th>
+                      <th className="px-3 py-2 text-right font-semibold">{UI_COPY.learning.columns.trace}</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800/80 bg-white dark:bg-slate-950/50">
+                  <tbody className="divide-y bg-card dark:bg-card/50">
                     {sortedByTime(tradeFeed).slice(0, 12).map((trade: TradeFeedItem) => {
                       const pnl = toFiniteNumber(trade.pnl)
                       const traceId = trade.execution_trace_id ?? trade.signal_trace_id
                       return (
-                        <tr key={trade.id} className="text-slate-600 transition-colors hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900/40">
+                        <tr key={trade.id} className={tableRowClass}>
                           <td className="px-3 py-2">
                             <div className="flex items-center gap-2">
-                              <span className={cn('rounded border px-2 py-0.5 font-mono text-[10px] uppercase', actionTone(trade.side))}>{trade.side}</span>
-                              <span className="font-mono font-semibold text-slate-900 dark:text-slate-100">{trade.symbol || '--'}</span>
+                              <span className={cn(gradeChipClass, actionTone(trade.side))}>{trade.side}</span>
+                              <span className="font-mono font-semibold text-foreground">{trade.symbol || NO_DATA}</span>
                             </div>
-                            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{trade.qty ?? '--'} units</p>
+                            <p className="mt-1 text-2xs text-muted-foreground">
+                              {trade.qty ?? NO_DATA} {UI_COPY.learning.units}
+                            </p>
                           </td>
                           <td className={cn('px-3 py-2 font-mono', pnlColorClass(pnl ?? 0))}>
-                            {pnl == null ? '--' : signedUSD(pnl)}
-                            <span className="ml-2 text-slate-500 dark:text-slate-400">{formatPercent(trade.pnl_percent, { signed: true })}</span>
+                            {pnl == null ? NO_DATA : signedUSD(pnl)}
+                            <span className="ml-2 text-muted-foreground">{formatPercent(trade.pnl_percent, { signed: true })}</span>
                           </td>
                           <td className="px-3 py-2">
-                            <span className={cn('rounded border px-2 py-1 font-mono text-[10px] uppercase', gradeTone(trade.grade))}>{trade.grade ?? 'NR'}</span>
+                            <span className={cn(gradeChipClass, gradeTone(trade.grade))}>{trade.grade ?? UI_COPY.learning.notRated}</span>
                           </td>
                           <td className="px-3 py-2">
-                            <span className="font-mono text-slate-500 dark:text-slate-400">{formatPercent(trade.grade_score, { decimals: 0 })}</span>
+                            <span className="font-mono text-muted-foreground">{formatPercent(trade.grade_score, { decimals: 0 })}</span>
                             {toPct(trade.grade_score) != null ? (
                               <div className="mt-1.5 w-16">
-                                <Meter value={toPct(trade.grade_score)} />
+                                <Meter value={toPct(trade.grade_score) ?? 0} label={UI_COPY.learning.columns.score} />
                               </div>
                             ) : null}
                           </td>
-                          <td className="px-3 py-2 text-slate-500 dark:text-slate-400">
-                            filled {trade.filled_at ? formatTimeAgo(trade.filled_at) : '--'} · graded {trade.graded_at ? formatTimeAgo(trade.graded_at) : '--'}
+                          <td className="px-3 py-2 text-muted-foreground">
+                            {UI_COPY.learning.filled} {trade.filled_at ? formatTimeAgo(trade.filled_at) : NO_DATA} · {UI_COPY.learning.graded}{' '}
+                            {trade.graded_at ? formatTimeAgo(trade.graded_at) : NO_DATA}
                           </td>
                           <td className="px-3 py-2 text-right">
                             {traceId ? (
                               <button
                                 type="button"
                                 onClick={() => setActiveTraceId(traceId)}
-                                className="inline-flex items-center gap-1 font-mono text-[11px] text-slate-500 transition-colors hover:text-primary dark:text-slate-400 dark:hover:text-primary"
+                                className="inline-flex items-center gap-1 font-mono text-2xs text-muted-foreground transition-colors hover:text-brand"
                               >
                                 {traceId.slice(0, 10)}…
                                 <ArrowUpRight className="h-3 w-3" aria-hidden />
                               </button>
                             ) : (
-                              <span className="text-slate-400 dark:text-slate-600">--</span>
+                              <span className="text-muted-foreground/60">{NO_DATA}</span>
                             )}
                           </td>
                         </tr>
@@ -307,34 +289,38 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
             <PanelHeader
               icon={Lightbulb}
               accent="warning"
-              title="Proposal Outcomes"
-              subtitle="Strategy changes generated by the learning loop."
-              right={<span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">{proposals.length} total</span>}
+              title={UI_COPY.learning.proposalOutcomesTitle}
+              subtitle={UI_COPY.learning.proposalOutcomesSubtitle}
+              right={
+                <span className="font-mono text-2xs text-muted-foreground">
+                  {proposals.length} {UI_COPY.learning.total}
+                </span>
+              }
             />
             {proposals.length === 0 ? (
               <EmptyState icon={Lightbulb} message={UI_COPY.empty.proposals} />
             ) : (
-              <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+              <div className={tableWrapClass}>
                 <table className="w-full min-w-[680px] text-left text-xs">
-                  <thead className="bg-slate-100 dark:bg-slate-900/80 text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                  <thead className={tableHeadRowClass}>
                     <tr>
-                      <th className="px-3 py-2 font-semibold">Change</th>
-                      <th className="px-3 py-2 font-semibold">Expected</th>
-                      <th className="px-3 py-2 font-semibold">Grade Δ</th>
-                      <th className="px-3 py-2 font-semibold">Status</th>
+                      <th className="px-3 py-2 font-semibold">{UI_COPY.learning.columns.change}</th>
+                      <th className="px-3 py-2 font-semibold">{UI_COPY.learning.columns.expected}</th>
+                      <th className="px-3 py-2 font-semibold">{UI_COPY.learning.columns.gradeDelta}</th>
+                      <th className="px-3 py-2 font-semibold">{UI_COPY.learning.columns.status}</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800/80 bg-white dark:bg-slate-950/50">
+                  <tbody className="divide-y bg-card dark:bg-card/50">
                     {sortedByTime(proposals).slice(0, 8).map((proposal) => (
-                      <tr key={proposal.id} className="text-slate-600 transition-colors hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900/40">
+                      <tr key={proposal.id} className={tableRowClass}>
                         <td className="max-w-[340px] px-3 py-2">
-                          <p className="line-clamp-2 font-medium text-slate-900 dark:text-slate-100" title={proposalLabel(proposal)}>{proposalLabel(proposal)}</p>
-                          <p className="mt-1 font-mono text-[11px] text-slate-400 dark:text-slate-600">{proposal.proposal_type.replace(/_/g, ' ')}</p>
+                          <p className="line-clamp-2 font-medium text-foreground" title={proposalLabel(proposal)}>{proposalLabel(proposal)}</p>
+                          <p className="mt-1 font-mono text-2xs text-muted-foreground/70">{proposal.proposal_type.replace(/_/g, ' ')}</p>
                         </td>
-                        <td className="px-3 py-2 font-mono text-slate-500 dark:text-slate-400">{formatPercent(proposal.confidence, { decimals: 0 })}</td>
-                        <td className="px-3 py-2 font-mono text-slate-500 dark:text-slate-400">{formatPercent(proposal.grade_score, { decimals: 0 })}</td>
+                        <td className="px-3 py-2 font-mono text-muted-foreground">{formatPercent(proposal.confidence, { decimals: 0 })}</td>
+                        <td className="px-3 py-2 font-mono text-muted-foreground">{formatPercent(proposal.grade_score, { decimals: 0 })}</td>
                         <td className="px-3 py-2">
-                          <span className={cn('rounded border px-2 py-1 font-mono text-[10px] uppercase', proposalStatusClass(proposal.status))}>{proposal.status}</span>
+                          <span className={cn(gradeChipClass, 'border-transparent', proposalStatusClass(proposal.status))}>{proposal.status}</span>
                         </td>
                       </tr>
                     ))}
@@ -348,34 +334,34 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
         {/* At-a-glance rail */}
         <div className="space-y-3">
           <aside className={cardClass}>
-            <PanelHeader icon={Gauge} accent="primary" title="Current Learning State" />
+            <PanelHeader icon={Gauge} accent="brand" title={UI_COPY.learning.currentStateTitle} />
             <div className="space-y-2">
-              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/70">
-                <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Latest Grade</p>
+              <div className="rounded-lg border bg-card px-3 py-2.5 dark:bg-card/70">
+                <p className="text-3xs uppercase tracking-caps text-muted-foreground">{UI_COPY.learning.latestGrade}</p>
                 {latestGrade ? (
                   <>
                     <div className="mt-1.5 flex items-center gap-2">
-                      <span className={cn('rounded border px-2 py-0.5 font-mono text-xs font-semibold uppercase', gradeTone(latestGrade.grade))}>
-                        {latestGrade.grade ?? 'NR'}
+                      <span className={cn(gradeChipClass, 'text-xs', gradeTone(latestGrade.grade))}>
+                        {latestGrade.grade ?? UI_COPY.learning.notRated}
                       </span>
-                      <span className="font-mono text-sm font-semibold text-slate-900 dark:text-slate-100">{latestGrade.symbol}</span>
-                      <span className="ml-auto font-mono text-xs text-slate-500 dark:text-slate-400">{formatPercent(latestGrade.grade_score, { decimals: 0 })}</span>
+                      <span className="font-mono text-sm font-semibold text-foreground">{latestGrade.symbol}</span>
+                      <span className="ml-auto font-mono text-xs text-muted-foreground">{formatPercent(latestGrade.grade_score, { decimals: 0 })}</span>
                     </div>
-                    <Meter value={toPct(latestGrade.grade_score)} className="mt-2" />
+                    <Meter value={toPct(latestGrade.grade_score) ?? 0} label={UI_COPY.learning.latestGrade} className="mt-2" />
                   </>
                 ) : (
-                  <p className="mt-1.5 font-mono text-sm text-slate-400 dark:text-slate-500">--</p>
+                  <p className="mt-1.5 font-mono text-sm text-muted-foreground/70">{NO_DATA}</p>
                 )}
               </div>
-              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/70">
-                <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Latest Proposal</p>
+              <div className="rounded-lg border bg-card px-3 py-2.5 dark:bg-card/70">
+                <p className="text-3xs uppercase tracking-caps text-muted-foreground">{UI_COPY.learning.latestProposal}</p>
                 <div className="mt-1.5 flex items-start gap-2">
                   <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden />
                   <p
-                    className="line-clamp-2 text-sm text-slate-600 dark:text-slate-300"
+                    className="line-clamp-2 text-sm text-foreground/70"
                     title={latestProposal ? proposalLabel(latestProposal) : undefined}
                   >
-                    {latestProposal ? proposalLabel(latestProposal) : 'No proposal generated yet'}
+                    {latestProposal ? proposalLabel(latestProposal) : UI_COPY.learning.noProposalYet}
                   </p>
                 </div>
               </div>
@@ -385,30 +371,34 @@ export function LearningConsole({ setActiveTraceId }: { setActiveTraceId: (id: s
           <aside className={cardClass}>
             <PanelHeader
               icon={Activity}
-              accent="primary"
-              title="Learning Agent Activity"
-              subtitle="Grade, reflection, proposal, and learning events."
-              right={<span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">{learningLogs.length} events</span>}
+              accent="brand"
+              title={UI_COPY.learning.activityTitle}
+              subtitle={UI_COPY.learning.activitySubtitle}
+              right={
+                <span className="font-mono text-2xs text-muted-foreground">
+                  {learningLogs.length} {UI_COPY.learning.events}
+                </span>
+              }
             />
             {learningLogs.length === 0 ? (
               <EmptyState icon={Activity} message={UI_COPY.empty.learningEvents} />
             ) : (
-              <div className="divide-y divide-slate-200 dark:divide-slate-800/80">
+              <div className="divide-y">
                 {learningLogs.map((log, index) => (
                   <div key={`${log.trace_id ?? log.timestamp}-${index}`} className="flex gap-3 px-1 py-2.5 text-xs">
-                    <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary/60" />
+                    <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-brand/60" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="truncate font-semibold text-slate-700 dark:text-slate-200" title={String(log.agent_name ?? log.agent ?? 'Agent')}>
+                        <p className="truncate font-semibold text-foreground/80" title={String(log.agent_name ?? log.agent ?? 'Agent')}>
                           {String(log.agent_name ?? log.agent ?? 'Agent')}
                         </p>
-                        <span className="shrink-0 font-mono text-[10px] text-slate-400 dark:text-slate-500">{log.timestamp ? formatTimeAgo(log.timestamp) : '--'}</span>
+                        <span className="shrink-0 font-mono text-3xs text-muted-foreground/70">{log.timestamp ? formatTimeAgo(log.timestamp) : NO_DATA}</span>
                       </div>
-                      <span className="mt-1 inline-block rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
+                      <span className="mt-1 inline-block rounded bg-muted px-1.5 py-0.5 font-mono text-3xs text-muted-foreground">
                         {log.event_type ?? 'learning_event'}
                       </span>
-                      <p className="mt-1 line-clamp-2 text-slate-500 dark:text-slate-400" title={log.message ?? log.primary_edge ?? undefined}>
-                        {log.message ?? log.primary_edge ?? 'No message provided.'}
+                      <p className="mt-1 line-clamp-2 text-muted-foreground" title={log.message ?? log.primary_edge ?? undefined}>
+                        {log.message ?? log.primary_edge ?? UI_COPY.learning.noMessage}
                       </p>
                     </div>
                   </div>
