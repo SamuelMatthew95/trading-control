@@ -33,10 +33,15 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 WORKDIR /app
 
-# Dependency layer is cached until requirements.txt changes.
+# Dependency layer is cached until requirements.txt changes. Packaging tools
+# are upgraded first: the stock setuptools 79 vendors jaraco.context 5.3.0
+# (CVE-2026-23949) and wheel 0.45.1 (CVE-2026-24049); setuptools >= 82 drops
+# the vulnerable vendored copies entirely.
 COPY requirements.txt .
+# hadolint ignore=DL3013
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -r requirements.txt
+    pip install --upgrade pip setuptools wheel \
+    && pip install -r requirements.txt
 
 # ── Stage 2: runtime ─────────────────────────────────────────────────────────
 FROM python:${PYTHON_VERSION}-slim AS runtime
@@ -57,6 +62,11 @@ ENV VIRTUAL_ENV=/opt/venv \
     PORT=8000
 
 WORKDIR /app
+
+# Patch the base image's own packaging tools — the stock setuptools/wheel in
+# /usr/local carry vendored CVEs (jaraco.context, wheel); see builder note.
+# hadolint ignore=DL3013
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
 COPY --from=builder /opt/venv /opt/venv
 # Only the backend packages — .dockerignore excludes frontend/tests/docs.
