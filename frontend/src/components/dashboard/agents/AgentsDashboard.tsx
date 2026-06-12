@@ -26,7 +26,8 @@ import { LiveReasoningPanel } from '@/components/dashboard/LiveReasoningPanel'
 import { RecentDecisionsPanel } from '@/components/dashboard/RecentDecisionsPanel'
 import { NotificationFeed } from '@/components/dashboard/NotificationFeed'
 import { ActivityTimeline } from './ActivityTimeline'
-import { KpiCard } from './KpiCard'
+import { StatTile } from '@/components/ui/stat-tile'
+import { NO_DATA, UI_COPY } from '@/constants/copy'
 import { TraceModal } from '@/components/dashboard/TraceModal'
 import { AgentScorecards } from './AgentScorecards'
 import { SystemDiagnostics } from './SystemDiagnostics'
@@ -106,7 +107,7 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
   const decisionsLastHour = decisionHour ? decisionHour.buys + decisionHour.sells + decisionHour.holds : null
   const decisionBreakdown = decisionHour
     ? `${decisionHour.buys} buy · ${decisionHour.sells} sell · ${decisionHour.holds} hold`
-    : 'No decision data yet'
+    : UI_COPY.agentsPage.noDecisionData
 
   return (
     <div className="space-y-6">
@@ -122,37 +123,37 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
         />
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <KpiCard
-            label="Agents Online"
+          <StatTile
+            label={UI_COPY.agentsPage.kpiAgentsOnline}
             value={sanitizeValue(liveAgentCount)}
-            lines={[`${realAgents.length} in pipeline · live = heartbeat < 2m`]}
+            lines={[`${realAgents.length} ${UI_COPY.agentsPage.kpiAgentsOnlineNote}`]}
           />
-          <KpiCard
-            label="Market Data"
+          <StatTile
+            label={UI_COPY.agentsPage.kpiMarketData}
             value={sanitizeValue(marketTickCount)}
-            lines={[`${lastMarketSymbol ?? '—'} · ${marketLive ? 'streaming' : 'idle'}`]}
+            lines={[`${lastMarketSymbol ?? NO_DATA} · ${marketLive ? UI_COPY.agentsPage.streaming : UI_COPY.agentsPage.idle}`]}
           />
-          <KpiCard label="Decisions · 1h" value={sanitizeValue(decisionsLastHour)} lines={[decisionBreakdown]} />
-          <KpiCard
-            label="Notifications · 1h"
+          <StatTile label={UI_COPY.agentsPage.kpiDecisionsHour} value={sanitizeValue(decisionsLastHour)} lines={[decisionBreakdown]} />
+          <StatTile
+            label={UI_COPY.agentsPage.kpiNotificationsHour}
             value={sanitizeValue(recentNotificationCount)}
-            lines={[`${notifications.length} stored (max 20)`, lastNotificationLabel(notifications)]}
+            lines={[`${notifications.length} ${UI_COPY.agentsPage.storedNote}`, lastNotificationLabel(notifications)]}
           />
         </div>
       </section>
 
       <section className="space-y-2">
-        <GroupLabel>Live Activity</GroupLabel>
+        <GroupLabel>{UI_COPY.agentsPage.groupLiveActivity}</GroupLabel>
         <ActivityTimeline items={activityItems} />
       </section>
 
       <section className="space-y-2">
-        <GroupLabel>Reasoning</GroupLabel>
+        <GroupLabel>{UI_COPY.agentsPage.groupReasoning}</GroupLabel>
         <LiveReasoningPanel />
       </section>
 
       <section className="space-y-2">
-        <GroupLabel>Intelligence</GroupLabel>
+        <GroupLabel>{UI_COPY.agentsPage.groupIntelligence}</GroupLabel>
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 xl:items-start">
           <LLMHealthPanel />
           <ToolGovernancePanel />
@@ -161,7 +162,7 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
       </section>
 
       <section className="space-y-2">
-        <GroupLabel>Learning Loop</GroupLabel>
+        <GroupLabel>{UI_COPY.agentsPage.groupLearningLoop}</GroupLabel>
         <LearningLoopPanel />
       </section>
 
@@ -169,12 +170,12 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
           The former Agent Status table duplicated them with status/source/uptime
           noise ("Live · Hybrid") that answered no operator question. */}
       <section className="space-y-2">
-        <GroupLabel>Agents</GroupLabel>
+        <GroupLabel>{UI_COPY.agentsPage.groupAgents}</GroupLabel>
         <AgentScorecards />
       </section>
 
       <section className="space-y-2">
-        <GroupLabel>Activity</GroupLabel>
+        <GroupLabel>{UI_COPY.agentsPage.groupActivity}</GroupLabel>
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 xl:items-start">
           <RecentDecisionsPanel
             stats={decisionStats}
@@ -190,7 +191,7 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
       </section>
 
       <section className="space-y-2">
-        <GroupLabel>Diagnostics</GroupLabel>
+        <GroupLabel>{UI_COPY.agentsPage.groupDiagnostics}</GroupLabel>
         <SystemDiagnostics
           isInMemoryMode={isInMemoryMode}
           agentStatuses={agentStatuses}
