@@ -18,6 +18,9 @@ ARG PYTHON_VERSION=3.11
 FROM python:${PYTHON_VERSION}-slim AS builder
 
 # Toolchain only exists in this stage; the runtime image never carries it.
+# Unpinned apt is deliberate: pins break on Debian point releases and the
+# stage is discarded; Python deps are the reproducibility surface.
+# hadolint ignore=DL3008
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential libpq-dev \
     && rm -rf /var/lib/apt/lists/*
