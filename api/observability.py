@@ -22,6 +22,9 @@ def configure_logging(level: str = "INFO") -> None:
     if structlog.is_configured():
         return
 
+    # Circular-import break: telemetry imports log_structured from this module.
+    from api.telemetry import otel_log_processor  # noqa: PLC0415
+
     timestamper = structlog.processors.TimeStamper(fmt="iso", utc=True)
     pre_chain = [
         structlog.contextvars.merge_contextvars,
@@ -33,6 +36,9 @@ def configure_logging(level: str = "INFO") -> None:
     structlog.configure(
         processors=[
             *pre_chain,
+            # Stamps otel_trace_id / otel_span_id when a span is active (no-op
+            # while telemetry is disabled) — log↔trace correlation in SigNoz.
+            otel_log_processor,
             structlog.processors.dict_tracebacks,
             structlog.processors.JSONRenderer(),
         ],
