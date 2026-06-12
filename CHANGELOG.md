@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026-06-12] — Deep audit: UTC daily-loss window, Open Exposure KPI
+
+### Fixed
+- **Daily-loss kill switch timezone divergence** — the DB path summed "today" by the server's local date while the memory path used UTC; on a non-UTC server the two modes tripped on different trade sets near midnight. Both now use the UTC calendar day (`tests/agents/test_risk_guardian.py::test_db_daily_pnl_query_binds_utc_date`)
+- **Open Exposure KPI undercounted and mis-signed** (`/dashboard/system`) — exposure read `position.quantity` directly, so memory-mode REST rows (shaped `qty`/`avg_cost`) counted as $0 and the figure depended on which delivery path each position arrived by; `signedUSD` then rendered the magnitude as `+$…` like a profit. New canonical `positionNotional()`/`positionEntryPrice()` helpers count both shapes, mark against the live price stream, and the KPI formats unsigned (`docs/troubleshooting/frontend.md`)
+
 ## [2026-06-12] — Cooling-off gate no longer blocks risk exits
 
 ### Fixed
