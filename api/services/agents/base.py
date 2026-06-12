@@ -13,6 +13,7 @@ from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
 from api.services.agent_state import AgentStateRegistry
+from api.telemetry import agent_process_span, record_error
 
 _IDLE_HEARTBEAT_INTERVAL = 60  # seconds between "alive but waiting" heartbeats
 
@@ -270,7 +271,10 @@ class MultiStreamAgent:
                             stream=stream,
                             redis_id=redis_id,
                         )
-                        await self.process(stream, redis_id, data)
+                        with agent_process_span(
+                            self.consumer, stream, trace_id=data.get(FieldName.TRACE_ID)
+                        ):
+                            await self.process(stream, redis_id, data)
                         await self.bus.acknowledge(stream, self._group, redis_id)
                         self._events_processed += 1
                         if self.agent_state and self._state_name:
@@ -290,6 +294,7 @@ class MultiStreamAgent:
                             except Exception:  # noqa: BLE001
                                 pass
                     except Exception as exc:  # noqa: BLE001
+                        record_error(self.consumer)
                         if self._instance_id:
                             try:
                                 from api.services.agents.db_helpers import (  # noqa: PLC0415
