@@ -23,6 +23,15 @@ structlog==23.2.0
 uvicorn[standard]==0.24.0
 websockets>=15.0.1,<16
 
+# ── Observability (OpenTelemetry — inert unless OTEL_ENABLED=true) ───────────
+opentelemetry-api>=1.27.0
+opentelemetry-sdk>=1.27.0
+opentelemetry-exporter-otlp-proto-grpc>=1.27.0
+opentelemetry-instrumentation-fastapi>=0.48b0
+opentelemetry-instrumentation-sqlalchemy>=0.48b0
+opentelemetry-instrumentation-redis>=0.48b0
+opentelemetry-instrumentation-aiohttp-client>=0.48b0
+
 # ── Database dependencies ─────────────────────────────────────────────────────
 alembic>=1.13.0
 pgvector>=0.4.2
