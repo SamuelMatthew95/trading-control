@@ -250,3 +250,15 @@ the DB is up, else summing today's closes from `RedisStore.list_closed_trades()`
 `tests/agents/test_risk_guardian.py::test_memory_mode_stop_loss_closes_paper_position`,
 `::test_memory_mode_short_position_normalized`,
 `::test_memory_mode_daily_loss_uses_closed_trades_mirror`
+
+---
+
+## Daily-loss window used the server's local date in DB mode but UTC in memory mode
+
+**Symptom:** On a non-UTC server, the daily-loss kill switch could trip in memory mode but not DB mode (or vice versa) for the same trades near midnight — the two paths summed different "today" windows.
+
+**Root cause:** `RiskGuardian._today_realized_pnl()` bound `date.today()` (server-local calendar day, pre-existing) into the Postgres query while the memory-mode mirror filter used `datetime.now(timezone.utc).date()`.
+
+**Fix:** The DB query now binds the UTC calendar day, matching the memory path and the UTC timestamps agents stamp on trades (`api/services/agents/risk_guardian.py::_today_realized_pnl`). Both ISO-timestamp parse sites in the guardian were also consolidated into a single `_parse_utc_datetime` helper so format handling can't drift.
+
+**Regression test:** `tests/agents/test_risk_guardian.py::test_db_daily_pnl_query_binds_utc_date`
