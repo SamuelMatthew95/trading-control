@@ -83,7 +83,18 @@ Trading Control is designed to keep algorithmic execution **adaptive** without s
 
 ## Quick Start
 
-### 1) Prerequisites
+### 0) One command (Docker)
+
+```bash
+docker compose up --build     # API + PostgreSQL(pgvector) + Redis
+curl -s localhost:8000/health
+```
+
+Hot-reload dev loop: `docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build`.
+All other run targets (Kubernetes, OpenTofu, Ansible, Render) are documented in
+[docs/platform/deployment.md](docs/platform/deployment.md).
+
+### 1) Prerequisites (manual setup)
 
 - Python 3.10+
 - PostgreSQL 15+ with `pgvector`
@@ -152,6 +163,9 @@ For comprehensive usage and operational detail, prefer the hosted Fern documenta
 | 🛠️ Development workflow | [docs/development-guide.md](docs/development-guide.md) |
 | 🚢 Deployment checklist | [docs/deployment-guide.md](docs/deployment-guide.md) |
 | 🧯 Troubleshooting playbook | [docs/troubleshooting/README.md](docs/troubleshooting/README.md) |
+| 🏭 Platform engineering (Docker · CI/CD · k8s · OTel/SigNoz · OpenTofu · Ansible · security) | [docs/platform/README.md](docs/platform/README.md) |
+| 📟 Incident runbooks | [docs/runbooks/README.md](docs/runbooks/README.md) |
+| 📈 Observability (OpenTelemetry → SigNoz) | [docs/platform/observability.md](docs/platform/observability.md) |
 | 🤖 Agent implementation guide | [docs/AGENTS.md](docs/AGENTS.md) |
 | 🔌 MCP integration notes | [docs/mcp.md](docs/mcp.md) |
 
@@ -163,8 +177,15 @@ For comprehensive usage and operational detail, prefer the hosted Fern documenta
 trading-control/
 ├── api/                        # FastAPI app and backend services
 ├── frontend/                   # Next.js operator dashboard
-├── docs/                       # Architecture, guides, and troubleshooting
-├── tests/                      # Unit, API, and integration suites
+├── deploy/k8s/                 # Kubernetes manifests (Kind-ready)
+├── infra/
+│   ├── opentofu/               # IaC modules + local/dev/prod environments
+│   └── ansible/                # Provisioning & deployment playbooks
+├── observability/signoz/       # SigNoz dashboards + alert rules
+├── docs/                       # Architecture, guides, platform docs, runbooks
+├── tests/                      # Unit, API, agent, and integration suites
+├── Dockerfile                  # Multi-stage production image
+├── docker-compose.yml          # Local prod-like stack (+ .dev override)
 ├── requirements.txt            # Runtime + test dependencies
 ├── ruff.toml                   # Lint and formatting config
 ├── pytest.ini                  # Pytest defaults
