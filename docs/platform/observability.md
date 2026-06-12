@@ -11,13 +11,18 @@ This is the recommended path for the Render deployment. You host nothing.
 1. **Sign up at [signoz.io](https://signoz.io) → SigNoz Cloud.** After
    signup, copy two things from Settings → Ingestion: your **ingestion key**
    and your **region** (`us` / `eu` / `in`).
-2. **Render dashboard → your service → Environment → add four vars:**
+2. **Render dashboard → your service → Environment → add five vars** (these
+   mirror SigNoz's own onboarding guide, including their documented
+   `http/protobuf` protocol):
    ```
    OTEL_ENABLED=true
-   OTEL_EXPORTER_OTLP_ENDPOINT=ingest.<region>.signoz.cloud:443
+   OTEL_EXPORTER_OTLP_ENDPOINT=https://ingest.<region>.signoz.cloud:443
+   OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
    OTEL_EXPORTER_OTLP_INSECURE=false
    OTEL_EXPORTER_OTLP_HEADERS=signoz-ingestion-key=<your-key>
    ```
+   Optional sixth, for deploy markers on every chart (the SDK reads it
+   natively): `OTEL_RESOURCE_ATTRIBUTES=service.version=<RENDER_GIT_COMMIT>`.
    Saving triggers a redeploy automatically.
 3. **Verify it took:** Render → Logs → look for one line:
    `telemetry_initialized`. (If you see `telemetry_disabled`, the
@@ -36,9 +41,13 @@ Notes, so there are no surprises:
 - SigNoz Cloud is a paid product with a free trial — check current pricing.
   The self-hosted route below is permanently free in exchange for you
   operating it.
-- This app exports OTLP over **gRPC**. Backends that only accept OTLP over
-  HTTP (e.g. Grafana Cloud's gateway) won't work without swapping the
-  exporter package — that's why this guide says SigNoz specifically.
+- The app speaks both OTLP protocols: `http/protobuf` (what SigNoz Cloud's
+  onboarding documents — use it there) and `grpc` (default, for local
+  collectors on :4317). Pick via `OTEL_EXPORTER_OTLP_PROTOCOL`.
+- Fork-safety: telemetry initializes inside the FastAPI lifespan — i.e. in
+  the gunicorn worker *after* fork — which is exactly what the OTel docs
+  require. Don't enable OTEL with `uvicorn --reload` (hot reload spawns
+  processes that break instrumentation; the dev compose leaves it off).
 
 ```
 ┌──────────────────────── trading-control (FastAPI) ────────────────────────┐
@@ -57,18 +66,18 @@ Notes, so there are no surprises:
 |---|---|---|
 | `OTEL_ENABLED` | `false` | Master switch. Off → zero overhead, SDK never imported |
 | `OTEL_SERVICE_NAME` | `trading-control` | `service.name` resource attribute |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` | OTLP gRPC collector |
-| `OTEL_EXPORTER_OTLP_INSECURE` | `true` | Plaintext gRPC (local collectors). Set `false` for cloud backends (TLS) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` | OTLP collector / ingest URL |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | `grpc` (local collectors, :4317) or `http/protobuf` (SigNoz Cloud, :443) |
+| `OTEL_EXPORTER_OTLP_INSECURE` | `true` | Plaintext (local collectors). Set `false` for cloud backends (TLS) |
 | `OTEL_EXPORTER_OTLP_HEADERS` | empty | Auth headers, standard `k=v,k2=v2` format (e.g. `signoz-ingestion-key=<token>`) |
 | `OTEL_GAUGE_POLL_SECONDS` | `30` | Business-gauge refresh interval |
 
 ## Choosing a backend (best-practice ladder)
 
 1. **Managed — SigNoz Cloud (recommended for Render-style deployments).**
-   Nothing to host; see the Quickstart at the top of this page. Other OTLP
-   backends work too as long as they accept OTLP over **gRPC** (this app's
-   exporter); HTTP-only gateways (e.g. Grafana Cloud's) would need the
-   HTTP exporter package swapped in.
+   Nothing to host; see the Quickstart at the top of this page. Any OTLP
+   backend works — the app speaks both `grpc` and `http/protobuf`
+   (`OTEL_EXPORTER_OTLP_PROTOCOL`).
 2. **Self-hosted SigNoz** (`observability/signoz/README.md`): permanently
    free, when data control or volume-cost matters and you can operate
    ClickHouse. A real ops commitment, not a default.
