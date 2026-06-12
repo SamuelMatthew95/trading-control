@@ -107,3 +107,15 @@ Three new `InMemoryStore` methods expose explicit lifecycle checks: `has_open_po
 **Fix:** `api/constants.py` — `SIGNAL_CONFIDENCE_MIN_GATE` lowered `0.65 → 0.50`, just below the MOMENTUM composite tier (0.55) and above LOW/noise (0.30). Now MOMENTUM and STRONG signals clear the confidence gate and are then filtered by the (intended) execution-score, regime, net-EV, and cooling-off gates; LOW signals are still blocked. The two gates now agree.
 
 **Regression test:** `tests/agents/test_momentum_gate.py::test_confidence_gate_consistent_with_execution_score_gate`
+
+---
+
+## Cooling-off gate blocked risk-guardian exits — one loss pinned every other position open
+
+**Symptom:** After a single losing close (e.g. a stop-loss banking −2%), every subsequent order was gated with `execution_gated_cooling_off` for the cooldown window — including RiskGuardian's take-profit, trailing-stop, stale-position, and even further stop-loss closes. Winners gave back their gains and breached losers kept running past −5% exactly when the system had just taken a loss. Surfaced by a full-loop memory-mode smoke (broker → guardian → engine → broker): scan 1's BTC stop-loss executed, then the ETH take-profit and DOGE stale close were blocked and the book stayed long.
+
+**Root cause:** `_check_cooling_off_gate` applied to every order side. The gate exists to throttle revenge *entries* after a loss streak, but a SELL in this long-only book only ever reduces exposure — and all risk closes arrive as SELLs on `STREAM_DECISIONS`, so the entry throttle was silently vetoing the risk layer (`api/services/execution/execution_engine.py`).
+
+**Fix:** `_check_cooling_off_gate` returns early for SELL/short sides — cooling-off now gates BUY entries only. Risk closes execute regardless of recent-outcome streaks; the unmatched-sell guard, oversell clamp, kill switch, and market clock still apply to sells.
+
+**Regression test:** `tests/agents/test_execution_engine.py::test_cooling_off_never_blocks_sell_close` (and `::test_cooling_off_blocks_buy_after_loss_streak` pinning that entries stay gated)
