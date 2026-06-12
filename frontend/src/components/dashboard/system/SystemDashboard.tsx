@@ -6,6 +6,9 @@ import { cn } from "@/lib/utils";
 import {
   formatPercent,
   formatTimestamp,
+  formatUSD,
+  isActivePosition,
+  positionNotional,
   signedUSD,
   toFiniteNum as toFiniteNumber,
 } from "@/lib/formatters";
@@ -89,17 +92,11 @@ export function SystemDashboard(props: SystemDashboardProps) {
     if (orderMs < dayStartMs) return sum;
     return sum + (toFiniteNumber(order.pnl) ?? 0);
   }, 0);
-  const openExposure = props.positions.reduce((sum, position) => {
-    const quantity = Math.abs(toFiniteNumber(position.quantity) ?? 0);
-    const price =
-      toFiniteNumber(position.current_price) ??
-      toFiniteNumber(position.entry_price) ??
-      0;
-    return sum + quantity * price;
-  }, 0);
-  const activePositions = props.positions.filter(
-    (position) => position.side === "long" || position.side === "short",
-  ).length;
+  const openExposure = props.positions.reduce(
+    (sum, position) => sum + positionNotional(position, props.prices),
+    0,
+  );
+  const activePositions = props.positions.filter(isActivePosition).length;
   const recentRiskAlert = props.riskAlerts[0];
   const riskState = recentRiskAlert
     ? String(recentRiskAlert.severity ?? recentRiskAlert.status ?? "Review")
@@ -274,7 +271,7 @@ export function SystemDashboard(props: SystemDashboardProps) {
               value={signedUSD(dailyPnl)}
               tone={dailyPnl >= 0 ? "ok" : "err"}
             />
-            <KpiStrip label="Open Exposure" value={signedUSD(openExposure)} />
+            <KpiStrip label="Open Exposure" value={formatUSD(openExposure)} />
             <KpiStrip
               label="Active Positions"
               value={String(activePositions)}
@@ -424,7 +421,7 @@ export function SystemDashboard(props: SystemDashboardProps) {
                         {index === 1 && selectedDecision.reason.join(" ")}
                         {index === 2 && riskState}
                         {index === 3 &&
-                          `${activePositions} active positions / ${signedUSD(openExposure)} exposure`}
+                          `${activePositions} active positions / ${formatUSD(openExposure)} exposure`}
                         {index === 4 &&
                           `${selectedDecision.source} event at ${formatClock(selectedDecision.timestamp)}`}
                         {index === 5 &&
