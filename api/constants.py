@@ -1553,6 +1553,15 @@ REDIS_KEY_RECENT_OUTCOMES: Final[str] = "trading:recent_outcomes"
 REDIS_RECENT_OUTCOMES_MAXLEN: Final[int] = 10
 REDIS_NOTIFICATIONS_MAX: Final[int] = 20
 REDIS_DECISIONS_MAX: Final[int] = 50
+# Strategy/governance proposals (LPUSH, LTRIM cap) — the voteable proposal queue
+# behind the dashboard Proposals page. Proposals are published to the
+# STREAM_PROPOSALS event bus, but the dashboard reads them from the persisted
+# store; in memory mode that store (InMemoryStore.event_history) is wiped on
+# every restart with no rehydration, so without this durable Redis mirror the
+# Proposals UI emptied on each redeploy. Producers persist here; startup
+# hydration replays it back into the runtime store.
+REDIS_KEY_PROPOSALS_RECENT: Final[str] = "proposals:recent"
+REDIS_PROPOSALS_MAX: Final[int] = 50
 
 # Stream names
 STREAM_MARKET_TICKS: Final[str] = "market_ticks"
