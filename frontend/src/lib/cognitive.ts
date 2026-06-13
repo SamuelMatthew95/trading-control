@@ -2,6 +2,7 @@
 
 import { apiFetch } from '@/lib/apiClient'
 import { NO_DATA } from '@/constants/copy'
+import { SIDE_BUY, SIDE_SELL } from '@/constants/trading'
 import { TONE_BADGE_OUTLINED } from '@/lib/design/sentiment'
 import type { CognitiveEvent, CognitiveSnapshot, DecisionPayload } from '@/types/cognitive'
 
@@ -20,9 +21,9 @@ export const fetchCognitiveEvents = (limit = 200): Promise<CognitiveEvent[]> =>
 /** Outlined chip classes for a BUY / SELL / HOLD action. */
 export function actionTone(action: string | null | undefined): string {
   switch ((action ?? '').toLowerCase()) {
-    case 'buy':
+    case SIDE_BUY:
       return TONE_BADGE_OUTLINED.success
-    case 'sell':
+    case SIDE_SELL:
       return TONE_BADGE_OUTLINED.danger
     default:
       return TONE_BADGE_OUTLINED.neutral
@@ -85,14 +86,14 @@ export function summarizeDecisions(decisions: DecisionPayload[]): DecisionStats 
     // Only buy/sell move a position; everything else (hold, and the fail-closed
     // `reject` the agent emits when the LLM is down) is a no-trade → holds.
     // The rule-based count below surfaces LLM-down rejects separately.
-    if (action === 'buy') buys += 1
-    else if (action === 'sell') sells += 1
+    if (action === SIDE_BUY) buys += 1
+    else if (action === SIDE_SELL) sells += 1
     else holds += 1
     if (d.llm_succeeded != null) {
       known += 1
       if (d.llm_succeeded) llmRan += 1
     }
-    confSum += typeof d.confidence === 'number' ? d.confidence : d.score ?? 0
+    confSum += typeof d.confidence === 'number' ? d.confidence : 0
   }
   const total = decisions.length
   return {
