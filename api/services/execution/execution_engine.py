@@ -1078,6 +1078,13 @@ class ExecutionEngine(BaseStreamConsumer):
                 FieldName.PNL: ctx.realized_pnl,
                 FieldName.PNL_PERCENT: ctx.pnl_percent,
                 FieldName.FILLED_AT: ctx.filled_at.isoformat(),
+                # Identity fields: startup hydration projects mirror entries
+                # back into trade_feed rows, and the feed normalizer drops
+                # rows that carry no id.
+                FieldName.ORDER_ID: ctx.order_id,
+                FieldName.EXECUTION_TRACE_ID: ctx.trace_id,
+                FieldName.SESSION_ID: ctx.strategy_id,
+                FieldName.STATUS: OrderStatus.FILLED,
             }
             store.add_closed_trade(closed_trade)
             redis_store = get_redis_store()

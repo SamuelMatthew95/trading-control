@@ -102,3 +102,29 @@ async def test_sell_with_no_position_leaves_dashboard_empty(memory_engine):
     pnl = _in_memory_pnl_payload()
     assert pnl[FieldName.TOTAL_PNL] == 0.0
     assert pnl[FieldName.ACTIVE_POSITIONS] == 0
+
+
+async def test_round_trip_close_mirrors_identity_fields_to_redis(memory_engine):
+    """Regression: mirror entries carried no order/trace ids, so startup
+    hydration could not rebuild renderable Trade Feed rows from them — the
+    feed normalizer drops id-less rows and the panel blanked after restarts."""
+    from api.services.redis_store import RedisStore, get_redis_store, set_redis_store
+
+    engine, broker = memory_engine
+    previous = get_redis_store()
+    set_redis_store(RedisStore(broker.redis))
+    try:
+        await engine.process(_order("buy", 1.0, 100.0, "2024-01-01T12:00:00+00:00"))
+        await engine.process(_order("sell", 1.0, 110.0, "2024-01-01T12:05:00+00:00"))
+
+        mirrored = await get_redis_store().list_closed_trades()
+    finally:
+        set_redis_store(previous)
+
+    assert len(mirrored) == 1
+    entry = mirrored[0]
+    assert entry[FieldName.SYMBOL] == "BTC/USD"
+    assert entry[FieldName.EXECUTION_TRACE_ID] == "trace-sell-2024-01-01T12:05:00+00:00"
+    assert entry[FieldName.ORDER_ID]
+    assert entry[FieldName.SESSION_ID] == "strat-e2e"
+    assert entry[FieldName.STATUS] == "filled"

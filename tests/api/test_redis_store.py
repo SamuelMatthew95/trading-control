@@ -494,3 +494,69 @@ async def test_startup_hydrates_closed_trades_from_redis(fake_redis, store_singl
 
     closed = get_runtime_store().closed_trades
     assert [t[FieldName.SYMBOL] for t in closed] == ["BTC/USD", "ETH/USD"]  # oldest first
+
+
+@pytest.mark.asyncio
+async def test_startup_hydration_rebuilds_trade_feed_rows(
+    fake_redis, store_singleton_reset
+) -> None:
+    """Regression: after a restart the Trade Feed panel blanked until the next
+    fill — only ``closed_trades`` was hydrated, never ``trade_feed``, so
+    /dashboard/trade-feed returned count=0 with the history sitting in Redis.
+    Hydration now projects each mirror entry into a renderable feed row,
+    including legacy entries written before the mirror carried identity fields."""
+    from api.in_memory_store import InMemoryStore
+    from api.runtime_state import get_runtime_store, set_db_available, set_runtime_store
+    from api.services.dashboard.trading import get_trade_feed_payload
+    from api.startup import _hydrate_closed_trades_from_redis
+
+    redis_store = RedisStore(fake_redis)
+    # Legacy mirror entry — pushed before the mirror carried order/trace ids.
+    await redis_store.push_closed_trade(
+        {
+            FieldName.SYMBOL: "BTC/USD",
+            FieldName.SIDE: "sell",
+            FieldName.QTY: 1.0,
+            FieldName.ENTRY_PRICE: 100.0,
+            FieldName.EXIT_PRICE: 110.0,
+            FieldName.PNL: 10.0,
+            FieldName.PNL_PERCENT: 10.0,
+            FieldName.FILLED_AT: "2026-06-10T12:00:00+00:00",
+        }
+    )
+    # Current-format entry — carries the identity fields the engine now mirrors.
+    await redis_store.push_closed_trade(
+        {
+            FieldName.SYMBOL: "ETH/USD",
+            FieldName.SIDE: "sell",
+            FieldName.QTY: 2.0,
+            FieldName.ENTRY_PRICE: 50.0,
+            FieldName.EXIT_PRICE: 45.0,
+            FieldName.PNL: -10.0,
+            FieldName.PNL_PERCENT: -10.0,
+            FieldName.FILLED_AT: "2026-06-11T12:00:00+00:00",
+            FieldName.ORDER_ID: "order-eth-1",
+            FieldName.EXECUTION_TRACE_ID: "trace-eth-1",
+            FieldName.SESSION_ID: "strat-1",
+            FieldName.STATUS: "filled",
+        }
+    )
+    set_redis_store(redis_store)
+
+    set_runtime_store(InMemoryStore())  # fresh boot — empty store
+    set_db_available(False)
+    await _hydrate_closed_trades_from_redis()
+
+    feed = get_runtime_store().trade_feed
+    assert [row[FieldName.SYMBOL] for row in feed] == ["BTC/USD", "ETH/USD"]  # oldest first
+
+    # The trade-feed endpoint must actually render both rows — the normalizer
+    # drops id-less rows, so the legacy entry needs its synthetic id.
+    payload = await get_trade_feed_payload(50)
+    assert payload[FieldName.COUNT] == 2
+    by_symbol = {t["symbol"]: t for t in payload[FieldName.TRADES]}
+    assert by_symbol["ETH/USD"][FieldName.ID] == "trace-eth-1"
+    assert by_symbol["ETH/USD"][FieldName.EXECUTION_TRACE_ID] == "trace-eth-1"
+    assert by_symbol["BTC/USD"][FieldName.ID].startswith("closed:BTC/USD:")
+    assert by_symbol["BTC/USD"]["pnl"] == 10.0
+    assert by_symbol["BTC/USD"]["exit_price"] == 110.0

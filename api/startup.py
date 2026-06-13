@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
+from typing import Any
 
 import httpx
 from fastapi import FastAPI
@@ -25,7 +26,7 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from api.config import settings
-from api.constants import VALID_SYMBOLS, FieldName
+from api.constants import VALID_SYMBOLS, FieldName, OrderStatus
 from api.database import engine, get_settings_info, init_database, test_database_connection
 from api.events.bus import EventBus, ensure_all_streams_ready
 from api.events.dlq import DLQManager
@@ -292,6 +293,38 @@ async def _hydrate_positions_from_broker(broker: PaperBroker) -> None:
         log_structured("info", "positions_hydrated_from_broker", count=hydrated)
 
 
+def _closed_trade_to_feed_row(trade: dict[str, Any]) -> dict[str, Any] | None:
+    """Project one Redis closed-trade mirror entry into a trade_feed row.
+
+    The trade-feed normalizer (`_normalize_in_memory_trade_row`) drops rows
+    without an id/symbol/side, so mirror entries written before the mirror
+    carried identity fields get a deterministic synthetic id (symbol + close
+    time) to stay renderable after hydration.
+    """
+    symbol = trade.get(FieldName.SYMBOL)
+    side = trade.get(FieldName.SIDE)
+    if not symbol or not side:
+        return None
+    trace_id = trade.get(FieldName.EXECUTION_TRACE_ID)
+    order_id = trade.get(FieldName.ORDER_ID)
+    closed_at = trade.get(FieldName.FILLED_AT) or trade.get(FieldName.TIMESTAMP)
+    return {
+        FieldName.ID: trace_id or order_id or f"closed:{symbol}:{closed_at}",
+        FieldName.SYMBOL: symbol,
+        FieldName.SIDE: side,
+        FieldName.QTY: trade.get(FieldName.QTY),
+        FieldName.ENTRY_PRICE: trade.get(FieldName.ENTRY_PRICE),
+        FieldName.EXIT_PRICE: trade.get(FieldName.EXIT_PRICE),
+        FieldName.PNL: trade.get(FieldName.PNL),
+        FieldName.PNL_PERCENT: trade.get(FieldName.PNL_PERCENT),
+        FieldName.SESSION_ID: trade.get(FieldName.SESSION_ID),
+        FieldName.ORDER_ID: order_id,
+        FieldName.EXECUTION_TRACE_ID: trace_id,
+        FieldName.STATUS: trade.get(FieldName.STATUS) or OrderStatus.FILLED,
+        FieldName.FILLED_AT: closed_at,
+    }
+
+
 async def _hydrate_closed_trades_from_redis() -> None:
     """In memory mode, seed InMemoryStore.closed_trades from the Redis mirror.
 
@@ -300,6 +333,9 @@ async def _hydrate_closed_trades_from_redis() -> None:
     dashboard showed a PnL figure with no trade history to explain it. The
     execution engine mirrors every round-trip close to ``closed_trades:recent``;
     this loads them back (oldest first, so list order matches live appends).
+    Each entry is also projected into ``trade_feed`` so the Trade Feed panel
+    and /dashboard/trade-feed keep showing the round-trip history after a
+    restart instead of blanking until the next fill.
     Best effort: no RedisStore or a Redis hiccup never blocks startup.
     """
     if is_db_available():
@@ -315,9 +351,19 @@ async def _hydrate_closed_trades_from_redis() -> None:
     if not recent:
         return
     store = get_runtime_store()
+    feed_rows = 0
     for trade in reversed(recent):  # list is newest-first; append oldest-first
         store.add_closed_trade(trade)
-    log_structured("info", "closed_trades_hydrated_from_redis", count=len(recent))
+        feed_row = _closed_trade_to_feed_row(trade)
+        if feed_row is not None:
+            store.upsert_trade_fill(feed_row)
+            feed_rows += 1
+    log_structured(
+        "info",
+        "closed_trades_hydrated_from_redis",
+        count=len(recent),
+        trade_feed_rows=feed_rows,
+    )
 
 
 def _build_agents(event_bus, dlq_manager, redis_client, agent_state, paper_broker) -> list:

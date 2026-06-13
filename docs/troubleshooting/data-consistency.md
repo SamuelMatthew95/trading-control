@@ -328,3 +328,26 @@ broker-position hydration.
 **Regression tests:**
 `tests/api/test_redis_store.py::test_push_closed_trade_roundtrip_and_cap`,
 `::test_startup_hydrates_closed_trades_from_redis`
+
+## Trade Feed blanked after every memory-mode restart (closed trades survived, the feed didn't)
+
+**Symptom:** After a redeploy the Trade Feed panel on /dashboard/trading showed
+nothing (`/dashboard/trade-feed` → `count: 0, empty_reason: db_degraded`) even
+though the round-trip history was sitting in the Redis `closed_trades:recent`
+mirror and the Closed Trades panel could show it.
+
+**Root cause:** Startup hydration only restored `InMemoryStore.closed_trades`;
+`trade_feed` started empty and had no rehydration source. The mirror entries
+also carried no order/trace ids, and the trade-feed normalizer
+(`_normalize_in_memory_trade_row`) drops id-less rows — so they could not have
+been projected into the feed even if loaded.
+
+**Fix:** `ExecutionEngine._record_fill_to_store` now mirrors each close with
+its identity fields (`order_id`, `execution_trace_id`, `session_id`, `status`),
+and `_hydrate_closed_trades_from_redis` projects every mirror entry into a
+`trade_feed` row via `_closed_trade_to_feed_row` (`api/startup.py`), giving
+legacy id-less entries a deterministic synthetic id so they stay renderable.
+
+**Regression tests:**
+`tests/api/test_redis_store.py::test_startup_hydration_rebuilds_trade_feed_rows`,
+`tests/integration/test_in_memory_dashboard_flow.py::test_round_trip_close_mirrors_identity_fields_to_redis`
