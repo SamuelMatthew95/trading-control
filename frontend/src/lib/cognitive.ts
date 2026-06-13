@@ -84,6 +84,9 @@ export function summarizeDecisions(decisions: DecisionPayload[]): DecisionStats 
   let confSum = 0
   for (const d of decisions) {
     const action = (d.action ?? '').toLowerCase()
+    // Only buy/sell move a position; everything else (hold, and the fail-closed
+    // `reject` the agent emits when the LLM is down) is a no-trade → holds.
+    // The rule-based count below surfaces LLM-down rejects separately.
     if (action === 'buy') buys += 1
     else if (action === 'sell') sells += 1
     else holds += 1
