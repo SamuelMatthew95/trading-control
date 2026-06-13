@@ -1512,6 +1512,25 @@ CHALLENGER_MIN_SHADOW_WIN_RATE: Final[float] = 0.55
 # fleet without bound.
 MAX_CONCURRENT_CHALLENGERS: Final[int] = 3
 
+# Hard floor for the shared Redis connection-pool cap (api/redis_client.py).
+# The pool is NEVER built smaller than this, even when REDIS_MAX_CONNECTIONS is
+# overridden lower via env. A too-low effective cap silently starves the
+# always-on blocking stream consumers: every agent loop + the EventPipeline +
+# the WebSocket broadcaster each pin a pooled connection ~continuously
+# (XREADGROUP/XREAD BLOCK, then immediately re-acquire), so request/response
+# callers (REST handlers, heartbeats, control-plane reads) time out in
+# BlockingConnectionPool.get_connection with
+# ConnectionError("No connection available.") and the dashboard wedges — the
+# exact "app is not loading" failure. Sized to cover the worst-case always-on
+# consumer count (currently 14) + request-burst headroom (15) = 29; kept honest
+# as the fleet grows by tests/core/test_redis_client.py::
+# test_pool_floor_covers_worst_case_always_on_consumers. Stays below every
+# Render Key Value plan client limit (free=50), so clamping a low override UP is
+# always safe. The comfortable default REDIS_MAX_CONNECTIONS=50 sits well above
+# this floor; the env var may RAISE the cap (mitigation headroom) but can never
+# lower it into the starvation zone.
+REDIS_POOL_FLOOR_CONNECTIONS: Final[int] = 30
+
 REDIS_KEY_PRICES: Final[str] = "prices:{symbol}"  # use .format(symbol=symbol)
 # Market-intel caches (Category 1 market-data cache) — written by the reasoning
 # node's new perception tools after a live Alpaca fetch, so repeated decisions
