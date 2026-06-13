@@ -246,9 +246,17 @@ class Settings(BaseSettings):
     # per-symbol GETs, RiskGuardian/gauge-poller scans, kill-switch/order-lock
     # reads, DLQ ops), so a refresh burst starved callers past the wait timeout
     # and raised ConnectionError("No connection available") from get_connection.
-    # 50 keeps the always-on loops plus a full refresh burst comfortably served
-    # and stays well under the Render Redis "starter" client limit (single
-    # gunicorn worker → this is the process-wide ceiling).
+    # 50 keeps the always-on loops plus a full refresh burst comfortably served.
+    # Render Key Value plan client limits (per Render's published plan specs —
+    # verify in the dashboard before changing plans): free=50, starter=250.
+    # We run plan "starter" (render.yaml) with a single gunicorn worker (-w 1),
+    # so this cap IS the process-wide ceiling: 50 of 250 leaves ample margin.
+    # NEVER set this at-or-above the plan limit — on the free plan 50 would sit
+    # exactly at the ceiling with zero room for redis-cli or monitoring.
+    # Guardrail: tests/core/test_redis_client.py::
+    # test_max_connections_covers_worst_case_always_on_consumers derives the
+    # worst-case always-on consumer count from the real fleet construction and
+    # fails CI if this cap ever drops below it plus request-burst headroom.
     REDIS_MAX_CONNECTIONS: int = 50
     # Max seconds a caller waits for a free pooled connection before erroring.
     # With a BlockingConnectionPool this replaces the plain pool's immediate
