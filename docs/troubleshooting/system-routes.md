@@ -263,6 +263,59 @@ deploy.
 `tests/core/test_redis_client.py::test_redis_pool_stats_reports_fresh_pool`,
 `tests/api/test_health_redis_pool.py::test_health_includes_redis_pool_stats`
 
+## Redis pool exhaustion recurs in prod even though the cap is "50" in code (`No connection available`)
+
+**Symptom:** The dashboard won't load and the logs repeat
+`Redis connection error during consume` / `websocket_background_loop_error`,
+each ending in `ConnectionError: No connection available.` from
+`BlockingConnectionPool.get_connection` with queued waiters (`waiters:5`) —
+the same pool-starvation signature as the section above, **despite**
+`REDIS_MAX_CONNECTIONS` already defaulting to 50 and the
+`test_max_connections_covers_worst_case_always_on_consumers` guardrail passing
+in CI.
+
+**Root cause:** The cap fix lived only in the *default* and in a *CI* guardrail —
+nothing enforced it at **runtime**. `REDIS_MAX_CONNECTIONS` is env-overridable
+(by design, so an operator can raise it without a deploy), so the running
+service can still come up with an effective cap *below* the safe minimum: a
+stale override left at the old value (e.g. 20) from the earlier mitigation, or a
+deploy that predates the 20→50 change. At ~20, the 14 always-on blocking
+consumers leave only ~6 connections for all request/response traffic, so a
+dashboard refresh starves callers past `REDIS_POOL_TIMEOUT_SECONDS` and the pool
+raises — exactly the original incident, re-entered through configuration rather
+than code. The CI guardrail couldn't catch it because it asserts on the *default*
+setting, not on whatever the deployment actually runs with.
+
+**Fix:** `api/redis_client.py` now clamps the cap up to a hard floor —
+`_effective_pool_cap()` returns `max(settings.REDIS_MAX_CONNECTIONS,
+REDIS_POOL_FLOOR_CONNECTIONS)` and logs a loud `redis_pool_cap_below_floor`
+warning (with `configured` / `floor` / `effective`) whenever it has to floor.
+`REDIS_POOL_FLOOR_CONNECTIONS` (`api/constants.py` = 30) is sized to cover the
+worst-case always-on consumers (14) + request-burst headroom (15) = 29, and
+stays below every Render Key Value plan client limit (free=50) so clamping up is
+always safe. The env var can still **raise** the cap for extra headroom; it just
+can no longer **lower** it into the starvation zone. Net effect: a
+misconfigured/stale `REDIS_MAX_CONNECTIONS` self-heals to a safe value on boot
+instead of silently wedging the app, and the warning names the misconfiguration.
+
+**Prevention:**
+1. *Runtime floor* — the clamp above makes the documented sizing invariant
+   self-enforcing in the live process, not just in CI.
+2. *Derived guardrail* — `test_pool_floor_covers_worst_case_always_on_consumers`
+   asserts the floor itself covers the real boot fleet + headroom, so growing
+   the fleet tightens the floor automatically (same pattern as the cap
+   guardrail). If it fails, raise `REDIS_POOL_FLOOR_CONNECTIONS` and confirm it
+   stays under the Redis plan's client limit.
+3. *Observability* — the floored value is what `GET /health` → `redis_pool`
+   reports as `max_connections`, and the `redis_pool_cap_below_floor` warning
+   fires once at pool construction, so an under-provisioned override is visible
+   both at boot and on the health endpoint.
+
+**Regression test:**
+`tests/core/test_redis_client.py::test_build_pool_floors_a_too_low_configured_cap`,
+`tests/core/test_redis_client.py::test_build_pool_respects_configured_cap_above_floor`,
+`tests/core/test_redis_client.py::test_pool_floor_covers_worst_case_always_on_consumers`
+
 ## Memory mode paints never-started agents "Live"
 
 **Symptom:** In memory mode (`USE_MEMORY_MODE=true`, no Postgres) the Agent
