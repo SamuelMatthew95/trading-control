@@ -4,7 +4,7 @@ import { useState } from 'react'
 
 import { cn } from '@/lib/utils'
 import { NO_DATA } from '@/constants/copy'
-import { formatUSD, getField, toFiniteNum } from '@/lib/formatters'
+import { formatTimeAgo, formatUSD, getField, toFiniteNum } from '@/lib/formatters'
 import { actionTone, FIELD_REALIZED_PNL_PCT, isFallbackDecision, signed } from '@/lib/cognitive'
 import type { TradeTrace } from '@/types/cognitive'
 
@@ -43,6 +43,11 @@ export function TracesPanel({ traces }: { traces: TradeTrace[] }) {
                 <span className="font-mono text-2xs text-muted-foreground">{trace.trace_id}</span>
               </span>
               <span className="flex items-center gap-2">
+                {decision?.timestamp && (
+                  <span className="text-2xs text-muted-foreground">
+                    {formatTimeAgo(decision.timestamp)}
+                  </span>
+                )}
                 {fallback && <FallbackTag />}
                 {decision && (
                   <span className={cn(chip, actionTone(decision.action))}>
