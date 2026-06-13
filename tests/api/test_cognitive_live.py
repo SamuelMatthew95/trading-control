@@ -159,6 +159,8 @@ async def test_memory_mode_end_to_end_with_redis_up():
         assert latest["price"] == 63485.2
         assert latest["llm_succeeded"] is True
         assert latest["reasoning_summary"] == "momentum edge"
+        # push_decision stamps a timestamp; it must flow through for freshness UI.
+        assert latest["timestamp"]
         assert latest["tools_used"] and latest["tools_used"][0]["name"] == "get_news_sentiment"
         trace = next(t for t in snap["traces"] if t["trace_id"] == "trace-1")
         assert trace["decision"]["tools_used"] == latest["tools_used"]
