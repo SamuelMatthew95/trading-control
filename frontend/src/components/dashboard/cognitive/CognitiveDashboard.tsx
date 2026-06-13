@@ -87,9 +87,19 @@ export function CognitiveDashboard() {
           title={COPY.title}
           description={`${COPY.subtitleLoop} v${snap.config.version} · ${snap.event_count} ${COPY.subtitleEvents}`}
           right={
-            <span className="rounded-full border px-2 py-1 font-mono text-3xs uppercase tracking-caps text-muted-foreground">
-              {COPY.headerChip}
-            </span>
+            <div className="flex items-center gap-2">
+              {snap.db_available === false && (
+                <span
+                  title={COPY.memoryModeTitle}
+                  className="rounded-full bg-warning/15 px-2 py-1 text-3xs font-semibold uppercase tracking-caps text-warning"
+                >
+                  {COPY.memoryMode}
+                </span>
+              )}
+              <span className="rounded-full border px-2 py-1 font-mono text-3xs uppercase tracking-caps text-muted-foreground">
+                {COPY.headerChip}
+              </span>
+            </div>
           }
         />
         <nav className="flex flex-wrap gap-1 rounded-xl border bg-card p-2 dark:bg-card/80">
