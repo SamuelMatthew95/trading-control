@@ -14,6 +14,7 @@ from api.constants import FieldName, HealthStatus
 from api.core.schemas import HealthResponse
 from api.database import get_async_session, test_database_connection
 from api.observability import log_structured, metrics_store
+from api.redis_client import redis_pool_stats
 from api.runtime_state import get_runtime_store, runtime_mode
 
 logger = logging.getLogger(__name__)
@@ -169,6 +170,11 @@ async def health_check(request: Request) -> dict[str, Any]:
         FieldName.DATABASE_MODE: runtime_mode(),
         FieldName.RUNTIME_DB_HEALTH: getattr(store, "last_health", "unknown"),
         FieldName.REDIS: "connected" if redis_ready else "disconnected",
+        # Pure in-process counters (no Redis I/O) — readable even when the pool
+        # is saturated and the ping above is starving. in_use == max means
+        # callers are queueing on BlockingConnectionPool.get_connection (the
+        # "No connection available." starvation mode).
+        FieldName.REDIS_POOL: redis_pool_stats(),
         FieldName.PIPELINE_RUNNING: bool(pipeline and pipeline.status().get(FieldName.RUNNING)),
         FieldName.ACTIVE_WS_CONNECTIONS: (
             getattr(broadcaster, "active_connections", 0) if broadcaster else 0
