@@ -344,3 +344,44 @@ in Redis.
 `::test_in_place_update_keeps_version_and_history`,
 `::test_read_self_heals_stacked_promotion_advisories`,
 `tests/agents/test_proposal_applier.py::test_repromotion_refreshes_advisory_without_version_bump`
+
+## Proposals created by GradeAgent / ChallengerAgent never appeared on the UI
+
+**Symptom:** Operator: "proposals not showing on the UI, nothing working — I
+don't see any being created, no auto-PRs, no prompt updates." The `proposals`
+Redis stream held 31 entries, but the dashboard Proposals queue was empty.
+
+**Root cause:** Two layers.
+1. *Primary (operational):* the only LLM provider (`groq`) was failing 100% of
+   calls (0 successes ever — missing/invalid `GROQ_API_KEY`), so the LLM-driven
+   chain was dead: ReflectionAgent emitted no hypotheses (`reflection_outputs`
+   stream empty), so StrategyProposer produced no proposals, no
+   `PROMPT_EVOLUTION`, and no `PARAMETER_CHANGE` → no auto-PRs, no prompt
+   updates. Fix is a deployment secret, not code.
+2. *Code gap:* the proposals that DO get created without the LLM —
+   `GradeAgent` tool-governance and `ChallengerAgent` promotions — published to
+   `STREAM_PROPOSALS` but never called `persist_proposal()`. The dashboard reads
+   the *persisted* store, not the stream, and `ProposalApplier` only persists a
+   proposal once it APPLIES it (returning early on an approval-gated pending
+   proposal without persisting). So a pending human-approval proposal never
+   surfaced. In memory mode the persisted store (`InMemoryStore.event_history`)
+   is also wiped on every restart with no rehydration, so even applied proposals
+   vanished on redeploy.
+
+**Fix:** `GradeAgent._emit_tool_governance` and
+`ChallengerAgent._maybe_propose_shadow_promotion` now call `persist_proposal()` right
+after publishing (mirroring StrategyProposer). `persist_proposal()`
+(`api/services/agents/db_helpers.py`) mirrors to a durable Redis list
+(`proposals:recent`, `RedisStore.push_proposal`/`list_proposals`), and
+`api/startup.py::_hydrate_proposals_from_redis()` replays it into the runtime
+store on boot — so the queue survives restarts in memory mode. Control-plane
+grade reactions (weight reduction / suspension / retirement) are deliberately
+NOT persisted at creation: they auto-apply and the applier records them as
+applied audit rows, so persisting them as pending would spam the queue with
+Approve/Reject buttons for actions already taken.
+
+**Regression tests:**
+`tests/api/test_redis_store.py::test_push_proposal_roundtrip_and_defaults`,
+`::test_proposals_list_cap_is_enforced`,
+`::test_persist_proposal_mirrors_to_redis_in_memory_mode`,
+`::test_startup_hydrates_proposals_from_redis`
