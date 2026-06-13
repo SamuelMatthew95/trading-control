@@ -421,6 +421,67 @@ def _build_health(
     }
 
 
+async def _live_weights() -> dict[str, Any]:
+    """Live factor weights from Redis IC weights (empty dict when absent)."""
+    try:
+        weights_payload = await get_ic_weights_payload()
+        weights = weights_payload.get(FieldName.WEIGHTS) or weights_payload.get(
+            FieldName.IC_WEIGHTS
+        )
+        return weights if isinstance(weights, dict) else {}
+    except Exception:
+        return {}
+
+
+async def build_live_config() -> dict[str, Any]:
+    """The active, live config block (prompt-directive version + IC weights).
+
+    Replaces the seeded demo ``CognitiveLoop.config`` — no fabricated weights.
+    """
+    weights = await _live_weights()
+    try:
+        prompt_payload = await get_prompt_evolution_payload()
+    except Exception:
+        prompt_payload = {}
+    version = int(prompt_payload.get(FieldName.VERSION, 0)) or 1
+    return {
+        "version": version,
+        "weights": weights,
+        "buy_threshold": 0.0,
+        "sell_threshold": 0.0,
+        "risk": {},
+    }
+
+
+def live_roster() -> list[dict[str, str]]:
+    """The live cognitive-agent roster (real agents, not the demo registry)."""
+    return [dict(spec) for spec in _ROSTER]
+
+
+async def build_live_trace(trace_id: str) -> dict[str, Any]:
+    """Reconstruct one trade's live chain (decision + perception) by trace id.
+
+    Reads the real decision stream — returns the matching trace, or a keyed
+    empty when the id is unknown (never a seeded demo chain).
+    """
+    snapshot = await build_live_snapshot()
+    for trace in snapshot["traces"]:
+        if trace.get(FieldName.TRACE_ID) == trace_id:
+            return trace
+    return {
+        "trace_id": trace_id,
+        "signals": {"news": None, "tech": None, "macro": None, "risk": None},
+        "reasoning": None,
+        "decision": None,
+        "risk_gate": None,
+        "execution": None,
+        "outcome": None,
+        "counterfactual": None,
+        "grade": None,
+        "event_count": 0,
+    }
+
+
 async def build_live_snapshot(*, trace_limit: int = 50) -> dict[str, Any]:
     """Assemble the Cognitive snapshot from live agent data (best-effort)."""
     store = get_runtime_store()
@@ -439,14 +500,7 @@ async def build_live_snapshot(*, trace_limit: int = 50) -> dict[str, Any]:
     # just the last few rows.
     events = store.get_events(200)
 
-    try:
-        weights_payload = await get_ic_weights_payload()
-        weights = weights_payload.get(FieldName.WEIGHTS) or weights_payload.get(
-            FieldName.IC_WEIGHTS
-        )
-        weights = weights if isinstance(weights, dict) else {}
-    except Exception:
-        weights = {}
+    weights = await _live_weights()
 
     try:
         proposals_payload = await list_proposals_payload()
@@ -531,8 +585,10 @@ async def build_live_snapshot(*, trace_limit: int = 50) -> dict[str, Any]:
             "agent_grades": agent_grades,
             "observations": observations,
             "trade_grades": [],
-            "mean_regret_pct": 0.0,
-            "best_action_rate": 0.0,
+            # Counterfactual analytics are sim-only; the live pipeline does not
+            # compute them, so report null (no data), never a fabricated 0.
+            "mean_regret_pct": None,
+            "best_action_rate": None,
         },
         "counterfactuals": [],
         "drift": {
