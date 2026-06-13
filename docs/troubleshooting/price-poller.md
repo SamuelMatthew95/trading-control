@@ -67,7 +67,7 @@ symbol count.
 **Root cause:** Each poll cycle built payloads with one Redis `GET` per symbol
 (an N+1). At 6 symbols every 5 s that is a steady stream of concurrent
 `get_connection()` checkouts; bursts (or a slow Redis) held enough connections
-simultaneously to exhaust the pool (`REDIS_MAX_CONNECTIONS`, default 20). The
+simultaneously to exhaust the pool (`REDIS_MAX_CONNECTIONS`, default 50). The
 shared client/pool itself was fine — the problem was the per-symbol fan-out of
 reads, amplified by an over-aggressive 5 s cadence.
 
