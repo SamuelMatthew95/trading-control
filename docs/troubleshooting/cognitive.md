@@ -235,3 +235,13 @@ so absence became a confident zero.
 **Fix:** `TracesPanel.tsx` reads the field with `toFiniteNum(getField(outcome, FIELD_REALIZED_PNL_PCT))` and renders the Outcome step **only** when the value is genuinely numeric — a missing value shows nothing, never a guessed 0%. The cognitive panel was also modularized (one file per tab under `components/dashboard/cognitive/`, shared primitives in `cognitive-ui.tsx`) and decision freshness (`formatTimeAgo`) was surfaced.
 
 **Regression test:** `tests/api/test_cognitive_live.py::test_memory_mode_end_to_end_with_redis_up` (asserts timestamp flows through); honest-absence behaviour is covered by the `toFiniteNum`/`getField` formatter unit tests.
+
+## The `/cognitive/*` API served seeded demo data by default
+
+**Symptom:** `GET /cognitive/config`, `/cognitive/agents`, and `/cognitive/trace/{id}` returned the deterministic `cognitive/demo.py` seeded loop (news/tech/macro demo weights, `news_agent`/`technical_agent` roster) on every call, and `/state` + `/events` could be flipped to it with `?demo=true`. `POST /cognitive/reseed` rebuilt the demo trajectory. The dashboard didn't read those endpoints, but the API surface still served mock data.
+
+**Root cause:** The route was a thin wrapper over a lazily-built `build_seeded_loop()` singleton; only `/state` and `/events` had a live path, and even those defaulted-but-could-opt-into demo.
+
+**Fix:** `api/routes/cognitive.py` now backs **every** endpoint with `api/services/cognitive_live.py` (the real pipeline) — `build_live_config()` / `live_roster()` / `build_live_trace()` were added, the `?demo=true` branch and `POST /cognitive/reseed` were removed, and the route no longer imports the `cognitive/` package at all. The standalone deterministic engine in `cognitive/` stays as a tested library, just unwired from the API.
+
+**Regression test:** `tests/api/test_cognitive_routes.py` (asserts config/agents/trace are live; `test_trace_endpoint_reconstructs_live_chain_by_id`, `test_trace_endpoint_unknown_id_returns_keyed_empty`).
