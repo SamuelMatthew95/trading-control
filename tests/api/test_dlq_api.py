@@ -227,12 +227,18 @@ class TestDLQAPI:
 
         redis_source_code = inspect.getsource(redis_client)
 
-        # max_connections is now driven by settings.REDIS_MAX_CONNECTIONS
+        # max_connections is driven by settings.REDIS_MAX_CONNECTIONS, clamped up
+        # to REDIS_POOL_FLOOR_CONNECTIONS so a too-low override can't starve the
+        # always-on stream consumers.
         assert "REDIS_MAX_CONNECTIONS" in redis_source_code, (
             "Redis client max_connections should be driven by settings.REDIS_MAX_CONNECTIONS"
         )
-        assert "max_connections=settings.REDIS_MAX_CONNECTIONS" in redis_source_code, (
-            "Redis client should pass settings.REDIS_MAX_CONNECTIONS to the pool"
+        assert "settings.REDIS_MAX_CONNECTIONS" in redis_source_code, (
+            "Redis client should source the cap from settings.REDIS_MAX_CONNECTIONS"
+        )
+        assert "REDIS_POOL_FLOOR_CONNECTIONS" in redis_source_code, (
+            "Redis client should floor the cap at REDIS_POOL_FLOOR_CONNECTIONS so a "
+            "too-low override can't starve the always-on consumers"
         )
         assert "BlockingConnectionPool" in redis_source_code, (
             "Pool must block on exhaustion (wait for a free connection), not raise "
