@@ -51,7 +51,10 @@ class TestRedisConnectionFixes:
             # Mock settings
             with patch("api.redis_client.settings") as mock_settings:
                 mock_settings.REDIS_URL = "redis://localhost:6379/0"
-                mock_settings.REDIS_MAX_CONNECTIONS = 20
+                # Above REDIS_POOL_FLOOR_CONNECTIONS so the configured value flows
+                # through verbatim — a value below the floor is clamped up (see
+                # tests/core/test_redis_client.py::test_build_pool_floors_a_too_low_configured_cap).
+                mock_settings.REDIS_MAX_CONNECTIONS = 64
                 mock_settings.REDIS_POOL_TIMEOUT_SECONDS = 5.0
 
                 await get_redis()
@@ -61,7 +64,7 @@ class TestRedisConnectionFixes:
                 mock_pool_class.from_url.assert_called_once()
                 call_kwargs = mock_pool_class.from_url.call_args[1]
 
-                assert call_kwargs["max_connections"] == 20
+                assert call_kwargs["max_connections"] == 64
                 assert call_kwargs["timeout"] == 5.0
                 assert call_kwargs["health_check_interval"] == 30
                 assert call_kwargs["socket_timeout"] == 5
@@ -89,6 +92,9 @@ class TestRedisConnectionFixes:
 
             with patch("api.redis_client.settings") as mock_settings:
                 mock_settings.REDIS_URL = "redis://localhost:6379/0"
+                # _effective_pool_cap() compares this against the floor, so the
+                # mock must supply a real int (not a MagicMock).
+                mock_settings.REDIS_MAX_CONNECTIONS = 50
 
                 # Should not raise due to cleanup in get_redis
                 with pytest.raises(RedisConnectionError):
