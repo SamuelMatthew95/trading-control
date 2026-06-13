@@ -23,25 +23,26 @@ import {
   actionTone,
   fetchCognitiveEvents,
   fetchCognitiveState,
+  isFallbackDecision,
   signed,
   statusTone,
+  summarizeDecisions,
 } from '@/lib/cognitive'
+import { extractToolInvocations, summarizeToolOutputs } from '@/lib/decision-tools'
 import { gradeTone } from '@/lib/grade-colors'
 import type {
   CognitiveEvent,
   CognitiveSnapshot,
+  DecisionPayload,
   TradeTrace,
 } from '@/types/cognitive'
 
 const COPY = UI_COPY.cognitive
+const CMD = COPY.cmd
 
 const num = (obj: Record<string, unknown> | null | undefined, key: string): number => {
   const value = obj?.[key]
   return typeof value === 'number' ? value : Number(value ?? 0)
-}
-const str = (obj: Record<string, unknown> | null | undefined, key: string): string => {
-  const value = obj?.[key]
-  return value == null ? '' : String(value)
 }
 
 const TABS = [
@@ -161,58 +162,145 @@ export function CognitiveDashboard() {
   )
 }
 
+/** The reasoning chain (tool ledger) the decision exercised — real perception. */
+function ToolChain({ decision }: { decision: DecisionPayload | null }) {
+  const tools = decision ? extractToolInvocations({ tools_used: decision.tools_used }) : []
+  if (tools.length === 0) {
+    return <p className="text-xs text-muted-foreground">{CMD.noTools}</p>
+  }
+  return (
+    <div className="space-y-1">
+      {tools.map((tool, i) => {
+        const outputs = summarizeToolOutputs(tool.outputs)
+        return (
+          <div key={i} className="flex items-center gap-2 font-mono text-2xs tabular-nums">
+            <span className={tool.success === false ? 'text-danger' : 'text-success'} aria-hidden>
+              {tool.success === false ? '✗' : '✓'}
+            </span>
+            <span className="text-foreground/80">{tool.name ?? UI_COPY.decisions.toolFallback}</span>
+            {typeof tool.latency_ms === 'number' && (
+              <span className="text-muted-foreground/70">{tool.latency_ms.toFixed(0)}ms</span>
+            )}
+            {outputs && <span className="text-muted-foreground">· {outputs}</span>}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/** Full reasoning card for one decision: action, symbol, confidence, the human
+ *  summary, the rule-based-fallback flag, and the real perception chain. */
+function DecisionReasoningCard({ decision, title }: { decision: DecisionPayload; title: string }) {
+  const fallback = isFallbackDecision(decision)
+  const conf = typeof decision.confidence === 'number' ? decision.confidence : decision.score
+  return (
+    <div className={card}>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className={label}>{title}</div>
+        {fallback && (
+          <span
+            title={CMD.ruleBasedTitle}
+            className="rounded-full bg-warning/15 px-2 py-0.5 text-3xs font-semibold uppercase tracking-caps text-warning"
+          >
+            {CMD.ruleBasedTag}
+          </span>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={cn(chip, actionTone(decision.action))}>{decision.action.toUpperCase()}</span>
+        <span className="font-mono text-sm font-semibold text-foreground">
+          {decision.symbol ?? NO_DATA}
+        </span>
+        {typeof decision.price === 'number' && (
+          <span className="font-mono text-xs text-muted-foreground">
+            ${decision.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+          </span>
+        )}
+        <span className="text-muted-foreground/50">·</span>
+        <span className="font-mono text-xs text-foreground/70">{(conf * 100).toFixed(0)}%</span>
+      </div>
+      {decision.reasoning_summary && (
+        <p className="mt-2 text-sm text-foreground/80">{decision.reasoning_summary}</p>
+      )}
+      <div className="mt-3 rounded-md border bg-muted/40 p-2">
+        <p className="mb-1 text-3xs font-semibold uppercase tracking-caps text-muted-foreground/70">
+          {CMD.perceptionChain}
+        </p>
+        <ToolChain decision={decision} />
+      </div>
+    </div>
+  )
+}
+
 function CommandCenter({ snap }: { snap: CognitiveSnapshot }) {
   const { health, decision } = snap
-  const pipeline = health.proposal_pipeline
-  const learning = health.learning
-  const systemHealthy = learning.ungraded === 0 && health.decision.decisions_made > 0
+  const stats = summarizeDecisions(decision.recent)
   const latest = decision.latest
+  const llmTone =
+    stats.successRate == null
+      ? 'text-muted-foreground'
+      : stats.fallbacks > 0
+        ? 'text-warning'
+        : 'text-success'
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div className={card}>
-          <div className={label}>{COPY.system}</div>
-          <div
-            className={cn('mt-1 text-lg font-semibold', systemHealthy ? 'text-success' : 'text-warning')}
-          >
-            {systemHealthy ? COPY.healthy : COPY.warmingUp}
-          </div>
-          <div className="mt-1 text-xs text-muted-foreground">
-            {learning.trades_graded}/{learning.trades_closed} {COPY.tradesGraded}
+          <div className={label}>{CMD.decisions}</div>
+          <div className="mt-1 text-2xl font-semibold text-foreground">{stats.total}</div>
+          <div className="mt-1 flex gap-2 font-mono text-xs tabular-nums">
+            <span className="text-success">
+              {stats.buys} {CMD.buysShort}
+            </span>
+            <span className="text-danger">
+              {stats.sells} {CMD.sellsShort}
+            </span>
+            <span className="text-muted-foreground">
+              {stats.holds} {CMD.holdsShort}
+            </span>
           </div>
         </div>
         <div className={card}>
-          <div className={label}>{COPY.topDecision}</div>
+          <div className={label}>{CMD.llmReasoning}</div>
+          <div className={cn('mt-1 text-2xl font-semibold', llmTone)}>
+            {stats.successRate == null ? NO_DATA : `${(stats.successRate * 100).toFixed(0)}%`}
+          </div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {stats.successRate == null
+              ? CMD.llmUnknown
+              : stats.fallbacks > 0
+                ? `${stats.fallbacks} ${CMD.fallbacks}`
+                : CMD.llmAllReasoned}
+          </div>
+        </div>
+        <div className={card}>
+          <div className={label}>{CMD.latestDecision}</div>
           <div className="mt-1 flex items-center gap-2">
             <span className={cn(chip, actionTone(latest?.action))}>
               {(latest?.action || UI_COPY.terminal.defaultAction).toUpperCase()}
             </span>
-            <span className="text-sm font-medium text-foreground/80">
-              {latest ? signed(latest.score, 3) : NO_DATA}
+            <span className="font-mono text-sm font-medium text-foreground/80">
+              {latest?.symbol ?? NO_DATA}
             </span>
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
-            {COPY.band} [{decision.sell_threshold}, {decision.buy_threshold}]
+            {CMD.avgConfidence} {(stats.avgConfidence * 100).toFixed(0)}%
           </div>
         </div>
         <div className={card}>
-          <div className={label}>{COPY.activeConfig}</div>
-          <div className="mt-1 text-lg font-semibold text-foreground">v{snap.config.version}</div>
-          <div className="mt-1 text-xs text-muted-foreground">
-            {pipeline.merged} {COPY.merged} · {pipeline.generated} {COPY.proposed}
-          </div>
-        </div>
-        <div className={card}>
-          <div className={label}>{COPY.proposalPipeline}</div>
-          <div className="mt-1 text-sm text-foreground/80">
-            {pipeline.approved} {COPY.approved} · {pipeline.rejected} {COPY.rejected}
-          </div>
-          <div className="mt-1 text-xs text-muted-foreground">
-            {pipeline.backtested} {COPY.backtested}
-          </div>
+          <div className={label}>{CMD.activeConfig}</div>
+          <div className="mt-1 text-2xl font-semibold text-foreground">v{snap.config.version}</div>
+          <div className="mt-1 text-xs text-muted-foreground">{CMD.configVersion}</div>
         </div>
       </div>
+
+      {latest ? (
+        <DecisionReasoningCard decision={latest} title={CMD.latestReasoning} />
+      ) : (
+        <div className={cn(card, 'text-sm text-muted-foreground')}>{CMD.noDecisions}</div>
+      )}
 
       <div className={card}>
         <div className={cn(label, 'mb-2')}>{COPY.agentHealth}</div>
@@ -222,53 +310,6 @@ function CommandCenter({ snap }: { snap: CognitiveSnapshot }) {
               {name} · {info.events}
             </span>
           ))}
-        </div>
-      </div>
-
-      {latest && (
-        <div className={card}>
-          <div className={cn(label, 'mb-2')}>{COPY.decisionFlow}</div>
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            {Object.entries(latest.breakdown).map(([sig, contrib]) => (
-              <span key={sig} className="rounded-md bg-muted px-2 py-1 text-foreground/80">
-                {sig} {signed(contrib, 3)}
-              </span>
-            ))}
-            <span className="text-muted-foreground/70">→</span>
-            <span className="font-semibold">{signed(latest.score, 3)}</span>
-            <span className="text-muted-foreground/70">→</span>
-            <span className={cn(chip, actionTone(latest.action))}>{latest.action.toUpperCase()}</span>
-          </div>
-        </div>
-      )}
-
-      <div className="grid gap-3 lg:grid-cols-2">
-        <div className={card}>
-          <div className={cn(label, 'mb-2')}>{COPY.decisionQuality}</div>
-          <div className="flex gap-4 text-sm text-foreground/80">
-            <span>
-              {COPY.bestActionRate} <b>{((snap.learning.best_action_rate ?? 0) * 100).toFixed(0)}%</b>
-            </span>
-            <span>
-              {COPY.meanRegret} <b>{signed(snap.learning.mean_regret_pct ?? 0)}%</b>
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">{COPY.qualityNote}</p>
-        </div>
-        <div className={card}>
-          <div className={cn(label, 'mb-2')}>{COPY.drift}</div>
-          {snap.drift.alerts.length === 0 ? (
-            <p className="text-sm text-success">{COPY.noDrift}</p>
-          ) : (
-            <ul className="space-y-1 text-xs">
-              {snap.drift.alerts.map((alert, i) => (
-                <li key={i} className="text-warning">
-                  {alert.metric} {alert.direction === 'down' ? '↓' : '↑'} {alert.recent} ({COPY.was}{' '}
-                  {alert.baseline})
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
       </div>
     </div>
@@ -487,16 +528,29 @@ function TracesPanel({ traces }: { traces: TradeTrace[] }) {
       {traces.map((trace) => {
         const isOpen = open === trace.trace_id
         const decision = trace.decision
+        const fallback = decision ? isFallbackDecision(decision) : false
         return (
           <div key={trace.trace_id} className={card}>
             <button
               type="button"
               onClick={() => setOpen(isOpen ? null : trace.trace_id)}
               aria-expanded={isOpen}
-              className="flex w-full items-center justify-between text-left"
+              className="flex w-full items-center justify-between gap-2 text-left"
             >
-              <span className="font-mono text-xs text-muted-foreground">{trace.trace_id}</span>
               <span className="flex items-center gap-2">
+                {decision?.symbol && (
+                  <span className="font-mono text-sm font-semibold text-foreground">
+                    {decision.symbol}
+                  </span>
+                )}
+                <span className="font-mono text-2xs text-muted-foreground">{trace.trace_id}</span>
+              </span>
+              <span className="flex items-center gap-2">
+                {fallback && (
+                  <span className="rounded-full bg-warning/15 px-2 py-0.5 text-3xs font-semibold uppercase tracking-caps text-warning">
+                    {CMD.ruleBasedTag}
+                  </span>
+                )}
                 {decision && (
                   <span className={cn(chip, actionTone(decision.action))}>
                     {decision.action.toUpperCase()}
@@ -507,41 +561,37 @@ function TracesPanel({ traces }: { traces: TradeTrace[] }) {
             </button>
             {isOpen && (
               <div className="mt-3 space-y-2 border-t pt-3 text-xs">
-                <Step name={COPY.steps.signals}>
-                  news {num(trace.signals.news, 'sentiment')} · tech {num(trace.signals.tech, 'trend')} ·
-                  macro {num(trace.signals.macro, 'regime')} · risk {num(trace.signals.risk, 'risk_score')}
-                </Step>
-                <Step name={COPY.steps.reasoning}>{str(trace.reasoning, 'summary') || NO_DATA}</Step>
                 <Step name={COPY.steps.decision}>
                   {decision
-                    ? `${decision.action.toUpperCase()} ${COPY.atScore} ${signed(decision.score, 3)}`
-                    : NO_DATA}
-                </Step>
-                <Step name={COPY.steps.riskGate}>
-                  {trace.risk_gate
-                    ? `${num(trace.risk_gate, 'allowed') ? COPY.allowed : COPY.blocked} ${
-                        Array.isArray(trace.risk_gate.blocks)
-                          ? (trace.risk_gate.blocks as string[]).join(', ')
+                    ? `${decision.action.toUpperCase()} ${COPY.atScore} ${signed(
+                        decision.confidence ?? decision.score,
+                        2,
+                      )}${
+                        typeof decision.price === 'number'
+                          ? ` · $${decision.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
                           : ''
                       }`
                     : NO_DATA}
                 </Step>
-                <Step name={COPY.steps.execution}>
-                  {trace.execution
-                    ? `${str(trace.execution, 'status')} ${num(trace.execution, 'qty')} @ ${num(
-                        trace.execution,
-                        'price',
-                      )}`
-                    : NO_DATA}
+                <Step name={COPY.steps.reasoning}>{decision?.reasoning_summary || NO_DATA}</Step>
+                <Step name={COPY.traceLlm}>
+                  {decision == null
+                    ? NO_DATA
+                    : decision.llm_succeeded === false
+                      ? `${COPY.traceRuleBased}${
+                          decision.downgrade_reason ? ` · ${decision.downgrade_reason}` : ''
+                        }`
+                      : COPY.traceModelReasoned}
                 </Step>
-                <Step name={COPY.steps.outcome}>
-                  {trace.outcome ? `${signed(num(trace.outcome, 'realized_pnl_pct'))}%` : NO_DATA}
-                </Step>
-                {trace.counterfactual && (
-                  <Step name={COPY.steps.counterfactual}>
-                    {COPY.best} {trace.counterfactual.best_action.toUpperCase()} · {COPY.regret}{' '}
-                    {signed(trace.counterfactual.regret_pct)}% ·{' '}
-                    {trace.counterfactual.was_best ? COPY.choseBest : COPY.suboptimal}
+                <div className="flex gap-2">
+                  <span className="w-28 shrink-0 text-muted-foreground">{COPY.tracePerception}</span>
+                  <div className="flex-1">
+                    <ToolChain decision={decision} />
+                  </div>
+                </div>
+                {trace.outcome && (
+                  <Step name={COPY.steps.outcome}>
+                    {signed(num(trace.outcome, 'realized_pnl_pct'))}%
                   </Step>
                 )}
                 {trace.grade && (
