@@ -156,7 +156,7 @@ async def test_memory_mode_end_to_end_with_redis_up():
         latest = snap["decision"]["latest"]
         assert latest is not None
         assert latest["action"] == "buy"
-        assert latest["score"] == 0.77
+        assert latest["confidence"] == 0.77
         # The real cognition the page surfaces: price, LLM status, perception chain.
         assert latest["price"] == 63485.2
         assert latest["llm_succeeded"] is True
