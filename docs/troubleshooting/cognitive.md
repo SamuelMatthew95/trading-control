@@ -222,3 +222,16 @@ trading loop; the queued `pr_request` artifact remains for the GitHub Action / m
 - `CognitiveDashboard.tsx` Command Center replaced the empty weighted-breakdown / hardcoded-counterfactual / always-empty-drift panels with real KPIs (decision count + B/S/H split, LLM reasoning success rate + fallback count, latest decision, active directive version) and a "Latest Reasoning" card rendering the real perception chain. Trace Explorer replaced `news/tech/macro/risk 0` with the real decision → reasoning summary → LLM status → perception chain (grade/outcome still shown when present).
 
 **Regression tests:** `tests/api/test_cognitive_live.py::test_memory_mode_end_to_end_with_redis_up` (asserts price/llm_succeeded/tools_used flow through), `frontend/src/test/components/cognitive.test.ts` (`summarizeDecisions`, `isFallbackDecision`), `frontend/src/test/helpers/decision-tools.test.ts` (perception-tool summaries).
+
+## Trace outcome rendered a fabricated +0.00% when realized P&L was absent
+
+**Symptom:** An expanded trace whose outcome object existed but had no
+`realized_pnl_pct` field showed `Outcome +0.00%` — indistinguishable from a real
+break-even trade.
+
+**Root cause:** The reader coerced a missing key to `0` (`Number(value ?? 0)`),
+so absence became a confident zero.
+
+**Fix:** `TracesPanel.tsx` reads the field with `toFiniteNum(getField(outcome, FIELD_REALIZED_PNL_PCT))` and renders the Outcome step **only** when the value is genuinely numeric — a missing value shows nothing, never a guessed 0%. The cognitive panel was also modularized (one file per tab under `components/dashboard/cognitive/`, shared primitives in `cognitive-ui.tsx`) and decision freshness (`formatTimeAgo`) was surfaced.
+
+**Regression test:** `tests/api/test_cognitive_live.py::test_memory_mode_end_to_end_with_redis_up` (asserts timestamp flows through); honest-absence behaviour is covered by the `toFiniteNum`/`getField` formatter unit tests.
