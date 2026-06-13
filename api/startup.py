@@ -25,7 +25,7 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from api.config import settings
-from api.constants import VALID_SYMBOLS, FieldName
+from api.constants import VALID_SYMBOLS, FieldName, LogType
 from api.database import engine, get_settings_info, init_database, test_database_connection
 from api.events.bus import EventBus, ensure_all_streams_ready
 from api.events.dlq import DLQManager
@@ -320,6 +320,43 @@ async def _hydrate_closed_trades_from_redis() -> None:
     log_structured("info", "closed_trades_hydrated_from_redis", count=len(recent))
 
 
+async def _hydrate_proposals_from_redis() -> None:
+    """In memory mode, seed InMemoryStore.event_history from the Redis mirror.
+
+    Proposals are published to STREAM_PROPOSALS, but the dashboard reads them
+    from the persisted store, which in memory mode is the InMemoryStore — wiped
+    on every restart. Producers now mirror each proposal to ``proposals:recent``;
+    this replays them back into ``event_history`` in the same envelope
+    ``persist_proposal`` writes, so the proposals endpoints find them after a
+    restart. Best effort: no RedisStore or a Redis hiccup never blocks startup.
+    """
+    if is_db_available():
+        return
+    redis_store = get_redis_store()
+    if redis_store is None:
+        return
+    try:
+        recent = await redis_store.list_proposals()
+    except Exception:
+        log_structured("warning", "proposal_hydration_failed", exc_info=True)
+        return
+    if not recent:
+        return
+    store = get_runtime_store()
+    for proposal in reversed(recent):  # list is newest-first; append oldest-first
+        trace_id = (
+            proposal.get(FieldName.REFLECTION_TRACE_ID) or proposal.get(FieldName.MSG_ID) or ""
+        )
+        store.add_event(
+            {
+                FieldName.LOG_TYPE: LogType.PROPOSAL,
+                FieldName.TRACE_ID: trace_id,
+                FieldName.PAYLOAD: proposal,
+            }
+        )
+    log_structured("info", "proposals_hydrated_from_redis", count=len(recent))
+
+
 def _build_agents(event_bus, dlq_manager, redis_client, agent_state, paper_broker) -> list:
     """Construct the full agent fleet (order matters only for logging)."""
     grade_agent = GradeAgent(event_bus, dlq_manager, agent_state=agent_state)
@@ -553,6 +590,10 @@ async def lifespan(app: FastAPI):
         # header PnL (broker equity, survives restarts) is always explainable
         # by visible trades after a redeploy.
         await _hydrate_closed_trades_from_redis()
+        # Seed the proposal queue from its durable Redis mirror so the Proposals
+        # page survives a redeploy in memory mode (event_history is wiped on
+        # restart; proposals are otherwise never reconstructed).
+        await _hydrate_proposals_from_redis()
         _start_background_tasks(app)
 
         agents = _build_agents(event_bus, dlq_manager, redis_client, agent_state, paper_broker)
