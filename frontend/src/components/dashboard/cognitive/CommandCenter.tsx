@@ -69,7 +69,8 @@ export function CommandCenter({ snap }: { snap: CognitiveSnapshot }) {
             </span>
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
-            {CMD.avgConfidence} {formatPercent(stats.avgConfidence, { decimals: 0 })}
+            {CMD.avgConfidence}{' '}
+            {stats.total > 0 ? formatPercent(stats.avgConfidence, { decimals: 0 }) : NO_DATA}
           </div>
         </div>
         <div className={card}>
