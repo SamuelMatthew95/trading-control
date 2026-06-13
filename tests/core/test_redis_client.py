@@ -13,7 +13,11 @@ from redis.asyncio import BlockingConnectionPool
 
 import api.redis_client as redis_client_module
 from api.config import settings
-from api.constants import MAX_CONCURRENT_CHALLENGERS, FieldName
+from api.constants import (
+    MAX_CONCURRENT_CHALLENGERS,
+    REDIS_POOL_FLOOR_CONNECTIONS,
+    FieldName,
+)
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.redis_client import _build_pool, redis_pool_stats
@@ -32,7 +36,10 @@ def test_build_pool_returns_blocking_pool():
 
 def test_build_pool_respects_max_connections_cap():
     pool = _build_pool("redis://localhost:6379/0")
-    assert pool.max_connections == settings.REDIS_MAX_CONNECTIONS
+    # The pool is built with the configured cap clamped UP to the safe floor.
+    # With the default (50) the floor (30) is a no-op, so this is the configured
+    # value; a too-low override would be floored instead (covered below).
+    assert pool.max_connections == max(settings.REDIS_MAX_CONNECTIONS, REDIS_POOL_FLOOR_CONNECTIONS)
 
 
 def test_build_pool_sets_wait_timeout():
@@ -91,6 +98,48 @@ def test_max_connections_covers_worst_case_always_on_consumers():
     )
 
 
+def test_pool_floor_covers_worst_case_always_on_consumers():
+    """The hard floor itself must cover the worst-case always-on consumer count
+    + request-burst headroom.
+
+    Flooring a too-low override (test below) only helps if the floor lands the
+    app in a SAFE state, not merely a less-bad one. Derived from the same real
+    boot fleet as the cap guardrail above, so growing the fleet tightens this
+    too — if it fails, raise REDIS_POOL_FLOOR_CONNECTIONS (and confirm it stays
+    below the Redis plan's client limit).
+    """
+    agents = _boot_fleet()
+    challengers_at_boot = sum(isinstance(a, ChallengerAgent) for a in agents)
+    runtime_spawnable = max(0, MAX_CONCURRENT_CHALLENGERS - challengers_at_boot)
+    worst_case_always_on = len(agents) + runtime_spawnable + 2
+
+    assert REDIS_POOL_FLOOR_CONNECTIONS >= worst_case_always_on + _REQUEST_BURST_HEADROOM, (
+        f"REDIS_POOL_FLOOR_CONNECTIONS={REDIS_POOL_FLOOR_CONNECTIONS} cannot cover "
+        f"{worst_case_always_on} worst-case always-on consumers plus "
+        f"{_REQUEST_BURST_HEADROOM} request-burst headroom — raise the floor"
+    )
+
+
+def test_build_pool_floors_a_too_low_configured_cap(monkeypatch):
+    """A stale/low REDIS_MAX_CONNECTIONS (a pre-fix value or an override left at
+    the old cap) must NOT reach the pool: it would starve the always-on
+    consumers and wedge the dashboard on ConnectionError("No connection
+    available."). The pool floors it up to the safe minimum instead.
+    """
+    monkeypatch.setattr(redis_client_module.settings, "REDIS_MAX_CONNECTIONS", 20)
+    pool = _build_pool("redis://localhost:6379/0")
+    assert pool.max_connections == REDIS_POOL_FLOOR_CONNECTIONS
+
+
+def test_build_pool_respects_configured_cap_above_floor(monkeypatch):
+    """Above the floor, the env var is honored verbatim — operators can RAISE
+    the cap for extra headroom without a deploy (its documented purpose)."""
+    above_floor = REDIS_POOL_FLOOR_CONNECTIONS + 50
+    monkeypatch.setattr(redis_client_module.settings, "REDIS_MAX_CONNECTIONS", above_floor)
+    pool = _build_pool("redis://localhost:6379/0")
+    assert pool.max_connections == above_floor
+
+
 def test_redis_pool_stats_none_before_pool_exists(monkeypatch):
     monkeypatch.setattr(redis_client_module, "_redis_pool", None)
     assert redis_pool_stats() is None
@@ -101,7 +150,9 @@ def test_redis_pool_stats_reports_fresh_pool(monkeypatch):
     monkeypatch.setattr(redis_client_module, "_redis_pool", pool)
     stats = redis_pool_stats()
     assert stats == {
-        FieldName.MAX_CONNECTIONS: settings.REDIS_MAX_CONNECTIONS,
+        FieldName.MAX_CONNECTIONS: max(
+            settings.REDIS_MAX_CONNECTIONS, REDIS_POOL_FLOOR_CONNECTIONS
+        ),
         FieldName.IN_USE_CONNECTIONS: 0,
         FieldName.IDLE_CONNECTIONS: 0,
         FieldName.SATURATED: False,
