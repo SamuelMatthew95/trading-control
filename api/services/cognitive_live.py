@@ -197,6 +197,7 @@ def _to_decision_payload(d: dict[str, Any], buy: float, sell: float) -> dict[str
         "llm_succeeded": d.get(FieldName.LLM_SUCCEEDED),
         "downgrade_reason": str(d.get(FieldName.DOWNGRADE_REASON) or ""),
         "tools_used": d.get(FieldName.TOOLS_USED) or [],
+        "timestamp": d.get(FieldName.TIMESTAMP),
     }
 
 
@@ -420,7 +421,7 @@ def _build_health(
     }
 
 
-async def build_live_snapshot(*, trace_limit: int = 20) -> dict[str, Any]:
+async def build_live_snapshot(*, trace_limit: int = 50) -> dict[str, Any]:
     """Assemble the Cognitive snapshot from live agent data (best-effort)."""
     store = get_runtime_store()
     redis_store = get_redis_store()
