@@ -51,6 +51,23 @@ describe('summarizeToolOutputs', () => {
     expect(summarizeToolOutputs({ composite_score: 0.5, signal_type: '' })).toBe('confluence 0.50')
   })
 
+  it('summarizes order-book microstructure (spread + signed imbalance)', () => {
+    expect(summarizeToolOutputs({ spread_bps: 40.2, imbalance: -0.0019 })).toBe(
+      'spread 40.2bps · imbalance -0.002',
+    )
+    expect(summarizeToolOutputs({ imbalance: 0.5 })).toBe('imbalance +0.500')
+  })
+
+  it('summarizes news sentiment with article count', () => {
+    expect(summarizeToolOutputs({ sentiment: 0.3333, article_count: 10 })).toBe('sentiment +0.33 (10)')
+    expect(summarizeToolOutputs({ sentiment: -0.2 })).toBe('sentiment -0.20')
+  })
+
+  it('summarizes macro regime with optional benchmark return', () => {
+    expect(summarizeToolOutputs({ regime: 'neutral', return_pct: 0.71 })).toBe('neutral +0.71%')
+    expect(summarizeToolOutputs({ regime: 'risk_on' })).toBe('risk_on')
+  })
+
   it('returns null when there is nothing decision-relevant to show', () => {
     expect(summarizeToolOutputs(undefined)).toBeNull()
     expect(summarizeToolOutputs({})).toBeNull()
