@@ -282,6 +282,9 @@ export const UI_COPY = {
     subtitleLoop: 'Live reasoning · self-evolving config',
     subtitleEvents: 'events on the stream',
     headerChip: 'Reasoning and evolution',
+    memoryMode: 'Memory mode',
+    memoryModeTitle:
+      'Postgres is down — running on Redis + in-memory state. Live decisions and the perception chain are real; grades and closed-trade outcomes are limited until the database is back.',
     apiError: 'Could not reach the cognitive API:',
     apiErrorFallback: 'failed to load cognitive state',
     cmd: {
