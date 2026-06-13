@@ -180,8 +180,8 @@ export interface CognitiveHealth {
 export interface CognitiveSnapshot {
   config: CognitiveConfig
   agents_roster: AgentSpec[]
-  // Latest live activity keyed by agent name (real pipeline) — or the sim's
-  // news/tech/macro/risk keys under ?demo=true. Generic map so both work.
+  // Latest live activity keyed by agent name (real pipeline). Only agents with
+  // real activity (signal + reasoning) light up; others are null.
   live_agents: Record<string, Record<string, unknown> | null>
   reasoning: Array<Record<string, unknown>>
   decision: {
