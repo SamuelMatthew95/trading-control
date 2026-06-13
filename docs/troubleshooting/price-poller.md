@@ -209,3 +209,22 @@ on failure (`flush_to_db` swallows its own errors), so a failed publish leaves t
 anchor untouched and the unpublished move is re-measured next cycle.
 
 **Regression test:** `tests/core/test_price_poller.py::test_run_poll_cycle_anchor_not_advanced_when_publish_fails`
+
+## Missing Alpaca credentials crash the poller instead of degrading
+
+**Symptom:** On a deploy without `ALPACA_API_KEY` / `ALPACA_SECRET_KEY` set, the
+price poller never publishes a single tick — the dashboard loads with blank/stale
+prices and the deploy's shutdown logs show `Application shutdown failed` with
+`TypeError: log_structured() got multiple values for argument 'message'`.
+
+**Root cause:** The credentials-missing guard at the top of `poll_prices()` called
+`log_structured("error", "alpaca_credentials_missing", message="...")` — the event
+name was already the positional `message` arg, so passing `message=` again collided.
+`log_structured` raised `TypeError` on the poller's very first line, killing the
+background task before any price was fetched (the early `return` was never reached).
+
+**Fix:** `api/workers/price_poller.py` — the descriptive text moved off the reserved
+`message` kwarg to `reason=`, so the guard logs cleanly and returns. (`log_structured`'s
+second positional is the message; extra context goes under any other kwarg.)
+
+**Regression test:** `tests/core/test_price_poller.py::test_poll_prices_missing_credentials_returns_without_raising`
