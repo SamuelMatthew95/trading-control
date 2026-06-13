@@ -11,10 +11,7 @@ import type { DecisionPayload } from '@/types/cognitive'
 
 const mkDecision = (over: Partial<DecisionPayload>): DecisionPayload => ({
   action: 'hold',
-  score: 0.3,
-  breakdown: {},
-  buy_threshold: 0,
-  sell_threshold: 0,
+  confidence: 0.3,
   ...over,
 })
 
