@@ -541,7 +541,7 @@ async def poll_prices() -> None:
         log_structured(
             "error",
             "alpaca_credentials_missing",
-            message="ALPACA_API_KEY and ALPACA_SECRET_KEY are required",
+            reason="ALPACA_API_KEY and ALPACA_SECRET_KEY are required",
         )
         return
 
