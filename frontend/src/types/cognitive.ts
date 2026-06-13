@@ -18,6 +18,14 @@ export interface AgentSpec {
   description: string
 }
 
+/** One tool the ReasoningAgent exercised while forming a decision. */
+export interface ToolInvocation {
+  name?: string
+  latency_ms?: number
+  success?: boolean
+  outputs?: Record<string, unknown>
+}
+
 export interface DecisionPayload {
   action: string
   score: number
@@ -26,6 +34,14 @@ export interface DecisionPayload {
   sell_threshold: number
   trace_id?: string
   seq?: number
+  // Live cognition the reasoning agent attaches to every decision.
+  symbol?: string
+  price?: number | null
+  confidence?: number
+  reasoning_summary?: string | null
+  llm_succeeded?: boolean | null
+  downgrade_reason?: string
+  tools_used?: ToolInvocation[]
 }
 
 export interface AgentGrade {
