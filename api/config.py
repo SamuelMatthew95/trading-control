@@ -235,8 +235,29 @@ class Settings(BaseSettings):
     DB_POOL_TIMEOUT: int = 30
     DB_POOL_RECYCLE: int = 1800
 
-    # Redis connection pool (tune for Render Redis plan limits)
-    REDIS_MAX_CONNECTIONS: int = 20
+    # Redis connection pool (tune for Render Redis plan limits).
+    # The whole process shares ONE BlockingConnectionPool. It must cover the
+    # ~14 ALWAYS-ON blocking stream-reader loops that each hold a pooled
+    # connection ~continuously (XREADGROUP/XREAD BLOCK 100ms, then re-acquire):
+    # 9 pipeline agents + 3 challenger agents + the EventPipeline broadcast
+    # consumer + the WebSocket broadcaster xread loop. At the old cap of 20
+    # those loops left only ~6 connections for request/response traffic (REST
+    # handlers on a dashboard refresh, per-agent heartbeats, the price poller's
+    # per-symbol GETs, RiskGuardian/gauge-poller scans, kill-switch/order-lock
+    # reads, DLQ ops), so a refresh burst starved callers past the wait timeout
+    # and raised ConnectionError("No connection available") from get_connection.
+    # 50 keeps the always-on loops plus a full refresh burst comfortably served.
+    # Render Key Value plan client limits (per Render's published plan specs —
+    # verify in the dashboard before changing plans): free=50, starter=250.
+    # We run plan "starter" (render.yaml) with a single gunicorn worker (-w 1),
+    # so this cap IS the process-wide ceiling: 50 of 250 leaves ample margin.
+    # NEVER set this at-or-above the plan limit — on the free plan 50 would sit
+    # exactly at the ceiling with zero room for redis-cli or monitoring.
+    # Guardrail: tests/core/test_redis_client.py::
+    # test_max_connections_covers_worst_case_always_on_consumers derives the
+    # worst-case always-on consumer count from the real fleet construction and
+    # fails CI if this cap ever drops below it plus request-burst headroom.
+    REDIS_MAX_CONNECTIONS: int = 50
     # Max seconds a caller waits for a free pooled connection before erroring.
     # With a BlockingConnectionPool this replaces the plain pool's immediate
     # ConnectionError("Too many connections") under a request burst.

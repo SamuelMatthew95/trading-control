@@ -7,6 +7,7 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from api.config import settings
+from api.constants import FieldName
 from api.observability import log_structured
 
 _redis_client: Redis | None = None
@@ -37,6 +38,38 @@ def _build_pool(redis_url: str) -> BlockingConnectionPool:
         retry_on_timeout=True,
         retry_on_error=[RedisConnectionError],
     )
+
+
+def redis_pool_stats() -> dict[str, int | bool] | None:
+    """Point-in-time stats of the shared pool — pure in-process, NO Redis I/O.
+
+    Because this reads only local counters, it stays readable even when the
+    pool is fully saturated — which is exactly when it matters: saturation
+    starves callers on ``BlockingConnectionPool.get_connection`` and every
+    actual Redis command (including health-check pings) stalls or raises
+    ``ConnectionError("No connection available.")``. Surfaced on ``/health``
+    so chronic saturation is visible at a glance instead of only as
+    intermittent consume warnings in the logs.
+
+    ``in_use_connections == max_connections`` is the saturation signature.
+
+    Returns ``None`` before ``get_redis()`` has built the pool. Reads
+    redis-py's private counters (``_in_use_connections`` /
+    ``_available_connections``) defensively — absent attributes degrade to 0,
+    never raise (pinned to redis-py 5.0.1 internals; the regression test
+    asserts the attributes exist on the real pool class).
+    """
+    pool = _redis_pool
+    if pool is None:
+        return None
+    max_connections = int(getattr(pool, "max_connections", 0) or 0)
+    in_use = len(getattr(pool, "_in_use_connections", ()) or ())
+    return {
+        FieldName.MAX_CONNECTIONS: max_connections,
+        FieldName.IN_USE_CONNECTIONS: in_use,
+        FieldName.IDLE_CONNECTIONS: len(getattr(pool, "_available_connections", ()) or ()),
+        FieldName.SATURATED: max_connections > 0 and in_use >= max_connections,
+    }
 
 
 def _mask_redis_url(url: str) -> str:

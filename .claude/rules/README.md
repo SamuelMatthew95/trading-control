@@ -201,6 +201,11 @@ await redis.xgroup_create(stream, group, "$", mkstream=True)
 
 ## Changelog
 
+### memory-storage v1.1 (2026-06-13)
+- Added "Redis Connection Pool Sizing (HARD INVARIANT)" — pool cap must
+  exceed worst-case always-on blocking consumers + request-burst headroom;
+  guardrail test + /health `redis_pool` observability + Render plan limits
+
 ### v1.0 (2026-03-31)
 - Initial memory system implementation
 - Added trading, agents, logging, CI/CD rule files
