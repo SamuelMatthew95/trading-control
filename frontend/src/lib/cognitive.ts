@@ -5,6 +5,14 @@ import { NO_DATA } from '@/constants/copy'
 import { TONE_BADGE_OUTLINED } from '@/lib/design/sentiment'
 import type { CognitiveEvent, CognitiveSnapshot, DecisionPayload } from '@/types/cognitive'
 
+// Backend payload keys read off loosely-typed snapshot sub-objects (the live
+// adapter returns `Record<string, unknown>` for trace outcomes / live-agent
+// facets). Named here so no raw key string is sprinkled through the panels.
+export const FIELD_REALIZED_PNL_PCT = 'realized_pnl_pct'
+export const FIELD_TYPE = 'type'
+/** Legacy sim roster suffix (`news_signal` → `news`); harmless no-op for live. */
+export const EMITS_SIGNAL_SUFFIX = '_signal'
+
 export const fetchCognitiveState = (): Promise<CognitiveSnapshot> =>
   apiFetch<CognitiveSnapshot>('/cognitive/state')
 
