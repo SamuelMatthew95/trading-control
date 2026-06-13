@@ -162,17 +162,41 @@ def _live_activity_by_agent(
     }
 
 
+def _to_float(value: Any) -> float | None:
+    """Coerce a live numeric field (often a string like ``"66.75"``) to float."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _to_decision_payload(d: dict[str, Any], buy: float, sell: float) -> dict[str, Any]:
-    """Map a live ReasoningAgent decision → the sim DecisionPayload shape."""
+    """Map a live ReasoningAgent decision → the DecisionPayload shape.
+
+    Carries the REAL cognition the reasoning agent attaches to every decision —
+    confidence, the human ``reasoning_summary``, whether the LLM actually ran
+    (``llm_succeeded``) vs a rule-based fallback (``downgrade_reason``), and the
+    full ``tools_used`` perception chain — so the dashboard can show *why* the
+    brain decided, not an empty weighted breakdown the live system never fills.
+    """
+    confidence = float(d.get(FieldName.CONFIDENCE) or 0.0)
     return {
         "action": str(d.get(FieldName.ACTION) or "hold"),
-        "score": float(d.get(FieldName.CONFIDENCE) or 0.0),
+        "score": confidence,
         "breakdown": {},
         "buy_threshold": buy,
         "sell_threshold": sell,
         "trace_id": d.get(FieldName.TRACE_ID),
         "symbol": d.get(FieldName.SYMBOL),
+        "price": _to_float(d.get(FieldName.PRICE)),
+        "confidence": confidence,
         "reasoning": d.get(FieldName.REASONING_SUMMARY),
+        "reasoning_summary": d.get(FieldName.REASONING_SUMMARY),
+        "llm_succeeded": d.get(FieldName.LLM_SUCCEEDED),
+        "downgrade_reason": str(d.get(FieldName.DOWNGRADE_REASON) or ""),
+        "tools_used": d.get(FieldName.TOOLS_USED) or [],
     }
 
 
