@@ -25,6 +25,7 @@ from api.events.dlq import DLQManager
 from api.observability import log_structured
 from api.services.agent_state import AgentStateRegistry
 from api.services.agents.base import MultiStreamAgent
+from api.services.agents.db_helpers import persist_proposal
 
 # ---------------------------------------------------------------------------
 # ChallengerAgent — parallel experimental agent instance
@@ -357,6 +358,11 @@ class ChallengerAgent(MultiStreamAgent):
         }
         payload.update(summary)  # carry the shadow_* report fields for the dashboard
         await self.bus.publish(STREAM_PROPOSALS, payload)
+        # Persist so the promotion is visible in the dashboard proposal queue.
+        # The ProposalApplier returns early on an approval-gated proposal awaiting
+        # a vote without persisting it, so a pending promotion never surfaced for
+        # the operator to approve.
+        await persist_proposal(payload)
         log_structured(
             "info",
             "challenger_shadow_promotion_proposed",
