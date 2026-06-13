@@ -235,8 +235,21 @@ class Settings(BaseSettings):
     DB_POOL_TIMEOUT: int = 30
     DB_POOL_RECYCLE: int = 1800
 
-    # Redis connection pool (tune for Render Redis plan limits)
-    REDIS_MAX_CONNECTIONS: int = 20
+    # Redis connection pool (tune for Render Redis plan limits).
+    # The whole process shares ONE BlockingConnectionPool. It must cover the
+    # ~14 ALWAYS-ON blocking stream-reader loops that each hold a pooled
+    # connection ~continuously (XREADGROUP/XREAD BLOCK 100ms, then re-acquire):
+    # 9 pipeline agents + 3 challenger agents + the EventPipeline broadcast
+    # consumer + the WebSocket broadcaster xread loop. At the old cap of 20
+    # those loops left only ~6 connections for request/response traffic (REST
+    # handlers on a dashboard refresh, per-agent heartbeats, the price poller's
+    # per-symbol GETs, RiskGuardian/gauge-poller scans, kill-switch/order-lock
+    # reads, DLQ ops), so a refresh burst starved callers past the wait timeout
+    # and raised ConnectionError("No connection available") from get_connection.
+    # 50 keeps the always-on loops plus a full refresh burst comfortably served
+    # and stays well under the Render Redis "starter" client limit (single
+    # gunicorn worker → this is the process-wide ceiling).
+    REDIS_MAX_CONNECTIONS: int = 50
     # Max seconds a caller waits for a free pooled connection before erroring.
     # With a BlockingConnectionPool this replaces the plain pool's immediate
     # ConnectionError("Too many connections") under a request burst.
