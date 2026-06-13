@@ -7,11 +7,39 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from api.config import settings
-from api.constants import FieldName
+from api.constants import REDIS_POOL_FLOOR_CONNECTIONS, FieldName
 from api.observability import log_structured
 
 _redis_client: Redis | None = None
 _redis_pool: ConnectionPool | None = None
+
+
+def _effective_pool_cap() -> int:
+    """The configured pool cap, clamped UP to ``REDIS_POOL_FLOOR_CONNECTIONS``.
+
+    ``REDIS_MAX_CONNECTIONS`` is env-overridable so an operator can RAISE the cap
+    for mitigation headroom without a deploy. But a value BELOW the floor (a
+    stale override, or a deploy that predates the cap fix) leaves too few
+    connections for request/response traffic once the always-on blocking
+    consumers each pin one — callers then starve in
+    ``BlockingConnectionPool.get_connection`` past ``REDIS_POOL_TIMEOUT_SECONDS``
+    and raise ``ConnectionError("No connection available.")``, wedging the
+    dashboard. A misconfiguration must never be able to starve the app, so we
+    floor the cap and log loudly when we do. The floor stays below every Redis
+    plan's client limit, so clamping up is always safe.
+    """
+    configured = settings.REDIS_MAX_CONNECTIONS
+    if configured < REDIS_POOL_FLOOR_CONNECTIONS:
+        log_structured(
+            "warning",
+            "redis_pool_cap_below_floor",
+            event_name="redis_pool_cap_below_floor",
+            configured=configured,
+            floor=REDIS_POOL_FLOOR_CONNECTIONS,
+            effective=REDIS_POOL_FLOOR_CONNECTIONS,
+        )
+        return REDIS_POOL_FLOOR_CONNECTIONS
+    return configured
 
 
 def _build_pool(redis_url: str) -> BlockingConnectionPool:
@@ -23,14 +51,16 @@ def _build_pool(redis_url: str) -> BlockingConnectionPool:
     ``ConnectionError("Too many connections")``. Background blocking reads
     (``xread`` / ``xreadgroup``) hold pooled connections during their block
     window, so a dashboard refresh firing many REST endpoints at once would
-    otherwise drain the pool and raise. The cap stays at
-    ``REDIS_MAX_CONNECTIONS`` so the Redis plan's client limit is never exceeded.
+    otherwise drain the pool and raise. The cap is ``REDIS_MAX_CONNECTIONS``
+    clamped up to ``REDIS_POOL_FLOOR_CONNECTIONS`` (see ``_effective_pool_cap``),
+    so a too-low override can't starve request traffic, and stays below the
+    Redis plan's client limit so it is never exceeded.
     """
     return BlockingConnectionPool.from_url(
         redis_url,
         encoding="utf-8",
         decode_responses=True,
-        max_connections=settings.REDIS_MAX_CONNECTIONS,
+        max_connections=_effective_pool_cap(),
         timeout=settings.REDIS_POOL_TIMEOUT_SECONDS,
         socket_connect_timeout=5,
         socket_timeout=5,
