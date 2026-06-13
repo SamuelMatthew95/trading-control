@@ -10,8 +10,6 @@ import type { CognitiveEvent, CognitiveSnapshot, DecisionPayload } from '@/types
 // facets). Named here so no raw key string is sprinkled through the panels.
 export const FIELD_REALIZED_PNL_PCT = 'realized_pnl_pct'
 export const FIELD_TYPE = 'type'
-/** Legacy sim roster suffix (`news_signal` → `news`); harmless no-op for live. */
-export const EMITS_SIGNAL_SUFFIX = '_signal'
 
 export const fetchCognitiveState = (): Promise<CognitiveSnapshot> =>
   apiFetch<CognitiveSnapshot>('/cognitive/state')
