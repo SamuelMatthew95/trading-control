@@ -137,8 +137,13 @@ async def test_memory_mode_end_to_end_with_redis_up():
                 FieldName.TRACE_ID: "trace-1",
                 FieldName.ACTION: "buy",
                 FieldName.SYMBOL: "BTC/USD",
+                FieldName.PRICE: "63485.2",
                 FieldName.CONFIDENCE: 0.77,
                 FieldName.REASONING_SUMMARY: "momentum edge",
+                FieldName.LLM_SUCCEEDED: True,
+                FieldName.TOOLS_USED: [
+                    {"name": "get_news_sentiment", "success": True, "outputs": {"sentiment": 0.33}},
+                ],
             }
         )
         store.add_grade({"subject": "REASONING_AGENT", "grade": "A", "score": 0.9})
@@ -146,10 +151,17 @@ async def test_memory_mode_end_to_end_with_redis_up():
         snap = await build_live_snapshot()
 
         # Decision flows from Redis into reasoning + decision + traces.
-        assert snap["decision"]["latest"] is not None
-        assert snap["decision"]["latest"]["action"] == "buy"
-        assert snap["decision"]["latest"]["score"] == 0.77
-        assert any(t["trace_id"] == "trace-1" for t in snap["traces"])
+        latest = snap["decision"]["latest"]
+        assert latest is not None
+        assert latest["action"] == "buy"
+        assert latest["score"] == 0.77
+        # The real cognition the page surfaces: price, LLM status, perception chain.
+        assert latest["price"] == 63485.2
+        assert latest["llm_succeeded"] is True
+        assert latest["reasoning_summary"] == "momentum edge"
+        assert latest["tools_used"] and latest["tools_used"][0]["name"] == "get_news_sentiment"
+        trace = next(t for t in snap["traces"] if t["trace_id"] == "trace-1")
+        assert trace["decision"]["tools_used"] == latest["tools_used"]
         # Grade flows from the runtime store into agent_grades.
         subjects = {g["subject_id"] for g in snap["learning"]["agent_grades"]}
         assert "REASONING_AGENT" in subjects
