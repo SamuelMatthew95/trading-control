@@ -263,6 +263,58 @@ deploy.
 `tests/core/test_redis_client.py::test_redis_pool_stats_reports_fresh_pool`,
 `tests/api/test_health_redis_pool.py::test_health_includes_redis_pool_stats`
 
+## `No connection available` recurs at cap 50 — redis-py 5.0.1 leaks cancelled async connections
+
+**Symptom:** The exact signature of the entry above — `ConnectionError: No
+connection available.` from `BlockingConnectionPool.get_connection`, queued
+`waiters` on the pool lock, across unrelated streams/consumers — but `GET
+/health` → `redis_pool` shows `in_use_connections` climbing *monotonically*
+toward `max_connections` and **staying pinned** even when traffic is quiet.
+This is NOT the transient refresh-burst spike the cap=50 fix addressed: the cap
+already covers the ~14 always-on loops + 15 headroom (CI-guarded), so a
+*sustained* `in_use == max` with only a handful of waiters is a connection
+**leak**, not under-sizing.
+
+**Root cause:** redis-py **5.0.1** (the pinned version) has an async
+connection-pool regression: when an in-flight async command is cancelled or
+times out, the pooled connection is left in `_in_use_connections` instead of
+being released — so the pool drains over time until `get_connection` can never
+acquire one. Cancellations are routine here: `AgentSupervisor` restarts agent
+tasks (cancelling an in-flight `XREADGROUP BLOCK`), `socket_timeout=5` +
+`retry_on_timeout` fire under load, and WebSocket/REST clients disconnect
+mid-read. Upstream evidence: redis/redis-py **#2995** ("No connection
+available" errors since 5.0.1), **#3104** (pipeline connection leak, fixed in
+5.0.2 — 5.0.1 predates it), **#2665/#2666** (cancelling an async command leaves
+the connection in an unsafe/unreleased state), and **#3008** (the async pool /
+retry / timeout revamp). The static-sizing guardrail cannot catch this — it
+models *how many* consumers exist, not connections that never come back.
+
+**Fix (primary):** `requirements.txt` — pin `redis==5.2.1` (was `5.0.1`),
+picking up the pipeline-leak fix and the async pool/cancellation hardening.
+5.2.x preserves the `_in_use_connections` / `_available_connections` /
+`max_connections` pool internals that `redis_pool_stats()` reads, and coexists
+with `fakeredis==2.34.1`, so `/health` observability and the test suite are
+unaffected.
+
+**Fix (secondary hardening):** `api/telemetry.py` — Redis command
+auto-instrumentation is now gated behind `OTEL_INSTRUMENT_REDIS` (default
+**off**). `RedisInstrumentor` wrapped every command on the shared pool —
+including the always-on `XREADGROUP BLOCK` loops — adding span-context churn and
+overhead on the exact cancellation path the leak rode, for the highest-volume /
+lowest-value spans in the system. The trade lifecycle stays fully traced via
+`agent_process_span` / `traced_broker_call` / the SQLAlchemy listener. Set
+`OTEL_INSTRUMENT_REDIS=true` only to actively debug Redis itself.
+
+**Operator check:** After deploy, watch `GET /health` → `redis_pool`. Healthy
+state oscillates (idle connections present, `saturated:false`); a recurrence of
+the leak shows `in_use_connections` ratcheting up and never falling. If it still
+climbs on 5.2.1, the next suspect is a new always-on consumer, not the library.
+
+**Regression test:**
+`tests/core/test_redis_client.py::test_redis_pool_stats_depends_on_real_redis_py_internals`
+(pins the pool internals across the upgrade),
+`tests/core/test_telemetry.py::TestRedisInstrumentationGating::test_skips_instrumentation_when_flag_off`
+
 ## Memory mode paints never-started agents "Live"
 
 **Symptom:** In memory mode (`USE_MEMORY_MODE=true`, no Postgres) the Agent
