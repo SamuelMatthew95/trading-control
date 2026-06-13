@@ -494,3 +494,88 @@ async def test_startup_hydrates_closed_trades_from_redis(fake_redis, store_singl
 
     closed = get_runtime_store().closed_trades
     assert [t[FieldName.SYMBOL] for t in closed] == ["BTC/USD", "ETH/USD"]  # oldest first
+
+
+# ---------------------------------------------------------------------------
+# Proposals — durable mirror of the voteable proposal queue
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_push_proposal_roundtrip_and_defaults(fake_redis) -> None:
+    store = RedisStore(fake_redis)
+    entry = await store.push_proposal(
+        {FieldName.MSG_ID: "p1", FieldName.PROPOSAL_TYPE: "tool_governance"}
+    )
+    assert FieldName.TIMESTAMP in entry  # timestamp coerced when missing
+    items = await store.list_proposals()
+    assert len(items) == 1
+    assert items[0][FieldName.MSG_ID] == "p1"
+    assert items[0][FieldName.PROPOSAL_TYPE] == "tool_governance"
+
+
+@pytest.mark.asyncio
+async def test_proposals_list_cap_is_enforced(fake_redis) -> None:
+    from api.constants import REDIS_KEY_PROPOSALS_RECENT, REDIS_PROPOSALS_MAX
+
+    store = RedisStore(fake_redis)
+    over_cap = REDIS_PROPOSALS_MAX + 17
+    await asyncio.gather(
+        *(store.push_proposal({FieldName.MSG_ID: f"p-{i}"}) for i in range(over_cap))
+    )
+    length = await fake_redis.llen(REDIS_KEY_PROPOSALS_RECENT)
+    assert length == REDIS_PROPOSALS_MAX
+
+
+@pytest.mark.asyncio
+async def test_persist_proposal_mirrors_to_redis_in_memory_mode(
+    fake_redis, store_singleton_reset
+) -> None:
+    """Regression: GradeAgent/ChallengerAgent published proposals to the stream
+    but never persisted them, so the dashboard queue stayed empty. persist_proposal
+    in memory mode now writes the runtime store AND the durable Redis mirror."""
+    from api.in_memory_store import InMemoryStore
+    from api.runtime_state import set_db_available, set_runtime_store
+    from api.services.agents.db_helpers import persist_proposal
+
+    set_redis_store(RedisStore(fake_redis))
+    set_runtime_store(InMemoryStore())
+    set_db_available(False)
+
+    await persist_proposal(
+        {
+            FieldName.MSG_ID: "prop-9",
+            FieldName.PROPOSAL_TYPE: "challenger_promotion",
+            FieldName.REQUIRES_APPROVAL: True,
+        }
+    )
+
+    mirrored = await get_redis_store().list_proposals()
+    assert [p[FieldName.MSG_ID] for p in mirrored] == ["prop-9"]
+
+
+@pytest.mark.asyncio
+async def test_startup_hydrates_proposals_from_redis(fake_redis, store_singleton_reset) -> None:
+    """Regression: proposals live only in the InMemoryStore in memory mode, which
+    is wiped on restart with no rehydration, so the Proposals page emptied on every
+    redeploy. Startup now reloads the queue from the Redis mirror."""
+    from api.constants import LogType
+    from api.in_memory_store import InMemoryStore
+    from api.runtime_state import get_runtime_store, set_db_available, set_runtime_store
+    from api.startup import _hydrate_proposals_from_redis
+
+    redis_store = RedisStore(fake_redis)
+    await redis_store.push_proposal({FieldName.MSG_ID: "a", FieldName.PROPOSAL_TYPE: "x"})
+    await redis_store.push_proposal({FieldName.MSG_ID: "b", FieldName.PROPOSAL_TYPE: "y"})
+    set_redis_store(redis_store)
+
+    set_runtime_store(InMemoryStore())  # fresh boot — empty store
+    set_db_available(False)
+    await _hydrate_proposals_from_redis()
+
+    events = get_runtime_store().get_events(limit=50)
+    proposals = [e for e in events if e.get(FieldName.LOG_TYPE) == LogType.PROPOSAL]
+    msg_ids = [e[FieldName.PAYLOAD][FieldName.MSG_ID] for e in proposals]
+    # Hydrated oldest-first into the store; get_events returns newest-first (the
+    # order the proposals page renders), so the latest proposal leads.
+    assert msg_ids == ["b", "a"]
