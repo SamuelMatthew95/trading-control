@@ -30,3 +30,22 @@ def test_build_pool_sets_wait_timeout():
     pool = _build_pool("redis://localhost:6379/0")
     assert pool.timeout == settings.REDIS_POOL_TIMEOUT_SECONDS
     assert pool.timeout > 0  # a finite wait, not infinite block
+
+
+def test_default_max_connections_has_headroom_for_blocking_consumers():
+    """The single shared pool must outsize the always-on blocking-reader fleet.
+
+    The process runs ~14 ALWAYS-ON blocking stream loops (9 pipeline agents +
+    3 challenger agents + the EventPipeline broadcast consumer + the WebSocket
+    broadcaster xread loop), each holding a pooled connection ~continuously. At
+    the old cap of 20 that left only ~6 connections for request/response traffic
+    (REST handlers, heartbeats, price-poller GETs, control-plane reads), so a
+    dashboard-refresh burst starved callers past REDIS_POOL_TIMEOUT_SECONDS and
+    raised ConnectionError("No connection available"). The cap must keep enough
+    headroom above that fleet that a refresh burst is served without waiting.
+    If the agent fleet grows past this margin, raise the cap (and confirm the
+    Redis plan's client limit) rather than lowering this floor.
+    """
+    always_on_blocking_loops = 14
+    refresh_burst_headroom = 16
+    assert settings.REDIS_MAX_CONNECTIONS >= always_on_blocking_loops + refresh_burst_headroom
