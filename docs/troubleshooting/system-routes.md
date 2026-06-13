@@ -232,14 +232,36 @@ past `REDIS_POOL_TIMEOUT_SECONDS` (5s). The cap predated the fleet growing to 14
 permanent blocking consumers.
 
 **Fix:** `api/config.py` — `REDIS_MAX_CONNECTIONS` default raised 20 → 50, sizing
-the pool to *(always-on blocking loops) + refresh-burst headroom*. Single
-gunicorn worker (`-w 1`) means this is the process-wide ceiling, and 50 stays
-well under the Render Redis "starter" client limit. Env-overridable for larger
-plans; if the agent fleet grows further, raise the cap (and confirm the plan
-limit) rather than shrinking the headroom.
+the pool to *(worst-case always-on blocking loops) + refresh-burst headroom*.
+Single gunicorn worker (`-w 1`) means this is the process-wide ceiling; Render
+Key Value plan client limits are free=50 / starter=250 (we run starter — verify
+in the dashboard before plan changes), so 50 leaves ample margin. Env-overridable
+(`REDIS_MAX_CONNECTIONS`) for an immediate restart-only mitigation without a
+deploy.
+
+**Prevention (so this cannot silently recur):**
+1. *Derived guardrail* — the regression test below constructs the real boot
+   fleet via `api/startup.py::_build_agents()` with fakeredis, adds the
+   runtime-spawnable challenger capacity (`MAX_CONCURRENT_CHALLENGERS`) and the
+   two infra loops (EventPipeline + WebSocket broadcaster), and fails CI when
+   `REDIS_MAX_CONNECTIONS` drops below that worst case + 15 request-burst
+   headroom. Adding an agent or strategy automatically tightens the assertion —
+   no hardcoded fleet count to forget to update. (At the old cap of 20 this
+   test fails; at 50 it passes.)
+2. *Observability* — `GET /health` now returns a `redis_pool` block
+   (`max_connections` / `in_use_connections` / `idle_connections` /
+   `saturated`) from `api/redis_client.py::redis_pool_stats()`. The counters
+   are pure in-process (zero Redis I/O), so they remain readable precisely when
+   the pool is wedged and every actual Redis command is stalling.
+   `in_use == max` is the starvation signature.
+3. *Always-loaded memory rule* — `.claude/rules/memory-storage.md` → "Redis
+   Connection Pool Sizing (HARD INVARIANT)" documents that every new always-on
+   consumer adds one permanent connection of demand.
 
 **Regression test:**
-`tests/core/test_redis_client.py::test_default_max_connections_has_headroom_for_blocking_consumers`
+`tests/core/test_redis_client.py::test_max_connections_covers_worst_case_always_on_consumers`,
+`tests/core/test_redis_client.py::test_redis_pool_stats_reports_fresh_pool`,
+`tests/api/test_health_redis_pool.py::test_health_includes_redis_pool_stats`
 
 ## Memory mode paints never-started agents "Live"
 
