@@ -114,7 +114,8 @@ def test_redis_pool_stats_depends_on_real_redis_py_internals():
     redis_pool_stats() degrades to zeros when these attrs are missing rather
     than raising — so a redis-py upgrade that renames _in_use_connections /
     _available_connections would silently blind the /health saturation signal.
-    This assertion turns that silent regression into a test failure.
+    This assertion turns that silent regression into a test failure. (Verified
+    present on redis-py 5.2.x, the floor we upgraded to off the leaky 5.0.1.)
     """
     pool = _build_pool("redis://localhost:6379/0")
     assert hasattr(pool, "_in_use_connections")
