@@ -306,6 +306,8 @@ export const UI_COPY = {
         'No decisions yet — the reasoning agent emits one per market-tick batch once signals flow.',
       ruleBasedTag: 'rule-based',
       ruleBasedTitle: 'LLM unavailable — rule-based fallback, not model reasoning.',
+      msSuffix: 'ms',
+      pctSuffix: '%',
     },
     tracePerception: 'Perception',
     traceLlm: 'Reasoning',
