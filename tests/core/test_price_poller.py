@@ -24,6 +24,7 @@ from api.workers.price_poller import (
     build_symbol_payload,
     build_symbol_payloads,
     flush_to_db,
+    poll_prices,
     publish_to_redis,
 )
 
@@ -105,6 +106,24 @@ async def test_create_alpaca_client_returns_async_client(monkeypatch):
     assert client.timeout.read is not None
     assert client.timeout.connect == pytest.approx(5.0)
     assert client.timeout.read == pytest.approx(10.0)
+
+
+async def test_poll_prices_missing_credentials_returns_without_raising(monkeypatch):
+    """Absent Alpaca credentials must log-and-return, never crash the poller task.
+
+    Regression: the early-exit log call passed the descriptive text as a
+    ``message=`` keyword while the event name was already the positional
+    ``message`` arg, so ``log_structured`` raised
+    ``TypeError: got multiple values for argument 'message'`` on its very first
+    line. That killed the price-poller background task before any tick was
+    published — prices never loaded and the dashboard stayed blank.
+    """
+    monkeypatch.setattr("api.workers.price_poller.settings.ALPACA_API_KEY", None)
+    monkeypatch.setattr("api.workers.price_poller.settings.ALPACA_SECRET_KEY", None)
+
+    # Must return cleanly (no TypeError); reaching get_redis() would mean the
+    # guard failed to short-circuit.
+    assert await poll_prices() is None
 
 
 # ---------------------------------------------------------------------------
