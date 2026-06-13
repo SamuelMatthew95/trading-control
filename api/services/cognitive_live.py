@@ -40,7 +40,7 @@ from api.constants import (
     FieldName,
 )
 from api.observability import log_structured
-from api.runtime_state import get_runtime_store
+from api.runtime_state import get_runtime_store, is_db_available
 from api.services.dashboard.learning import get_ic_weights_payload
 from api.services.dashboard.prompt_evolution import get_prompt_evolution_payload
 from api.services.dashboard.proposals import list_proposals_payload
@@ -547,6 +547,10 @@ async def build_live_snapshot(*, trace_limit: int = 50) -> dict[str, Any]:
         "health": health,
         "traces": traces,
         "event_count": len(events),
+        # Honest degradation signal: when Postgres is down the page runs on
+        # Redis + InMemoryStore, so grades / closed-trade outcomes are limited.
+        # The UI badges this so empty panels read as "DB down", not "broken".
+        FieldName.DB_AVAILABLE: is_db_available(),
     }
 
 
