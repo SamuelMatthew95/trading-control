@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import { cardClass, chipClass, sectionTitleClass } from '@/lib/dashboard-styles'
 import { TONE_BADGE_OUTLINED } from '@/lib/design/sentiment'
 import { NO_DATA, UI_COPY } from '@/constants/copy'
-import { formatPercent, formatUSD } from '@/lib/formatters'
+import { formatPercent, formatTimeAgo, formatUSD } from '@/lib/formatters'
 import { actionTone, isFallbackDecision } from '@/lib/cognitive'
 import { extractToolInvocations, summarizeToolOutputs } from '@/lib/decision-tools'
 import { gradeTone } from '@/lib/grade-colors'
@@ -118,6 +118,14 @@ export function DecisionReasoningCard({
         <span className="font-mono text-xs text-foreground/70">
           {formatPercent(conf, { decimals: 0 })}
         </span>
+        {decision.timestamp && (
+          <>
+            <span className="text-muted-foreground/50">·</span>
+            <span className="text-xs text-muted-foreground">
+              {formatTimeAgo(decision.timestamp)}
+            </span>
+          </>
+        )}
       </div>
       {decision.reasoning_summary && (
         <p className="mt-2 text-sm text-foreground/80">{decision.reasoning_summary}</p>
