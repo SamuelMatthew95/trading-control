@@ -56,7 +56,7 @@ def redis_pool_stats() -> dict[str, int | bool] | None:
     Returns ``None`` before ``get_redis()`` has built the pool. Reads
     redis-py's private counters (``_in_use_connections`` /
     ``_available_connections``) defensively — absent attributes degrade to 0,
-    never raise (pinned to redis-py 5.0.1 internals; the regression test
+    never raise (pinned to redis-py 5.2.x internals; the regression test
     asserts the attributes exist on the real pool class).
     """
     pool = _redis_pool
