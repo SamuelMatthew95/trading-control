@@ -204,6 +204,43 @@ cutting 8 round trips per request to 1.
 `tests/core/test_redis_client.py::test_build_pool_returns_blocking_pool`,
 `tests/agents/test_paper_broker.py::test_get_positions_batches_into_single_mget`
 
+## Redis pool exhaustion from always-on blocking consumers (`No connection available`)
+
+**Symptom:** Intermittent `warning` logs `Redis connection error during consume`
+(`api/events/bus.py`) whose traceback is `ConnectionError: No connection
+available.` caused by a `TimeoutError` from
+`BlockingConnectionPool.get_connection`, with queued waiters (`waiters:5` /
+`waiters:3`) on the pool lock — across unrelated streams/consumers
+(`market_events`/`signal-agent`, `decisions`/`execution-engine`) at roughly the
+same instants. The trace ends in redis-py's pool `get_connection`, **not** at
+the Redis server, and `consume()` swallows it (returns `[]`), so agents look
+sluggish/noisy rather than crashing.
+
+**Root cause:** Steady-state pool under-sizing. The whole process shares ONE
+`BlockingConnectionPool` capped at `REDIS_MAX_CONNECTIONS=20`, but it runs **~14
+always-on blocking stream-reader loops** that each hold a pooled connection
+~continuously (`XREADGROUP`/`XREAD BLOCK 100ms`, then immediately re-acquire): 9
+pipeline agents + 3 challenger agents + the `EventPipeline` broadcast consumer +
+the WebSocket broadcaster `xread` loop. That left only ~6 connections for all
+request/response traffic — REST handlers (a dashboard refresh fires ~8–10
+concurrently, several doing multiple sequential GETs), per-agent heartbeats, the
+price poller's per-symbol GETs, RiskGuardian/gauge-poller scans,
+kill-switch/order-lock/IC-weight reads, DLQ ops. A refresh burst pushed demand
+over the free slots; because the 14 loops instantly re-grab any freed
+connection, request/response callers queued on the pool condition and starved
+past `REDIS_POOL_TIMEOUT_SECONDS` (5s). The cap predated the fleet growing to 14
+permanent blocking consumers.
+
+**Fix:** `api/config.py` — `REDIS_MAX_CONNECTIONS` default raised 20 → 50, sizing
+the pool to *(always-on blocking loops) + refresh-burst headroom*. Single
+gunicorn worker (`-w 1`) means this is the process-wide ceiling, and 50 stays
+well under the Render Redis "starter" client limit. Env-overridable for larger
+plans; if the agent fleet grows further, raise the cap (and confirm the plan
+limit) rather than shrinking the headroom.
+
+**Regression test:**
+`tests/core/test_redis_client.py::test_default_max_connections_has_headroom_for_blocking_consumers`
+
 ## Memory mode paints never-started agents "Live"
 
 **Symptom:** In memory mode (`USE_MEMORY_MODE=true`, no Postgres) the Agent
