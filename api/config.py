@@ -222,6 +222,20 @@ class Settings(BaseSettings):
     OTEL_EXPORTER_OTLP_HEADERS: str = ""
     # Seconds between business-gauge refreshes (PnL / positions / balance).
     OTEL_GAUGE_POLL_SECONDS: float = 30.0
+    # Auto-instrument Redis COMMANDS (one span per Redis call). OFF by default.
+    # RedisInstrumentor wraps EVERY command on the single shared
+    # BlockingConnectionPool — including the ~14 always-on XREADGROUP/XREAD
+    # BLOCK loops that fire ~10x/sec each. That is the highest-volume,
+    # lowest-value span source in the system (a "blocking read returned
+    # nothing" span per consumer per 100ms) and it piles overhead onto the
+    # scarcest shared resource: the pooled connections whose exhaustion already
+    # wedged the dashboard (see docs/troubleshooting/system-routes.md ->
+    # "Redis command instrumentation on the always-on consumer hot path").
+    # Trade-lifecycle latency is already captured by agent_process_span /
+    # traced_broker_call / the SQLAlchemy query listener, so the Redis hot path
+    # stays uninstrumented without losing trace coverage. Set true only to
+    # actively debug Redis itself.
+    OTEL_INSTRUMENT_REDIS: bool = False
 
     API_TIMEOUT_MS: int = 30000
     MAX_RETRIES: int = 3

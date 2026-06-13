@@ -16,7 +16,13 @@ gunicorn==23.0.0
 pydantic==2.11.7
 pydantic-settings>=2.0.0
 python-dotenv==1.2.2
-redis==5.0.1
+# 5.2.x, not 5.0.1: redis-py 5.0.1 introduced an async connection-pool
+# regression where cancelled/timed-out async commands leak their pooled
+# connection, draining a BlockingConnectionPool until get_connection raises
+# ConnectionError("No connection available.") — redis/redis-py#2995, with the
+# related pipeline-connection-leak fix in 5.0.2 (#3104) and the async pool /
+# retry / timeout revamp tracked in #3008. See docs/troubleshooting/system-routes.md.
+redis==5.2.1
 requests>=2.32.2
 schedule==1.2.0
 structlog==23.2.0

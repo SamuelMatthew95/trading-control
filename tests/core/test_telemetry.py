@@ -44,6 +44,49 @@ class TestDisabledNoOps:
         assert FieldName.OTEL_TRACE_ID not in event
 
 
+class TestRedisInstrumentationGating:
+    """Redis command instrumentation must stay OFF unless explicitly opted in.
+
+    Instrumenting every Redis command spans the always-on XREADGROUP/XREAD
+    BLOCK loops (~14 consumers, ~10x/sec each) — pure overhead on the scarce
+    shared BlockingConnectionPool whose exhaustion wedged the dashboard. The
+    default-off contract guards against that regression silently returning.
+    """
+
+    def test_flag_defaults_off(self):
+        assert telemetry.settings.OTEL_INSTRUMENT_REDIS is False
+
+    def test_skips_instrumentation_when_flag_off(self, monkeypatch):
+        redis_mod = pytest.importorskip("opentelemetry.instrumentation.redis")
+        calls = []
+
+        class _SpyInstrumentor:
+            def instrument(self, *args, **kwargs):
+                calls.append(True)
+
+        monkeypatch.setattr(redis_mod, "RedisInstrumentor", _SpyInstrumentor)
+        monkeypatch.setattr(telemetry.settings, "OTEL_INSTRUMENT_REDIS", False)
+
+        telemetry._instrument_redis()
+
+        assert calls == [], "Redis must NOT be instrumented while the flag is off"
+
+    def test_instruments_when_flag_on(self, monkeypatch):
+        redis_mod = pytest.importorskip("opentelemetry.instrumentation.redis")
+        calls = []
+
+        class _SpyInstrumentor:
+            def instrument(self, *args, **kwargs):
+                calls.append(True)
+
+        monkeypatch.setattr(redis_mod, "RedisInstrumentor", _SpyInstrumentor)
+        monkeypatch.setattr(telemetry.settings, "OTEL_INSTRUMENT_REDIS", True)
+
+        telemetry._instrument_redis()
+
+        assert calls == [True], "Redis SHOULD be instrumented when the flag is on"
+
+
 class TestOtlpHeaderParsing:
     def test_standard_format(self):
         parsed = telemetry.parse_otlp_headers("signoz-ingestion-key=abc123,x-env=prod")

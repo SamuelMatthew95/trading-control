@@ -265,12 +265,7 @@ def _instrument_libraries(app: Any) -> None:
             FastAPIInstrumentor.instrument_app(app, excluded_urls="health,readiness")
         except Exception:
             log_structured("warning", "telemetry_fastapi_instrumentation_failed", exc_info=True)
-    try:
-        from opentelemetry.instrumentation.redis import RedisInstrumentor  # noqa: PLC0415
-
-        RedisInstrumentor().instrument()
-    except Exception:
-        log_structured("warning", "telemetry_redis_instrumentation_failed", exc_info=True)
+    _instrument_redis()
     try:
         from opentelemetry.instrumentation.aiohttp_client import (  # noqa: PLC0415
             AioHttpClientInstrumentor,
@@ -291,6 +286,35 @@ def _instrument_libraries(app: Any) -> None:
             _attach_query_duration_listener(engine.sync_engine)
     except Exception:
         log_structured("warning", "telemetry_sqlalchemy_instrumentation_failed", exc_info=True)
+
+
+def _instrument_redis() -> None:
+    """Auto-instrument Redis commands — gated OFF by default (OTEL_INSTRUMENT_REDIS).
+
+    RedisInstrumentor wraps EVERY command on the single process-wide
+    BlockingConnectionPool. The bulk of that traffic is the ~14 always-on
+    XREADGROUP/XREAD BLOCK loops (one per pipeline agent / challenger + the
+    EventPipeline + the WebSocket broadcaster), each firing ~10x/sec — so the
+    instrumentation's dominant output is a "blocking read returned nothing"
+    span per consumer per 100ms, the highest-volume / lowest-value span source
+    in the system, layered onto the scarcest shared resource (the pooled
+    connections whose exhaustion already wedged the dashboard — see
+    docs/troubleshooting/system-routes.md).
+
+    The trade lifecycle stays fully traced without it: agent_process_span,
+    traced_broker_call, and the SQLAlchemy query listener already cover the
+    meaningful latencies. Flip OTEL_INSTRUMENT_REDIS=true only to actively
+    debug Redis itself.
+    """
+    if not settings.OTEL_INSTRUMENT_REDIS:
+        log_structured("info", "telemetry_redis_instrumentation_skipped")
+        return
+    try:
+        from opentelemetry.instrumentation.redis import RedisInstrumentor  # noqa: PLC0415
+
+        RedisInstrumentor().instrument()
+    except Exception:
+        log_structured("warning", "telemetry_redis_instrumentation_failed", exc_info=True)
 
 
 def _attach_query_duration_listener(sync_engine: Any) -> None:
