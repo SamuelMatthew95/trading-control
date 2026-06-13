@@ -153,7 +153,7 @@ def _live_activity_by_agent(
         AGENT_REASONING: (
             {
                 "action": latest_decision.get(FieldName.ACTION),
-                "confidence": latest_decision.get(FieldName.SCORE),
+                "confidence": latest_decision.get(FieldName.CONFIDENCE),
                 "symbol": latest_decision.get(FieldName.SYMBOL),
             }
             if latest_decision
@@ -172,32 +172,26 @@ def _to_float(value: Any) -> float | None:
         return None
 
 
-def _to_decision_payload(d: dict[str, Any], buy: float, sell: float) -> dict[str, Any]:
+def _to_decision_payload(d: dict[str, Any]) -> dict[str, Any]:
     """Map a live ReasoningAgent decision → the DecisionPayload shape.
 
-    Carries the REAL cognition the reasoning agent attaches to every decision —
-    confidence, the human ``reasoning_summary``, whether the LLM actually ran
-    (``llm_succeeded``) vs a rule-based fallback (``downgrade_reason``), and the
-    full ``tools_used`` perception chain — so the dashboard can show *why* the
-    brain decided, not an empty weighted breakdown the live system never fills.
+    All keys are ``FieldName`` (StrEnum → the same JSON string). Carries the REAL
+    cognition the reasoning agent attaches to every decision — confidence, the
+    human ``reasoning_summary``, whether the LLM ran (``llm_succeeded``) vs a
+    rule-based fallback (``downgrade_reason``), the ``tools_used`` perception
+    chain, and the ``timestamp`` — so the dashboard shows *why* it decided.
     """
-    confidence = float(d.get(FieldName.CONFIDENCE) or 0.0)
     return {
-        "action": str(d.get(FieldName.ACTION) or "hold"),
-        "score": confidence,
-        "breakdown": {},
-        "buy_threshold": buy,
-        "sell_threshold": sell,
-        "trace_id": d.get(FieldName.TRACE_ID),
-        "symbol": d.get(FieldName.SYMBOL),
-        "price": _to_float(d.get(FieldName.PRICE)),
-        "confidence": confidence,
-        "reasoning": d.get(FieldName.REASONING_SUMMARY),
-        "reasoning_summary": d.get(FieldName.REASONING_SUMMARY),
-        "llm_succeeded": d.get(FieldName.LLM_SUCCEEDED),
-        "downgrade_reason": str(d.get(FieldName.DOWNGRADE_REASON) or ""),
-        "tools_used": d.get(FieldName.TOOLS_USED) or [],
-        "timestamp": d.get(FieldName.TIMESTAMP),
+        FieldName.ACTION: str(d.get(FieldName.ACTION) or "hold"),
+        FieldName.CONFIDENCE: float(d.get(FieldName.CONFIDENCE) or 0.0),
+        FieldName.TRACE_ID: d.get(FieldName.TRACE_ID),
+        FieldName.SYMBOL: d.get(FieldName.SYMBOL),
+        FieldName.PRICE: _to_float(d.get(FieldName.PRICE)),
+        FieldName.REASONING_SUMMARY: d.get(FieldName.REASONING_SUMMARY),
+        FieldName.LLM_SUCCEEDED: d.get(FieldName.LLM_SUCCEEDED),
+        FieldName.DOWNGRADE_REASON: str(d.get(FieldName.DOWNGRADE_REASON) or ""),
+        FieldName.TOOLS_USED: d.get(FieldName.TOOLS_USED) or [],
+        FieldName.TIMESTAMP: d.get(FieldName.TIMESTAMP),
     }
 
 
@@ -520,7 +514,7 @@ async def build_live_snapshot(*, trace_limit: int = 50) -> dict[str, Any]:
 
     buy_threshold = 0.0
     sell_threshold = 0.0
-    decision_payloads = [_to_decision_payload(d, buy_threshold, sell_threshold) for d in decisions]
+    decision_payloads = [_to_decision_payload(d) for d in decisions]
     agent_grades = _agent_grades(grades)
     observations = [
         {
@@ -537,7 +531,7 @@ async def build_live_snapshot(*, trace_limit: int = 50) -> dict[str, Any]:
             "trace_id": d.get(FieldName.TRACE_ID),
             "signals": {"news": None, "tech": None, "macro": None, "risk": None},
             "reasoning": {FieldName.REASONING_SUMMARY: d.get(FieldName.REASONING_SUMMARY)},
-            "decision": _to_decision_payload(d, buy_threshold, sell_threshold),
+            "decision": _to_decision_payload(d),
             "risk_gate": None,
             "execution": None,
             "outcome": None,
