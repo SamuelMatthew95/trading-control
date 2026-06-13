@@ -40,7 +40,7 @@ from api.constants import (
     FieldName,
 )
 from api.observability import log_structured
-from api.runtime_state import get_runtime_store
+from api.runtime_state import get_runtime_store, is_db_available
 from api.services.dashboard.learning import get_ic_weights_payload
 from api.services.dashboard.prompt_evolution import get_prompt_evolution_payload
 from api.services.dashboard.proposals import list_proposals_payload
@@ -153,7 +153,7 @@ def _live_activity_by_agent(
         AGENT_REASONING: (
             {
                 "action": latest_decision.get(FieldName.ACTION),
-                "confidence": latest_decision.get(FieldName.SCORE),
+                "confidence": latest_decision.get(FieldName.CONFIDENCE),
                 "symbol": latest_decision.get(FieldName.SYMBOL),
             }
             if latest_decision
@@ -162,17 +162,36 @@ def _live_activity_by_agent(
     }
 
 
-def _to_decision_payload(d: dict[str, Any], buy: float, sell: float) -> dict[str, Any]:
-    """Map a live ReasoningAgent decision → the sim DecisionPayload shape."""
+def _to_float(value: Any) -> float | None:
+    """Coerce a live numeric field (often a string like ``"66.75"``) to float."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_decision_payload(d: dict[str, Any]) -> dict[str, Any]:
+    """Map a live ReasoningAgent decision → the DecisionPayload shape.
+
+    All keys are ``FieldName`` (StrEnum → the same JSON string). Carries the REAL
+    cognition the reasoning agent attaches to every decision — confidence, the
+    human ``reasoning_summary``, whether the LLM ran (``llm_succeeded``) vs a
+    rule-based fallback (``downgrade_reason``), the ``tools_used`` perception
+    chain, and the ``timestamp`` — so the dashboard shows *why* it decided.
+    """
     return {
-        "action": str(d.get(FieldName.ACTION) or "hold"),
-        "score": float(d.get(FieldName.CONFIDENCE) or 0.0),
-        "breakdown": {},
-        "buy_threshold": buy,
-        "sell_threshold": sell,
-        "trace_id": d.get(FieldName.TRACE_ID),
-        "symbol": d.get(FieldName.SYMBOL),
-        "reasoning": d.get(FieldName.REASONING_SUMMARY),
+        FieldName.ACTION: str(d.get(FieldName.ACTION) or "hold"),
+        FieldName.CONFIDENCE: float(d.get(FieldName.CONFIDENCE) or 0.0),
+        FieldName.TRACE_ID: d.get(FieldName.TRACE_ID),
+        FieldName.SYMBOL: d.get(FieldName.SYMBOL),
+        FieldName.PRICE: _to_float(d.get(FieldName.PRICE)),
+        FieldName.REASONING_SUMMARY: d.get(FieldName.REASONING_SUMMARY),
+        FieldName.LLM_SUCCEEDED: d.get(FieldName.LLM_SUCCEEDED),
+        FieldName.DOWNGRADE_REASON: str(d.get(FieldName.DOWNGRADE_REASON) or ""),
+        FieldName.TOOLS_USED: d.get(FieldName.TOOLS_USED) or [],
+        FieldName.TIMESTAMP: d.get(FieldName.TIMESTAMP),
     }
 
 
@@ -396,7 +415,68 @@ def _build_health(
     }
 
 
-async def build_live_snapshot(*, trace_limit: int = 20) -> dict[str, Any]:
+async def _live_weights() -> dict[str, Any]:
+    """Live factor weights from Redis IC weights (empty dict when absent)."""
+    try:
+        weights_payload = await get_ic_weights_payload()
+        weights = weights_payload.get(FieldName.WEIGHTS) or weights_payload.get(
+            FieldName.IC_WEIGHTS
+        )
+        return weights if isinstance(weights, dict) else {}
+    except Exception:
+        return {}
+
+
+async def build_live_config() -> dict[str, Any]:
+    """The active, live config block (prompt-directive version + IC weights).
+
+    Replaces the seeded demo ``CognitiveLoop.config`` — no fabricated weights.
+    """
+    weights = await _live_weights()
+    try:
+        prompt_payload = await get_prompt_evolution_payload()
+    except Exception:
+        prompt_payload = {}
+    version = int(prompt_payload.get(FieldName.VERSION, 0)) or 1
+    return {
+        "version": version,
+        "weights": weights,
+        "buy_threshold": 0.0,
+        "sell_threshold": 0.0,
+        "risk": {},
+    }
+
+
+def live_roster() -> list[dict[str, str]]:
+    """The live cognitive-agent roster (real agents, not the demo registry)."""
+    return [dict(spec) for spec in _ROSTER]
+
+
+async def build_live_trace(trace_id: str) -> dict[str, Any]:
+    """Reconstruct one trade's live chain (decision + perception) by trace id.
+
+    Reads the real decision stream — returns the matching trace, or a keyed
+    empty when the id is unknown (never a seeded demo chain).
+    """
+    snapshot = await build_live_snapshot()
+    for trace in snapshot["traces"]:
+        if trace.get(FieldName.TRACE_ID) == trace_id:
+            return trace
+    return {
+        "trace_id": trace_id,
+        "signals": {"news": None, "tech": None, "macro": None, "risk": None},
+        "reasoning": None,
+        "decision": None,
+        "risk_gate": None,
+        "execution": None,
+        "outcome": None,
+        "counterfactual": None,
+        "grade": None,
+        "event_count": 0,
+    }
+
+
+async def build_live_snapshot(*, trace_limit: int = 50) -> dict[str, Any]:
     """Assemble the Cognitive snapshot from live agent data (best-effort)."""
     store = get_runtime_store()
     redis_store = get_redis_store()
@@ -414,14 +494,7 @@ async def build_live_snapshot(*, trace_limit: int = 20) -> dict[str, Any]:
     # just the last few rows.
     events = store.get_events(200)
 
-    try:
-        weights_payload = await get_ic_weights_payload()
-        weights = weights_payload.get(FieldName.WEIGHTS) or weights_payload.get(
-            FieldName.IC_WEIGHTS
-        )
-        weights = weights if isinstance(weights, dict) else {}
-    except Exception:
-        weights = {}
+    weights = await _live_weights()
 
     try:
         proposals_payload = await list_proposals_payload()
@@ -441,7 +514,7 @@ async def build_live_snapshot(*, trace_limit: int = 20) -> dict[str, Any]:
 
     buy_threshold = 0.0
     sell_threshold = 0.0
-    decision_payloads = [_to_decision_payload(d, buy_threshold, sell_threshold) for d in decisions]
+    decision_payloads = [_to_decision_payload(d) for d in decisions]
     agent_grades = _agent_grades(grades)
     observations = [
         {
@@ -458,7 +531,7 @@ async def build_live_snapshot(*, trace_limit: int = 20) -> dict[str, Any]:
             "trace_id": d.get(FieldName.TRACE_ID),
             "signals": {"news": None, "tech": None, "macro": None, "risk": None},
             "reasoning": {FieldName.REASONING_SUMMARY: d.get(FieldName.REASONING_SUMMARY)},
-            "decision": _to_decision_payload(d, buy_threshold, sell_threshold),
+            "decision": _to_decision_payload(d),
             "risk_gate": None,
             "execution": None,
             "outcome": None,
@@ -506,8 +579,10 @@ async def build_live_snapshot(*, trace_limit: int = 20) -> dict[str, Any]:
             "agent_grades": agent_grades,
             "observations": observations,
             "trade_grades": [],
-            "mean_regret_pct": 0.0,
-            "best_action_rate": 0.0,
+            # Counterfactual analytics are sim-only; the live pipeline does not
+            # compute them, so report null (no data), never a fabricated 0.
+            "mean_regret_pct": None,
+            "best_action_rate": None,
         },
         "counterfactuals": [],
         "drift": {
@@ -522,6 +597,10 @@ async def build_live_snapshot(*, trace_limit: int = 20) -> dict[str, Any]:
         "health": health,
         "traces": traces,
         "event_count": len(events),
+        # Honest degradation signal: when Postgres is down the page runs on
+        # Redis + InMemoryStore, so grades / closed-trade outcomes are limited.
+        # The UI badges this so empty panels read as "DB down", not "broken".
+        FieldName.DB_AVAILABLE: is_db_available(),
     }
 
 

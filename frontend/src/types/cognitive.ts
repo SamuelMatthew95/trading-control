@@ -18,14 +18,27 @@ export interface AgentSpec {
   description: string
 }
 
+/** One tool the ReasoningAgent exercised while forming a decision. */
+export interface ToolInvocation {
+  name?: string
+  latency_ms?: number
+  success?: boolean
+  outputs?: Record<string, unknown>
+}
+
 export interface DecisionPayload {
   action: string
-  score: number
-  breakdown: Record<string, number>
-  buy_threshold: number
-  sell_threshold: number
+  /** The model's confidence in [0,1] — rendered as a percentage. */
+  confidence: number
   trace_id?: string
   seq?: number
+  symbol?: string
+  price?: number | null
+  reasoning_summary?: string | null
+  llm_succeeded?: boolean | null
+  downgrade_reason?: string
+  tools_used?: ToolInvocation[]
+  timestamp?: string | null
 }
 
 export interface AgentGrade {
@@ -163,8 +176,8 @@ export interface CognitiveHealth {
 export interface CognitiveSnapshot {
   config: CognitiveConfig
   agents_roster: AgentSpec[]
-  // Latest live activity keyed by agent name (real pipeline) — or the sim's
-  // news/tech/macro/risk keys under ?demo=true. Generic map so both work.
+  // Latest live activity keyed by agent name (real pipeline). Only agents with
+  // real activity (signal + reasoning) light up; others are null.
   live_agents: Record<string, Record<string, unknown> | null>
   reasoning: Array<Record<string, unknown>>
   decision: {
@@ -201,6 +214,9 @@ export interface CognitiveSnapshot {
   health: CognitiveHealth
   traces: TradeTrace[]
   event_count: number
+  /** False when Postgres is down (Redis + in-memory mode): grades / closed-trade
+   *  outcomes are limited. The header badges this so empty panels read honestly. */
+  db_available?: boolean
 }
 
 export interface CognitiveEvent {

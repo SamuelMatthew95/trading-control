@@ -1,5 +1,18 @@
 # Changelog
 
+## [2026-06-13] — Cognitive dashboard: real cognition, de-mocked API, memory-mode honesty
+
+### Changed
+- **Cognitive dashboard now surfaces the real reasoning, not a sim shell** — the page modelled a simulation contract (weighted news/tech/macro/risk signals, counterfactuals, drift) the live system never fills, so it rendered zeros and `--` while discarding the genuine cognition every decision carries. `api/services/cognitive_live.py` now carries each decision's `confidence`, `reasoning_summary`, `llm_succeeded` / `downgrade_reason`, `timestamp`, and the full `tools_used` perception chain (order-book depth, news sentiment, macro regime, correlation, confluence, similar trades). The Command Center and Trace Explorer were rebuilt around this; dead sim panels (weighted Decision Flow, hardcoded-zero counterfactual quality, always-empty Drift) are gone (`docs/troubleshooting/cognitive.md`)
+- **The whole `/cognitive/*` API is now LIVE — all demo/seeded data removed** — `/state` and `/events` dropped the `?demo=true` branch; `/config`, `/agents`, `/trace/{id}` no longer serve the seeded `cognitive/demo.py` loop (they read the real pipeline); `POST /cognitive/reseed` (demo-only) was removed. The standalone deterministic engine in `cognitive/` remains a tested library but is no longer wired to any endpoint
+- **Cognitive panel modularized** — the 650-line monolith is now one file per tab under `frontend/src/components/dashboard/cognitive/` with shared primitives in `cognitive-ui.tsx`; raw `$`/`%`/glyph literals replaced by `formatUSD` / `formatPercent` / lucide icons and `UI_COPY`
+
+### Fixed
+- **Trace outcome rendered a fabricated `+0.00%`** when realized P&L was absent — a missing field coerced to `0` looked like a real break-even. It now renders only when the value is genuinely numeric (`toFiniteNum`), and the live snapshot reports `mean_regret_pct` / `best_action_rate` as `null` (no data) instead of `0.0`
+
+### Added
+- **Memory-mode badge** — the snapshot reports `db_available`; when Postgres is down the header badges "Memory mode" so empty grade/outcome panels read as "DB down", not "broken". Decision freshness (`formatTimeAgo`) now shows on the reasoning card and trace rows
+
 ## [2026-06-12] — Deep audit: UTC daily-loss window, Open Exposure KPI
 
 ### Fixed

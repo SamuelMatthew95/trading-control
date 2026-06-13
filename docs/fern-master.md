@@ -760,8 +760,7 @@ The backend is a FastAPI application deployed on Render. All routes are prefixed
 | `GET /cognitive/events` | Recent events |
 | `GET /cognitive/config` | Active cognitive config |
 | `GET /cognitive/agents` | Specialist agent registry |
-| `GET /cognitive/trace/{id}` | Per-trade trace with counterfactual and decisions |
-| `POST /cognitive/reseed` | Reseed the cognitive config |
+| `GET /cognitive/trace/{id}` | Per-trade live decision + perception chain |
 
 ### WebSocket Message Types
 

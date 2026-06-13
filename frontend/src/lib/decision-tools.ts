@@ -50,6 +50,27 @@ export function summarizeToolOutputs(outputs: Record<string, unknown> | undefine
     parts.push(`${outputs.count} example${outputs.count === 1 ? '' : 's'}`)
   }
 
+  // Order-book depth tool: spread (bps) and book imbalance — the live
+  // microstructure the reasoning node saw at decision time.
+  if (typeof outputs.spread_bps === 'number') {
+    parts.push(`spread ${outputs.spread_bps.toFixed(1)}bps`)
+  }
+  if (typeof outputs.imbalance === 'number') {
+    parts.push(`imbalance ${outputs.imbalance >= 0 ? '+' : ''}${outputs.imbalance.toFixed(3)}`)
+  }
+
+  // News-sentiment tool: signed sentiment over a count of recent articles.
+  if (typeof outputs.sentiment === 'number') {
+    const articles = typeof outputs.article_count === 'number' ? ` (${outputs.article_count})` : ''
+    parts.push(`sentiment ${outputs.sentiment >= 0 ? '+' : ''}${outputs.sentiment.toFixed(2)}${articles}`)
+  }
+
+  // Macro-regime tool: the resolved regime label (and benchmark return if given).
+  if (typeof outputs.regime === 'string' && outputs.regime) {
+    const ret = typeof outputs.return_pct === 'number' ? ` ${outputs.return_pct >= 0 ? '+' : ''}${outputs.return_pct.toFixed(2)}%` : ''
+    parts.push(`${outputs.regime}${ret}`)
+  }
+
   // Cross-stream confluence tool: the composite score (and the signal type it
   // resolved to) the reasoning node folded from multiple market streams.
   if (typeof outputs.composite_score === 'number') {

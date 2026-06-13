@@ -22,6 +22,8 @@ async def test_live_snapshot_is_fully_keyed_when_empty():
     assert isinstance(snap["proposals"], list)
     assert isinstance(snap["drift"]["alerts"], list)
     assert isinstance(snap["traces"], list)
+    # The DB-state flag is always present so the header can decide on the badge.
+    assert snap["db_available"] is False
     # live_agents is now keyed by real agent names (signal + reasoning slots).
     from api.constants import AGENT_REASONING, AGENT_SIGNAL
 
@@ -137,8 +139,13 @@ async def test_memory_mode_end_to_end_with_redis_up():
                 FieldName.TRACE_ID: "trace-1",
                 FieldName.ACTION: "buy",
                 FieldName.SYMBOL: "BTC/USD",
+                FieldName.PRICE: "63485.2",
                 FieldName.CONFIDENCE: 0.77,
                 FieldName.REASONING_SUMMARY: "momentum edge",
+                FieldName.LLM_SUCCEEDED: True,
+                FieldName.TOOLS_USED: [
+                    {"name": "get_news_sentiment", "success": True, "outputs": {"sentiment": 0.33}},
+                ],
             }
         )
         store.add_grade({"subject": "REASONING_AGENT", "grade": "A", "score": 0.9})
@@ -146,13 +153,25 @@ async def test_memory_mode_end_to_end_with_redis_up():
         snap = await build_live_snapshot()
 
         # Decision flows from Redis into reasoning + decision + traces.
-        assert snap["decision"]["latest"] is not None
-        assert snap["decision"]["latest"]["action"] == "buy"
-        assert snap["decision"]["latest"]["score"] == 0.77
-        assert any(t["trace_id"] == "trace-1" for t in snap["traces"])
+        latest = snap["decision"]["latest"]
+        assert latest is not None
+        assert latest["action"] == "buy"
+        assert latest["confidence"] == 0.77
+        # The real cognition the page surfaces: price, LLM status, perception chain.
+        assert latest["price"] == 63485.2
+        assert latest["llm_succeeded"] is True
+        assert latest["reasoning_summary"] == "momentum edge"
+        # push_decision stamps a timestamp; it must flow through for freshness UI.
+        assert latest["timestamp"]
+        assert latest["tools_used"] and latest["tools_used"][0]["name"] == "get_news_sentiment"
+        trace = next(t for t in snap["traces"] if t["trace_id"] == "trace-1")
+        assert trace["decision"]["tools_used"] == latest["tools_used"]
         # Grade flows from the runtime store into agent_grades.
         subjects = {g["subject_id"] for g in snap["learning"]["agent_grades"]}
         assert "REASONING_AGENT" in subjects
+        # Memory mode (no DB bound in tests) must be reported honestly so the
+        # header can badge it — empty grade/outcome panels are "DB down", not bugs.
+        assert snap["db_available"] is False
     finally:
         set_redis_store(None)
         await redis.aclose()
