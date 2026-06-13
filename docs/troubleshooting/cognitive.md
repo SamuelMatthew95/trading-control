@@ -209,3 +209,16 @@ trading loop; the queued `pr_request` artifact remains for the GitHub Action / m
 **Note (ops):** The underlying cause is free-tier Groq quota. Code resilience reduces transient rejects but cannot create quota — a sustained fix is a working provider/quota (`LLM_PROVIDER` + key, or a paid tier).
 
 **Regression tests:** `tests/core/test_llm_router_rate_limit.py::test_groq_retries_with_backoff_when_both_tiers_throttled`, `::test_groq_raises_after_retries_exhausted_so_agent_fails_closed`
+
+## Cognitive dashboard page was "useless" — sim-shaped panels rendered zeros while the real cognition was discarded
+
+**Symptom:** `/dashboard/cognitive` showed dead/meaningless data: Command Center had a "Decision Flow — score = Σ signalᵢ·weightᵢ" with an empty breakdown, a "Decision Quality (counterfactual)" card stuck at `best-action rate 0% · mean regret +0.0%`, a "Drift" card always reading "No drift", and a decision band `[0, 0]`. The Trace Explorer showed `news 0 · tech 0 · macro 0 · risk 0` for every trade and `--` for risk-gate / execution / outcome / counterfactual. The page looked broken even though the reasoning loop was actively producing decisions.
+
+**Root cause:** The page's data contract (`frontend/src/types/cognitive.ts`) was modelled on the standalone `cognitive/` **simulation** (4 weighted signals news/tech/macro/risk, counterfactuals, drift, governor scorecards). The live adapter (`api/services/cognitive_live.py`) honestly returns empties for all of those sim-only analytics — so ~60% of the page was hardcoded zeros and `--`. Meanwhile the genuinely rich live cognition that *does* flow on every decision — `reasoning_summary`, `confidence`, `llm_succeeded` / `downgrade_reason`, and the full `tools_used` 7-tool perception chain (order-book depth, news sentiment, macro regime, correlation, confluence, similar trades) — was dropped: `_to_decision_payload` emitted only `action`/`score`/empty `breakdown`, and traces set every signal to `None`.
+
+**Fix:**
+- `cognitive_live.py::_to_decision_payload` now carries the real cognition (`price`, `confidence`, `reasoning_summary`, `llm_succeeded`, `downgrade_reason`, `tools_used`) onto every decision payload and trace.
+- `decision-tools.ts::summarizeToolOutputs` learned the live perception tools (order-book spread/imbalance, news sentiment + article count, macro regime + benchmark return) so the chain renders meaningfully (also improves the main `RecentDecisionsPanel`).
+- `CognitiveDashboard.tsx` Command Center replaced the empty weighted-breakdown / hardcoded-counterfactual / always-empty-drift panels with real KPIs (decision count + B/S/H split, LLM reasoning success rate + fallback count, latest decision, active directive version) and a "Latest Reasoning" card rendering the real perception chain. Trace Explorer replaced `news/tech/macro/risk 0` with the real decision → reasoning summary → LLM status → perception chain (grade/outcome still shown when present).
+
+**Regression tests:** `tests/api/test_cognitive_live.py::test_memory_mode_end_to_end_with_redis_up` (asserts price/llm_succeeded/tools_used flow through), `frontend/src/test/components/cognitive.test.ts` (`summarizeDecisions`, `isFallbackDecision`), `frontend/src/test/helpers/decision-tools.test.ts` (perception-tool summaries).
