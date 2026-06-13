@@ -1,7 +1,7 @@
 'use client'
 
 import { cn } from '@/lib/utils'
-import { EMITS_SIGNAL_SUFFIX, FIELD_TYPE } from '@/lib/cognitive'
+import { FIELD_TYPE } from '@/lib/cognitive'
 import { gradeTone } from '@/lib/grade-colors'
 import type { CognitiveSnapshot } from '@/types/cognitive'
 
@@ -13,11 +13,10 @@ export function AgentsPanel({ snap }: { snap: CognitiveSnapshot }) {
   return (
     <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
       {snap.agents_roster.map((agent) => {
-        // Real roster: key by agent name first; fall back to the sim's
-        // emits-derived key so the seeded demo still attaches.
-        const signalName = agent.emits.replace(EMITS_SIGNAL_SUFFIX, '')
-        const grade = grades.get(agent.name) ?? grades.get(signalName)
-        const live = snap.live_agents[agent.name] ?? snap.live_agents[signalName] ?? null
+        // Live roster: grades / activity / health all key by the canonical
+        // agent name (cognitive_live normalizes sources to these constants).
+        const grade = grades.get(agent.name)
+        const live = snap.live_agents[agent.name] ?? null
         const health = agentsHealth[agent.name]
         return (
           <div key={agent.name} className={card}>
