@@ -62,7 +62,7 @@ export function TracesPanel({ traces }: { traces: TradeTrace[] }) {
                 <Step name={COPY.steps.decision}>
                   {decision
                     ? `${decision.action.toUpperCase()} ${COPY.atScore} ${signed(
-                        decision.confidence ?? decision.score,
+                        decision.confidence,
                         2,
                       )}${
                         typeof decision.price === 'number' ? ` · ${formatUSD(decision.price)}` : ''
