@@ -1,7 +1,7 @@
 # Storage Architecture — Single Source of Truth
 # Memory File: Storage
-# Version: v1.0
-# Last Updated: 2026-04-14
+# Version: v1.1
+# Last Updated: 2026-06-13
 
 ## The Four Storage Layers
 
@@ -376,6 +376,45 @@ await redis.lpush("notifications:recent", json.dumps(payload))     # use store.p
 await redis.lpush("decisions:recent", json.dumps(payload))         # use store.push_decision(payload)
 await redis.hincrby("llm:metrics", "successes", 1)                 # use store.record_llm_call(outcome="success", ...)
 ```
+
+---
+
+## Redis Connection Pool Sizing (HARD INVARIANT)
+
+The whole process shares **one** `BlockingConnectionPool`
+(`api/redis_client.py`, cap `settings.REDIS_MAX_CONNECTIONS`). Every
+**always-on blocking stream reader** holds a pooled connection ~continuously
+(`XREADGROUP`/`XREAD BLOCK 100ms`, then immediately re-acquires):
+
+```
+always-on blocking consumers =
+    every agent in api/startup.py::_build_agents()        (one loop each)
+  + runtime-spawnable challengers                          (up to MAX_CONCURRENT_CHALLENGERS)
+  + the EventPipeline broadcast consumer                   (+1)
+  + the WebSocket broadcaster xread loop                   (+1)
+```
+
+**Invariant:** `REDIS_MAX_CONNECTIONS >= worst-case always-on consumers +
+request-burst headroom (~15)`. When violated, request/response callers (REST
+handlers, heartbeats, control-plane reads) queue on the pool, starve past
+`REDIS_POOL_TIMEOUT_SECONDS`, and raise
+`ConnectionError("No connection available.")` — the dashboard wedges while
+agents log intermittent `Redis connection error during consume` warnings.
+
+**Rules:**
+- Adding ANY new agent / stream consumer / always-on `xread` loop adds one
+  permanent connection of demand. The guardrail test derives the count from
+  the real `_build_agents()` fleet and fails CI when the cap falls behind:
+  `tests/core/test_redis_client.py::test_max_connections_covers_worst_case_always_on_consumers`
+- Never set the cap at-or-above the Redis plan's client limit (Render Key
+  Value: free=50, starter=250 — verify in the dashboard before plan changes).
+  Single gunicorn worker (`-w 1`) means the cap is the process-wide ceiling;
+  if workers ever scale, the per-worker cap multiplies.
+- Saturation is observable with zero Redis I/O: `GET /health` →
+  `redis_pool` block (`api/redis_client.py::redis_pool_stats()`).
+  `in_use_connections == max_connections` is the starvation signature.
+- Full incident write-up: `docs/troubleshooting/system-routes.md` →
+  "Redis pool exhaustion from always-on blocking consumers".
 
 ---
 
