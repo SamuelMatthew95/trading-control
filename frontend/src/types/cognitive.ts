@@ -42,6 +42,7 @@ export interface DecisionPayload {
   llm_succeeded?: boolean | null
   downgrade_reason?: string
   tools_used?: ToolInvocation[]
+  timestamp?: string | null
 }
 
 export interface AgentGrade {
