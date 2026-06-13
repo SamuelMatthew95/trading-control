@@ -28,16 +28,12 @@ export interface ToolInvocation {
 
 export interface DecisionPayload {
   action: string
-  score: number
-  breakdown: Record<string, number>
-  buy_threshold: number
-  sell_threshold: number
+  /** The model's confidence in [0,1] — rendered as a percentage. */
+  confidence: number
   trace_id?: string
   seq?: number
-  // Live cognition the reasoning agent attaches to every decision.
   symbol?: string
   price?: number | null
-  confidence?: number
   reasoning_summary?: string | null
   llm_succeeded?: boolean | null
   downgrade_reason?: string
