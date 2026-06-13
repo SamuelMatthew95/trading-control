@@ -218,6 +218,9 @@ export interface CognitiveSnapshot {
   health: CognitiveHealth
   traces: TradeTrace[]
   event_count: number
+  /** False when Postgres is down (Redis + in-memory mode): grades / closed-trade
+   *  outcomes are limited. The header badges this so empty panels read honestly. */
+  db_available?: boolean
 }
 
 export interface CognitiveEvent {
