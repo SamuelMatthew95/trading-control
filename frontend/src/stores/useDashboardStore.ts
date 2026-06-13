@@ -71,6 +71,7 @@ type DashboardState = {
   setPipelineMetrics: (metrics: Record<string, number>) => void
   setTradeFeed: (trades: TradeFeedItem[]) => void
   addTradeFeedItem: (trade: TradeFeedItem) => void
+  addClosedTrade: (trade: ClosedTrade) => void
   setAgentInstances: (instances: AgentInstance[]) => void
   setPerformanceSummary: (summary: PerformanceSummary) => void
   setDailyPnl: (pnl: DailyPnl[]) => void
@@ -195,6 +196,15 @@ export const useDashboardStore = create<DashboardState>((set) => ({
   addTradeFeedItem: (trade) => set((state) => {
     if (state.tradeFeed.some((t) => t.id === trade.id)) return state
     return { tradeFeed: [trade, ...state.tradeFeed].slice(0, 200) }
+  }),
+  // Live round-trip closes from the WS `trade_completed` stream. ClosedTrade
+  // carries no id, so dedup on symbol + close time (the panel's row key); the
+  // next snapshot replace reconciles wholesale. Cap matches the backend
+  // mirror (REDIS_CLOSED_TRADES_MAX = 100).
+  addClosedTrade: (trade) => set((state) => {
+    const key = (t: ClosedTrade) => `${t.symbol}|${t.closed_at ?? ''}`
+    if (state.closedTrades.some((t) => key(t) === key(trade))) return state
+    return { closedTrades: [trade, ...state.closedTrades].slice(0, 100) }
   }),
   setAgentInstances: (agentInstances) => set({ agentInstances }),
   setPerformanceSummary: (performanceSummary) => set({ performanceSummary }),

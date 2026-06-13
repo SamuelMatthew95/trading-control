@@ -2,6 +2,7 @@
 import { useEffect, useRef } from 'react'
 import {
   useDashboardStore,
+  normalizeClosedTrade,
   normalizeTradeFeedItem,
   type AgentLog,
   type AgentHeartbeat,
@@ -323,6 +324,7 @@ class WebSocketManager {
       if (msg.stream === 'notifications') return this._handleNotification(msg, store)
       if (msg.stream === 'proposals') return this._handleProposal(msg, store)
       if (msg.stream === 'trade_lifecycle') return this._handleTradeFeed(msg, store)
+      if (msg.stream === 'trade_completed') return this._handleClosedTrade(msg, store)
       if (msg.stream === 'agent_grades' || msg.stream === 'reflection_outputs') return this._handleLearningEvent(msg, store)
       if ((msg.type === 'agent_event' || msg.type === 'agent_status') && eventPayload) return this._handleAgentEvent(msg, store, eventPayload)
       if (msg.type === 'event' && eventPayload) return this._handleGenericEvent(msg, store, eventPayload)
@@ -456,6 +458,13 @@ class WebSocketManager {
   private _handleTradeFeed(msg: WebSocketMessage, store: ReturnType<typeof useDashboardStore.getState>): void {
     const raw = { ...(msg as unknown as Record<string, unknown>), created_at: msg.timestamp }
     store.addTradeFeedItem(normalizeTradeFeedItem(raw))
+  }
+
+  private _handleClosedTrade(msg: WebSocketMessage, store: ReturnType<typeof useDashboardStore.getState>): void {
+    // Every `trade_completed` stream event is one round-trip close. Without
+    // this the Closed Trades panel only refreshed from connect snapshots, so
+    // closes that happened while the WS was connected never appeared.
+    store.addClosedTrade(normalizeClosedTrade(msg as unknown as Record<string, unknown>))
   }
 
   private _handleLearningEvent(msg: WebSocketMessage, store: ReturnType<typeof useDashboardStore.getState>): void {

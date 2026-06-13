@@ -40,6 +40,63 @@ describe('normalizeClosedTrade', () => {
     expect(trade.pnl).toBeNull()
     expect(trade.closed_at).toBe('2026-06-10T12:00:00+00:00')
   })
+
+  it('reads the fill time from executed_at (WS trade_completed shape)', () => {
+    // Shape broadcast on the `trade_completed` stream: fill time arrives as
+    // `executed_at`; `timestamp` is the publish time and must not win.
+    const trade = normalizeClosedTrade({
+      symbol: 'BTC/USD',
+      side: 'sell',
+      qty: 1,
+      entry_price: 100,
+      exit_price: 110,
+      pnl: 10,
+      pnl_percent: 10,
+      executed_at: '2026-06-10T12:00:00+00:00',
+      timestamp: '2026-06-10T12:00:05+00:00',
+    })
+    expect(trade.closed_at).toBe('2026-06-10T12:00:00+00:00')
+  })
+})
+
+describe('addClosedTrade — live WS round-trip closes', () => {
+  const wsClose = (overrides: Record<string, unknown> = {}) =>
+    normalizeClosedTrade({
+      symbol: 'BTC/USD',
+      side: 'sell',
+      qty: 1,
+      entry_price: 100,
+      exit_price: 110,
+      pnl: 10,
+      pnl_percent: 10,
+      executed_at: '2026-06-10T12:00:00+00:00',
+      ...overrides,
+    })
+
+  it('prepends a close so the panel updates without a reload', () => {
+    useDashboardStore.getState().addClosedTrade(wsClose())
+    useDashboardStore
+      .getState()
+      .addClosedTrade(wsClose({ symbol: 'ETH/USD', executed_at: '2026-06-10T12:01:00+00:00' }))
+    const trades = useDashboardStore.getState().closedTrades
+    expect(trades).toHaveLength(2)
+    expect(trades[0].symbol).toBe('ETH/USD') // newest first
+  })
+
+  it('dedups redelivered events on symbol + close time', () => {
+    useDashboardStore.getState().addClosedTrade(wsClose())
+    useDashboardStore.getState().addClosedTrade(wsClose())
+    expect(useDashboardStore.getState().closedTrades).toHaveLength(1)
+  })
+
+  it('caps the ledger at the backend mirror size (100)', () => {
+    for (let i = 0; i < 110; i += 1) {
+      useDashboardStore
+        .getState()
+        .addClosedTrade(wsClose({ executed_at: `2026-06-10T12:00:${String(i % 60).padStart(2, '0')}.${i}Z` }))
+    }
+    expect(useDashboardStore.getState().closedTrades).toHaveLength(100)
+  })
 })
 
 describe('hydrateDashboard → closedTrades', () => {

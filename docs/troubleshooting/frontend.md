@@ -1090,3 +1090,26 @@ prevent reintroduction).
 **Fix:** Added `positionNotional()` / `positionEntryPrice()` to `frontend/src/lib/formatters.ts` (built on `positionQty`/`livePriceFor`, which now also fall back to `avg_cost`/`unrealized_pnl`); `SystemDashboard.tsx` sums `positionNotional(position, props.prices)` — so exposure also marks to the live price stream — counts active positions via `isActivePosition`, and formats with unsigned `formatUSD`.
 
 **Regression test:** `src/test/components/system/SystemDashboard.test.tsx` ("counts memory-mode (qty/avg_cost) rows and renders an unsigned magnitude") and `src/test/helpers/live-pnl.test.ts` ("memory-mode position shape" suite)
+
+## Closed Trades panel never updated while the WebSocket was connected
+
+**Symptom:** On `/dashboard/trading` in memory mode, round-trips that closed
+while the dashboard was open never appeared in the Closed Trades panel — it
+only ever showed whatever the page-load snapshot contained (often nothing),
+even as the Trade Feed and P&L tiles kept moving.
+
+**Root cause:** `closedTrades` was written only by `hydrateDashboard`, which
+runs on the initial REST `/dashboard/state` fetch and the WS-connect
+`dashboard_update` snapshot. While the WS is connected, `useRestPoll`
+deliberately stops polling `/dashboard/state`, and the message switch in
+`useGlobalWebSocket` had no handler for the `trade_completed` stream — so live
+closes were dropped on the floor until a manual reload or reconnect.
+
+**Fix:** `useGlobalWebSocket` routes `stream === 'trade_completed'` events
+through `normalizeClosedTrade` into a new `useDashboardStore.addClosedTrade`
+action (dedup on symbol + close time, newest-first, capped at the backend
+mirror size). `normalizeClosedTrade` now also reads the fill time from
+`executed_at` (the field the `trade_completed` payload carries).
+
+**Regression test:** `src/test/store/closed-trades.test.ts` ("addClosedTrade —
+live WS round-trip closes" suite; `executed_at` normalizer case)

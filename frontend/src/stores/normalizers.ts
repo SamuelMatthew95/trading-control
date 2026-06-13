@@ -110,10 +110,11 @@ export function normalizeStoredNotification(input: unknown): Notification | null
 }
 
 
-/** Normalize a raw closed-trade dict (REST snapshot) into a well-typed ClosedTrade. */
+/** Normalize a raw closed-trade dict (REST snapshot or WS event) into a well-typed ClosedTrade. */
 export function normalizeClosedTrade(raw: Record<string, unknown>): ClosedTrade {
-  // Memory-mode rows carry an epoch-seconds `timestamp`; DB rows carry ISO `filled_at`.
-  const closedAtRaw = raw.filled_at ?? raw.timestamp ?? null
+  // Memory-mode rows carry an epoch-seconds `timestamp`; DB rows carry ISO
+  // `filled_at`; WS `trade_completed` events carry the fill time as `executed_at`.
+  const closedAtRaw = raw.filled_at ?? raw.executed_at ?? raw.timestamp ?? null
   const closedAtMs =
     typeof closedAtRaw === 'number' && Number.isFinite(closedAtRaw)
       ? (closedAtRaw > EPOCH_MS_THRESHOLD ? closedAtRaw : closedAtRaw * 1000)
