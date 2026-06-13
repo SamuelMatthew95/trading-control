@@ -75,20 +75,21 @@ source of truth. The observability layer is a pure read of that stream.
 | `health.py` | Cognitive wiring health (agents, pipeline funnel, learning coverage) from the stream. |
 | `trace.py` | Per-trade "why did we?" chain reconstruction from the stream. |
 | `loop.py` | `CognitiveLoop` — wires every stage, emits typed events, and produces the 7-tab snapshot. |
-| `demo.py` | Deterministic seeded trajectory for the observability API. |
+| `demo.py` | Deterministic seeded trajectory — standalone, exercised by this package's own tests. **No longer served by the observability API** (the dashboard shows live agents only). |
 
 ## Observability API (read-only)
 
-Mounted at `/cognitive` (and `/api/cognitive`). The UI is driven entirely by these:
+Mounted at `/cognitive` (and `/api/cognitive`). **Every endpoint is LIVE** —
+backed by `api/services/cognitive_live.py` (the real agent pipeline), never the
+seeded `demo.py` trajectory. The dashboard reads `/state` + `/events`.
 
 | Endpoint | Returns |
 |---|---|
-| `GET /cognitive/state` | Full 7-tab snapshot (single UI data source). |
-| `GET /cognitive/events` | The raw SYSTEM_EVENT_STREAM (recent N). |
-| `GET /cognitive/config` | Active Git-versioned config. |
-| `GET /cognitive/agents` | Registered agent roster. |
-| `GET /cognitive/trace/{trace_id}` | Full decision→grade chain for one trade. |
-| `POST /cognitive/reseed` | Rebuild the deterministic demo trajectory. |
+| `GET /cognitive/state` | Full live snapshot (single UI data source). |
+| `GET /cognitive/events` | The recent real event stream (recent N). |
+| `GET /cognitive/config` | Active live config (prompt-directive version + IC weights). |
+| `GET /cognitive/agents` | Live agent roster. |
+| `GET /cognitive/trace/{trace_id}` | Live decision + perception chain for one trade. |
 
 ## Tests
 
