@@ -22,6 +22,8 @@ async def test_live_snapshot_is_fully_keyed_when_empty():
     assert isinstance(snap["proposals"], list)
     assert isinstance(snap["drift"]["alerts"], list)
     assert isinstance(snap["traces"], list)
+    # The DB-state flag is always present so the header can decide on the badge.
+    assert snap["db_available"] is False
     # live_agents is now keyed by real agent names (signal + reasoning slots).
     from api.constants import AGENT_REASONING, AGENT_SIGNAL
 
@@ -167,6 +169,9 @@ async def test_memory_mode_end_to_end_with_redis_up():
         # Grade flows from the runtime store into agent_grades.
         subjects = {g["subject_id"] for g in snap["learning"]["agent_grades"]}
         assert "REASONING_AGENT" in subjects
+        # Memory mode (no DB bound in tests) must be reported honestly so the
+        # header can badge it — empty grade/outcome panels are "DB down", not bugs.
+        assert snap["db_available"] is False
     finally:
         set_redis_store(None)
         await redis.aclose()
