@@ -99,7 +99,7 @@ export function DecisionReasoningCard({
   title: string
 }) {
   const fallback = isFallbackDecision(decision)
-  const conf = typeof decision.confidence === 'number' ? decision.confidence : decision.score
+  const conf = decision.confidence
   return (
     <div className={card}>
       <div className="mb-2 flex items-center justify-between gap-2">
