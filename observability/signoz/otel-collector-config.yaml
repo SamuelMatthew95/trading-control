@@ -136,10 +136,11 @@ connectors:
   spanmetrics:
     histogram:
       explicit:
-        # Uniform buckets for every operation. Extends to 60s because the LLM
-        # reasoning span legitimately runs tens of seconds (prod P99 ~66s).
+        # Uniform buckets for every operation. Top bucket exceeds the LLM
+        # reasoning span's measured P99 (~66.8s in the SigNoz export) so the
+        # slowest percentile lands in a real bucket, not the +Inf overflow.
         buckets:
-          [1ms, 2ms, 5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2500ms, 5s, 10s, 30s, 60s]
+          [1ms, 2ms, 5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2500ms, 5s, 10s, 30s, 60s, 90s, 120s]
     dimensions:
       # Standard RED dims (populated on HTTP server spans; empty elsewhere).
       - name: http.method
