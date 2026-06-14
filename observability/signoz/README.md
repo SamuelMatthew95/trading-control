@@ -122,7 +122,8 @@ GRADE_AGENT` with exact timing of each hop.
 
 ## 6. Alerts
 
-See `alerts.md` for the recommended alert rules and thresholds.
+See `alerts.md` for the recommended alert rules and thresholds, and `slos.md`
+for the SLO spec (error budgets + multi-window burn-rate alerts).
 
 ## 7. SigNoz Cloud — gateway collector (operation standardization)
 
