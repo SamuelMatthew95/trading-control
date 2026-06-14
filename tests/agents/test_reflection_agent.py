@@ -502,3 +502,77 @@ def test_seed_history_respects_buffer_cap(agent):
     trades = [{"symbol": "BTC/USD", "side": "buy", "pnl": float(i)} for i in range(cap + 20)]
     agent.seed_history(trades)
     assert agent.buffered_fill_count() == cap
+
+
+# ---------------------------------------------------------------------------
+# Cost governance — cooldown, single-flight, new-data gating
+# ---------------------------------------------------------------------------
+
+
+@patch("api.services.agents.db_helpers.AsyncSessionFactory", _MockSessionFactory())
+async def test_cooldown_blocks_rapid_auto_reflections(agent, monkeypatch):
+    """Auto reflections respect REFLECTION_MIN_INTERVAL_SECONDS so a burst of
+    fills can't fan out into one LLM-call chain per trade."""
+    monkeypatch.setattr(settings, "REFLECTION_MIN_INTERVAL_SECONDS", 9999)
+    for _ in range(3):
+        agent._recent_fills.append(_trade_performance_event(pnl=10.0))
+    agent._fills = 3
+    mock_redis = _budget_redis(used=0)
+
+    with (
+        patch("api.redis_client.get_redis", AsyncMock(return_value=mock_redis)),
+        patch(
+            "api.services.llm_router.call_llm_with_system",
+            AsyncMock(return_value=(_valid_reflection_json(), 300, 0.001)),
+        ),
+    ):
+        first = await agent.maybe_reflect()
+        agent._fills = 4  # new data, but cooldown still active
+        agent._recent_fills.append(_trade_performance_event(pnl=5.0))
+        second = await agent.maybe_reflect()
+
+    assert first is True
+    assert second is False  # blocked by cooldown
+
+
+@patch("api.services.agents.db_helpers.AsyncSessionFactory", _MockSessionFactory())
+async def test_no_new_data_skips_reflection(agent, monkeypatch):
+    """maybe_reflect skips when no new fills arrived since the last reflection."""
+    monkeypatch.setattr(settings, "REFLECTION_MIN_INTERVAL_SECONDS", 0)
+    for _ in range(3):
+        agent._recent_fills.append(_trade_performance_event(pnl=10.0))
+    agent._fills = 3
+    mock_redis = _budget_redis(used=0)
+    with (
+        patch("api.redis_client.get_redis", AsyncMock(return_value=mock_redis)),
+        patch(
+            "api.services.llm_router.call_llm_with_system",
+            AsyncMock(return_value=(_valid_reflection_json(), 300, 0.001)),
+        ),
+    ):
+        assert await agent.maybe_reflect() is True
+        # No new fills → _fills unchanged → next auto call is a no-op.
+        assert await agent.maybe_reflect() is False
+
+
+async def test_single_flight_skips_when_already_running(agent):
+    """A second reflection while one is in progress is skipped (no double spend)."""
+    lock = agent._get_reflection_lock()
+    await lock.acquire()
+    try:
+        ran = await agent._run_reflection()
+    finally:
+        lock.release()
+    assert ran is False
+
+
+async def test_force_bypasses_cooldown(agent, monkeypatch):
+    """Operator reflect-now (force=True) ignores the cooldown."""
+    monkeypatch.setattr(settings, "REFLECTION_MIN_INTERVAL_SECONDS", 9999)
+    agent._recent_fills.append(_trade_performance_event(pnl=10.0))
+    agent._fills = 1
+    agent._last_reflection_at = 1.0  # pretend a reflection just ran
+    with patch.object(agent, "_do_reflection", AsyncMock()) as mock_do:
+        ran = await agent.maybe_reflect(force=True)
+    assert ran is True
+    mock_do.assert_awaited_once()
