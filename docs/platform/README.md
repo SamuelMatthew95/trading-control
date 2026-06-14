@@ -11,6 +11,7 @@ Trading logic itself is documented in `docs/` and the hosted Fern docs.
 | [deployment.md](deployment.md) | Every way to run it: compose, dev loop, Render, Kubernetes, OpenTofu, Ansible |
 | [ci-cd.md](ci-cd.md) | Workflow architecture, caching, secrets, tagging strategy |
 | [observability.md](observability.md) | OpenTelemetry design, metrics catalog, trade-lifecycle tracing, SigNoz |
+| [telemetry-governance.md](telemetry-governance.md) | Telemetry control plane (v1 design): schema registry, drift detection, cost model, SLOs, ownership, rollout rules |
 | [kubernetes.md](kubernetes.md) | Kind bring-up, probes, the singleton constraint, rollback procedures |
 | [opentofu.md](opentofu.md) | Module design, environment separation, state strategy |
 | [ansible.md](ansible.md) | Playbooks, idempotency, vault-based secrets |

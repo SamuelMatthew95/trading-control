@@ -263,6 +263,17 @@ class Settings(BaseSettings):
     # stays uninstrumented without losing trace coverage. Set true only to
     # actively debug Redis itself.
     OTEL_INSTRUMENT_REDIS: bool = False
+    # Runtime telemetry drift auditor (governance Layer B). OFF by default.
+    # When on, observed trading.* attribute keys are diffed against
+    # TELEMETRY_SCHEMA on an interval; unknown keys / cardinality-budget breaches
+    # emit the bounded telemetry_schema_drift_total counter + a structured log.
+    OTEL_DRIFT_AUDIT_ENABLED: bool = False
+    OTEL_DRIFT_AUDIT_INTERVAL_SECONDS: float = 300.0
+    # B2 (SigNoz-side) source — observed label keys + value-cardinality from
+    # SigNoz's query API. Empty URL => B2 is a no-op (B1 app-side still runs);
+    # a thin adapter you wire to your deployment's query endpoint/auth.
+    SIGNOZ_QUERY_URL: str = ""
+    SIGNOZ_QUERY_KEY: str = ""
 
     API_TIMEOUT_MS: int = 30000
     MAX_RETRIES: int = 3

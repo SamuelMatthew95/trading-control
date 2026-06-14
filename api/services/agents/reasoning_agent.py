@@ -101,6 +101,7 @@ from api.services.prompt_store import get_prompt_store
 from api.services.redis_store import get_redis_store
 from api.services.risk_filters import compute_dynamic_position_size
 from api.services.tool_registry import ToolMetadata, get_tool_registry
+from api.telemetry import record_decision
 
 
 class ReasoningAgent(BaseStreamConsumer):
@@ -449,6 +450,14 @@ class ReasoningAgent(BaseStreamConsumer):
             trace_id=trace_id,
             stream=STREAM_DECISIONS,
             action=action,
+        )
+
+        # Behavioral telemetry: model + action (drives llm_fallback_ratio) and
+        # the per-symbol decision-flip rate. No-op when telemetry is disabled.
+        record_decision(
+            symbol=str(data.get(FieldName.SYMBOL) or ""),
+            action=action or "hold",
+            model=str(summary.get(FieldName.MODEL_USED) or ""),
         )
 
         # Persist a Redis-backed decision record so the dashboard's recent

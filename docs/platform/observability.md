@@ -120,6 +120,8 @@ single lines:
 | `agent_process_duration` (ms) | histogram | agent | every event dispatch |
 | `error_count` | counter | component | consumer failure paths |
 | `retry_count` | counter | stream | pre-DLQ retry decisions |
+| `agent_decisions_total` | counter | model, action | every finalized reasoning decision (`llm_fallback_ratio`) |
+| `agent_decision_flips_total` | counter | symbol | reasoning action changed vs the prior decision |
 | `daily_pnl` | gauge | — | Redis poller: today's closed trades |
 | `open_positions` | gauge | — | Redis poller: non-flat paper positions |
 | `win_rate` | gauge | — | Redis poller: agent PnL accumulators |
