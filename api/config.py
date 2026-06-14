@@ -74,6 +74,11 @@ class Settings(BaseSettings):
     # Minimum buffered fills before the first reflection runs. 1 = start learning
     # from the very first closed trade, then accumulate.
     REFLECT_MIN_FILLS: int = 1
+    # Cost governance: minimum seconds between automatic reflections. A reflection
+    # fires a chain of LLM calls, so without this a burst of closed trades (with
+    # REFLECT_EVERY_N_FILLS=1) would fan out into a call per trade and spike spend
+    # / rate-limits. The operator reflect-now endpoint bypasses this.
+    REFLECTION_MIN_INTERVAL_SECONDS: float = 300.0
     # Periodic reflection safety-net interval (seconds). Triggers a reflection
     # when new fills have arrived since the last one — and once shortly after
     # startup on seeded history, so a restart produces proposals without waiting
