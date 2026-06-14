@@ -19,6 +19,7 @@ from api.constants import (
     REDIS_KEY_TRADING_PAUSED_REASON,
     SIGNAL_WEIGHT_REDUCTION_FACTOR,
     SIGNAL_WEIGHT_SCALE_MIN,
+    TRADING_PAUSE_PROBATION_SECONDS,
     FieldName,
     ProposalType,
 )
@@ -155,6 +156,32 @@ async def test_agent_retirement_pauses_trading(monkeypatch):
 
     assert await redis.get(REDIS_KEY_TRADING_PAUSED) == "1"
     assert (await redis.get(REDIS_KEY_TRADING_PAUSED_REASON)) == "Grade F: 12% score"
+
+
+async def test_retirement_is_bounded_probation_with_cautious_resume(monkeypatch):
+    """Grade-F retirement pauses for a bounded probation window (auto-resume)
+    and reduces the signal-weight scale so trading resumes cautiously — instead
+    of a 25h hard stop that deadlocks the learning loop."""
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    redis = _FakeRedis({REDIS_KEY_SIGNAL_WEIGHT_SCALE: "1.0"})
+    applier = _make_applier(redis)
+
+    await applier.process(
+        "proposals",
+        "1-0",
+        {
+            FieldName.PROPOSAL_TYPE: ProposalType.AGENT_RETIREMENT,
+            FieldName.CONTENT: {FieldName.ACTION: "retire_immediately", FieldName.REASON: "F"},
+        },
+    )
+
+    # Pause TTL is the bounded probation window, not the ~25h control TTL.
+    pause_set = next(c for c in redis.set_calls if c[0] == REDIS_KEY_TRADING_PAUSED)
+    assert pause_set[2] == TRADING_PAUSE_PROBATION_SECONDS
+    # Signal weight shrunk so post-probation trading is smaller.
+    new_scale = float(await redis.get(REDIS_KEY_SIGNAL_WEIGHT_SCALE))
+    assert new_scale == max(1.0 * SIGNAL_WEIGHT_REDUCTION_FACTOR, SIGNAL_WEIGHT_SCALE_MIN)
 
 
 async def test_unknown_proposal_type_is_logged_not_applied(monkeypatch):
