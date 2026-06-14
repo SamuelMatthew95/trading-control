@@ -466,3 +466,39 @@ async def test_reflection_stores_carry_forward_for_next_cycle(agent, mock_bus):
     assert agent._last_reflection["hypotheses"][0]["description"] == "test"
     # ...and surfaced in the next prompt the agent builds.
     assert "Momentum strategy performing well." in agent._build_prompt()
+
+
+# ---------------------------------------------------------------------------
+# Restart resilience — seed the fill buffer from durable closed-trade history
+# ---------------------------------------------------------------------------
+
+
+def test_seed_history_populates_fill_buffer(agent):
+    """After a restart the in-memory buffer is empty; seeding from closed trades
+    lets reflection analyze real history immediately."""
+    trades = [
+        {
+            "symbol": "BTC/USD",
+            "side": "buy",
+            "pnl": 10.0,
+            "pnl_percent": 0.5,
+            "filled_price": 50000.0,
+        },
+        {"symbol": "ETH/USD", "side": "sell", "pnl": -4.0, "pnl_percent": -0.2, "price": 1700.0},
+    ]
+    seeded = agent.seed_history(trades)
+    assert seeded == 2
+    assert agent.buffered_fill_count() == 2
+    assert agent.fills_seen() == 2
+    # filled_price / price are mapped onto the fill_price field reflection reads.
+    fill_prices = [f["fill_price"] for f in agent._recent_fills]
+    assert 50000.0 in fill_prices
+    assert 1700.0 in fill_prices
+
+
+def test_seed_history_respects_buffer_cap(agent):
+    """Seeding more than the deque capacity keeps only the most recent fills."""
+    cap = agent._recent_fills.maxlen
+    trades = [{"symbol": "BTC/USD", "side": "buy", "pnl": float(i)} for i in range(cap + 20)]
+    agent.seed_history(trades)
+    assert agent.buffered_fill_count() == cap
