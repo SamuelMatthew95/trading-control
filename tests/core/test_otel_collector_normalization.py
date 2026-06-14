@@ -256,7 +256,13 @@ class TestSpanmetricsAdditive:
     def test_uniform_latency_buckets_cover_slow_llm_spans(self):
         buckets = self._load()["connectors"]["spanmetrics"]["histogram"]["explicit"]["buckets"]
         assert all(isinstance(b, str) for b in buckets)  # durations, not bare ints
-        assert "60s" in buckets  # reasoning-agent P99 ~66s must not saturate the top bucket
+
+        def to_seconds(b: str) -> float:
+            return float(b[:-2]) / 1000 if b.endswith("ms") else float(b[:-1])
+
+        # Top bucket must exceed the measured reasoning-agent P99 (~66.8s) so the
+        # slowest percentile lands in a real bucket instead of the +Inf overflow.
+        assert max(to_seconds(b) for b in buckets) >= 90.0
 
     def test_dimension_allowlist_preserves_trading_schema(self):
         dims = {d["name"] for d in self._load()["connectors"]["spanmetrics"]["dimensions"]}
