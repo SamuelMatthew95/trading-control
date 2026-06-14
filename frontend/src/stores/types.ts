@@ -149,6 +149,10 @@ export interface Proposal {
   trace_id?: string | null
   created_at?: string | null
   source?: string | null
+  /** Human-readable outcome the applier recorded (e.g. "config PR opened …"). */
+  message?: string | null
+  /** Clickable artifact link — the GitHub issue/PR URL the proposal produced. */
+  pr_url?: string | null
 }
 
 export interface PriceData {
