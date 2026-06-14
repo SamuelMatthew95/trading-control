@@ -1477,6 +1477,12 @@ SIGNAL_WEIGHT_SCALE_MIN: Final[float] = (
 SIGNAL_WEIGHT_REDUCTION_FACTOR: Final[float] = 0.7  # one Grade C → 30% reduction
 AGENT_SUSPEND_TTL_SECONDS: Final[int] = 86_400  # 24h cooling-off; auto-recover
 LEARNING_CONTROL_TTL_SECONDS: Final[int] = 90_000  # ~25h, matches IC weights
+# A Grade-F retirement pauses LIVE trading, but a long hard stop deadlocks the
+# learning loop: paused → no closed trades → no grades/reflection → the loop
+# can't produce the fix for the bad grade. So the pause is a bounded PROBATION
+# that auto-lifts, and we simultaneously reduce signal weight so trading resumes
+# cautiously (smaller size) rather than not at all.
+TRADING_PAUSE_PROBATION_SECONDS: Final[int] = 1_800  # 30 min, then auto-resume
 
 # ---------------------------------------------------------------------------
 # Regression gate — hard thresholds a challenger must clear before promotion.
