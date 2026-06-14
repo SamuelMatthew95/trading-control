@@ -83,6 +83,7 @@ export const API_ENDPOINTS = {
 
   // Learning loop (legacy)
   LEARNING_PROPOSALS: "/dashboard/learning/proposals",
+  LEARNING_REFLECT_NOW: "/dashboard/learning/reflect-now",
   LEARNING_GRADES: "/dashboard/learning/grades",
   LEARNING_IC_WEIGHTS: "/dashboard/learning/ic-weights",
   LEARNING_REFLECTIONS: "/dashboard/learning/reflections",
