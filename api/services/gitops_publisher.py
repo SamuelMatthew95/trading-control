@@ -42,6 +42,18 @@ def _autopr_ready() -> bool:
     return bool(settings.GITHUB_AUTOPR_ENABLED and settings.GITHUB_TOKEN and settings.GITHUB_REPO)
 
 
+def _github_error_detail(resp: httpx.Response) -> str:
+    """Short human-readable reason from a GitHub error response (the API returns
+    ``{"message": ...}``) so a failure logs WHY — bad scope (403), bad token
+    (401), missing repo/branch (404), validation (422) — not just 'error'."""
+    try:
+        data = resp.json()
+        msg = data.get(FieldName.MESSAGE) if isinstance(data, dict) else None
+    except Exception:
+        msg = None
+    return str(msg or (resp.text or "")[:200])[:200]
+
+
 class GitOpsPublisher:
     """Opens config-only pull requests for approved parameter changes."""
 
@@ -114,6 +126,19 @@ class GitOpsPublisher:
                     client, str(DEFAULT_OVERRIDES_PATH), new_text, branch, title, sha=file_sha
                 )
                 pr_url = await self._open_pr(client, branch, title, body)
+        except httpx.HTTPStatusError as exc:
+            detail = _github_error_detail(exc.response)
+            log_structured(
+                "warning",
+                "gitops_autopr_failed",
+                parameter=parameter,
+                http_status=exc.response.status_code,
+                detail=detail,
+            )
+            return {
+                FieldName.STATUS: "error",
+                FieldName.REASON: f"github_{exc.response.status_code}: {detail}",
+            }
         except Exception:
             log_structured("warning", "gitops_autopr_failed", parameter=parameter, exc_info=True)
             return {FieldName.STATUS: "error", FieldName.REASON: "github_api_error"}
@@ -144,11 +169,73 @@ class GitOpsPublisher:
                 resp = await client.post(f"/repos/{self.repo}/issues", json=payload)
                 resp.raise_for_status()
                 issue_url = str(resp.json().get("html_url") or "")
+        except httpx.HTTPStatusError as exc:
+            detail = _github_error_detail(exc.response)
+            log_structured(
+                "warning",
+                "gitops_issue_failed",
+                title=title,
+                http_status=exc.response.status_code,
+                detail=detail,
+            )
+            return {
+                FieldName.STATUS: "error",
+                FieldName.REASON: f"github_{exc.response.status_code}: {detail}",
+            }
         except Exception:
             log_structured("warning", "gitops_issue_failed", title=title, exc_info=True)
             return {FieldName.STATUS: "error", FieldName.REASON: "github_api_error"}
         log_structured("info", "gitops_issue_opened", title=title, issue_url=issue_url)
         return {FieldName.STATUS: "opened", FieldName.PR_URL: issue_url}
+
+    async def verify_access(self) -> dict[str, Any]:
+        """Check the token can reach the repo + base branch — so an operator can
+        confirm GitOps is wired WITHOUT waiting for a trade→proposal→PR. Never
+        raises. ``status`` is one of disabled / ok / error; ``ready`` means a PR
+        could actually be opened right now.
+        """
+        if not _autopr_ready():
+            missing = [
+                name
+                for name, present in (
+                    ("GITHUB_AUTOPR_ENABLED", settings.GITHUB_AUTOPR_ENABLED),
+                    ("GITHUB_TOKEN", settings.GITHUB_TOKEN),
+                    ("GITHUB_REPO", settings.GITHUB_REPO),
+                )
+                if not present
+            ]
+            return {
+                FieldName.STATUS: "disabled",
+                "ready": False,
+                FieldName.REASON: "not configured: " + ", ".join(missing),
+            }
+        try:
+            async with httpx.AsyncClient(
+                base_url=_GITHUB_API, headers=self._headers(), timeout=_HTTP_TIMEOUT
+            ) as client:
+                repo_resp = await client.get(f"/repos/{self.repo}")
+                if repo_resp.status_code != 200:
+                    return {
+                        FieldName.STATUS: "error",
+                        "ready": False,
+                        "repo": self.repo,
+                        "http_status": repo_resp.status_code,
+                        FieldName.REASON: _github_error_detail(repo_resp),
+                    }
+                base_ok = (await self._base_sha(client)) is not None
+                return {
+                    FieldName.STATUS: "ok" if base_ok else "error",
+                    "ready": base_ok,
+                    "repo": self.repo,
+                    "base_branch": self.base_branch,
+                    "base_branch_found": base_ok,
+                    FieldName.REASON: None
+                    if base_ok
+                    else f"base branch '{self.base_branch}' not found",
+                }
+        except Exception:
+            log_structured("warning", "gitops_verify_failed", repo=self.repo, exc_info=True)
+            return {FieldName.STATUS: "error", "ready": False, FieldName.REASON: "github_api_error"}
 
     # -- GitHub REST helpers (response keys are GitHub API contract strings) --
 
