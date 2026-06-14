@@ -224,20 +224,22 @@ async def test_reflection_triggers_at_threshold(agent, mock_bus):
         mock_reflect.assert_called_once()
 
 
-async def test_reflection_skipped_when_insufficient_data(agent, mock_bus):
-    """Even at trigger fill count, reflection is skipped if _recent_fills has < 3 items."""
+async def test_reflection_skipped_when_insufficient_data(agent, mock_bus, monkeypatch):
+    """Reflection is skipped while buffered fills are below REFLECT_MIN_FILLS.
+
+    The floor is configurable now (default 1 = learn from the first trade); this
+    raises it so the insufficient-data guard is exercised.
+    """
+    monkeypatch.setattr(settings, "REFLECT_MIN_FILLS", 3)
     trigger = max(int(settings.REFLECT_EVERY_N_FILLS), 1)
 
     with patch.object(agent, "_run_reflection", AsyncMock()) as mock_reflect:
-        # Send exactly trigger fills but _recent_fills will only have that many entries
-        # The agent checks len(_recent_fills) < 3 before running reflection
-        # Force _recent_fills to be empty after filling
+        # Each process appends one fill then we clear, so at the floor check the
+        # deque holds a single item — below REFLECT_MIN_FILLS=3 → never fires.
         for i in range(trigger):
             await agent.process("trade_performance", f"msg-{i}", _trade_performance_event())
-            # Clear the deque to simulate insufficient data at reflection time
             agent._recent_fills.clear()
 
-        # With _recent_fills always cleared, reflection should never fire
         mock_reflect.assert_not_called()
 
 
@@ -421,3 +423,46 @@ class TestParseReflectionResponse:
         assert "winning_factors" in parsed
         assert "hypotheses" in parsed
         assert parsed["hypotheses"] == []
+
+
+# ---------------------------------------------------------------------------
+# Cumulative reflection — each pass builds on the previous one
+# ---------------------------------------------------------------------------
+
+
+def test_build_prompt_carries_prior_reflection(agent):
+    """The prompt feeds the previous reflection back in so the LLM refines it."""
+    agent._recent_fills.append(_trade_performance_event(pnl=10.0))
+    agent._last_reflection = {
+        "summary": "prev-summary",
+        "hypotheses": [{"description": "prior-hyp", "confidence": 0.6, "type": "parameter"}],
+    }
+    prompt = agent._build_prompt()
+    assert "prior_reflection" in prompt
+    assert "prev-summary" in prompt
+    assert "prior-hyp" in prompt
+
+
+@patch("api.services.agents.db_helpers.AsyncSessionFactory", _MockSessionFactory())
+async def test_reflection_stores_carry_forward_for_next_cycle(agent, mock_bus):
+    """After a reflection runs, its conclusions are retained and fed into the
+    next prompt — so successive reflections compound instead of restarting."""
+    for _ in range(3):
+        agent._recent_fills.append(_trade_performance_event(pnl=40.0))
+    agent._fills = max(int(settings.REFLECT_EVERY_N_FILLS), 1)
+    mock_redis = _budget_redis(used=0)
+
+    with (
+        patch("api.redis_client.get_redis", AsyncMock(return_value=mock_redis)),
+        patch(
+            "api.services.llm_router.call_llm_with_system",
+            AsyncMock(return_value=(_valid_reflection_json(), 300, 0.001)),
+        ),
+    ):
+        await agent._run_reflection()
+
+    # Conclusions retained...
+    assert agent._last_reflection["summary"] == "Momentum strategy performing well."
+    assert agent._last_reflection["hypotheses"][0]["description"] == "test"
+    # ...and surfaced in the next prompt the agent builds.
+    assert "Momentum strategy performing well." in agent._build_prompt()
