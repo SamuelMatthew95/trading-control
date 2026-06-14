@@ -170,6 +170,46 @@ class ReflectionAgent(MultiStreamAgent):
             FieldName.BUFFERED_FILLS: len(self._recent_fills),
         }
 
+    def buffered_fill_count(self) -> int:
+        """How many fills are currently buffered for analysis."""
+        return len(self._recent_fills)
+
+    def fills_seen(self) -> int:
+        """Total fills counted (drives the reflection cadence)."""
+        return self._fills
+
+    def seed_history(self, trades: list[dict[str, Any]]) -> int:
+        """Pre-load recent closed trades into the fill buffer after a restart.
+
+        ``_recent_fills`` is in-memory and empties on every redeploy, so
+        reflection had no data to analyze until brand-new trades closed — a long
+        wait, especially while trading is paused. Seeding from the durable
+        closed-trade history lets reflection produce data-grounded proposals
+        immediately after a restart. The deque is bounded, so this keeps only the
+        most recent fills. Trades are expected oldest-first.
+        """
+        seeded = 0
+        for t in trades:
+            self._recent_fills.append(
+                {
+                    FieldName.SYMBOL: t.get(FieldName.SYMBOL),
+                    FieldName.SIDE: t.get(FieldName.SIDE),
+                    FieldName.PNL: t.get(FieldName.PNL),
+                    FieldName.PNL_PERCENT: t.get(FieldName.PNL_PERCENT),
+                    FieldName.FILL_PRICE: (
+                        t.get(FieldName.FILL_PRICE)
+                        or t.get(FieldName.FILLED_PRICE)
+                        or t.get(FieldName.PRICE)
+                    ),
+                    FieldName.FILLED_AT: t.get(FieldName.FILLED_AT),
+                    FieldName.MODEL_USED: t.get(FieldName.MODEL_USED),
+                    FieldName.PRIMARY_EDGE: t.get(FieldName.PRIMARY_EDGE),
+                }
+            )
+            seeded += 1
+        self._fills = max(self._fills, len(self._recent_fills))
+        return seeded
+
     async def _run_reflection(self) -> None:
         trace_id = f"reflection_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
 
