@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 import uuid
 from collections import deque
 from datetime import datetime, timezone
@@ -93,6 +95,14 @@ class ReflectionAgent(MultiStreamAgent):
         # conclusions and refining them — instead of starting from scratch every
         # time. This is what makes the loop cumulative rather than batch-static.
         self._last_reflection: dict[str, Any] = {}
+        # Cost governance: reflection fires a chain of LLM calls, and three paths
+        # can request one (per-fill, periodic, manual). A monotonic cooldown +
+        # a single-flight lock keep spend bounded and prevent concurrent runs
+        # racing on the shared buffers. ``_fills_at_last_reflection`` skips
+        # re-reflecting unchanged data.
+        self._last_reflection_at: float = 0.0
+        self._fills_at_last_reflection: int = -1
+        self._reflection_lock: asyncio.Lock | None = None
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         if stream in {STREAM_TRADE_PERFORMANCE, STREAM_TRADE_COMPLETED}:
@@ -148,24 +158,44 @@ class ReflectionAgent(MultiStreamAgent):
             except Exception:
                 log_structured("warning", "reflection_idle_heartbeat_failed", exc_info=True)
             return
-        if len(self._recent_fills) < max(int(settings.REFLECT_MIN_FILLS), 1):
-            return
+        await self.maybe_reflect()
 
-        await self._run_reflection()
+    def _get_reflection_lock(self) -> asyncio.Lock:
+        """Lazily create the single-flight lock on the running loop (avoids a
+        cross-loop bind in tests / reload flows)."""
+        if self._reflection_lock is None:
+            self._reflection_lock = asyncio.Lock()
+        return self._reflection_lock
+
+    async def maybe_reflect(self, *, force: bool = False) -> bool:
+        """Run a reflection if it's due. Returns True iff one ran.
+
+        Cost governance — three paths request reflection (per-fill, periodic,
+        manual). Auto/periodic calls are gated by a min-interval cooldown and a
+        "no new fills since last reflection" check so a burst of trades or the
+        periodic tick can't fan out into repeated LLM-call chains. ``force=True``
+        (operator-initiated reflect-now) bypasses the cooldown but never the
+        single-flight lock.
+        """
+        if self.buffered_fill_count() < max(int(settings.REFLECT_MIN_FILLS), 1):
+            return False
+        if not force:
+            interval = float(settings.REFLECTION_MIN_INTERVAL_SECONDS)
+            if (
+                self._last_reflection_at
+                and (time.monotonic() - self._last_reflection_at) < interval
+            ):
+                return False
+            if self._fills == self._fills_at_last_reflection:
+                return False  # nothing new to learn from since last reflection
+        return await self._run_reflection()
 
     async def trigger_reflection(self) -> dict[str, Any]:
-        """Force one reflection cycle now, independent of the fill-count trigger.
-
-        The automatic path only reflects every ``REFLECT_EVERY_N_FILLS`` closed
-        trades; at low paper-trade volume that can be a long wait, so this gives
-        an operator (via ``POST /dashboard/learning/reflect-now``) an on-demand
-        way to generate hypotheses → proposals / prompt-evolution. Reflects on
-        whatever fills are currently buffered; the published reflection still
-        flows to StrategyProposer exactly as the automatic path does.
-        """
-        await self._run_reflection()
+        """Force one reflection cycle now (operator reflect-now), bypassing the
+        cooldown so a proposal can be generated on demand."""
+        ran = await self.maybe_reflect(force=True)
         return {
-            FieldName.STATUS: "ok",
+            FieldName.STATUS: "ok" if ran else "skipped",
             FieldName.FILLS_ANALYZED: self._fills,
             FieldName.BUFFERED_FILLS: len(self._recent_fills),
         }
@@ -210,7 +240,21 @@ class ReflectionAgent(MultiStreamAgent):
         self._fills = max(self._fills, len(self._recent_fills))
         return seeded
 
-    async def _run_reflection(self) -> None:
+    async def _run_reflection(self) -> bool:
+        """Single-flight: skip if a reflection is already in progress, else run
+        exactly one cycle. Returns True iff a cycle executed. Stamps the cooldown
+        clock so auto/periodic callers space out their LLM-call chains."""
+        lock = self._get_reflection_lock()
+        if lock.locked():
+            log_structured("info", "reflection_skipped_in_progress")
+            return False
+        async with lock:
+            self._last_reflection_at = time.monotonic()
+            self._fills_at_last_reflection = self._fills
+            await self._do_reflection()
+        return True
+
+    async def _do_reflection(self) -> None:
         trace_id = f"reflection_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
 
         today = datetime.now(timezone.utc).date().isoformat()
