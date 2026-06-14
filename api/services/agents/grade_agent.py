@@ -781,6 +781,22 @@ class GradeAgent(MultiStreamAgent):
                 },
             )
 
+        # Statistical-significance gate: never take a capital-affecting action
+        # (weight cut / suspend / retire→pause) on a sample too small for the
+        # win-rate / IC to mean anything. A few noisy trades must not pause the
+        # whole system — that deadlocks the learning loop (paused → no trades →
+        # no grades → no recovery). The grade above is still shown; only the
+        # destructive automation waits for enough data.
+        if self._fills < int(settings.GRADE_ACTION_MIN_FILLS):
+            log_structured(
+                "info",
+                "grade_action_deferred_insufficient_sample",
+                grade=grade,
+                fills=self._fills,
+                min_fills=int(settings.GRADE_ACTION_MIN_FILLS),
+            )
+            return
+
         if grade == Grade.C:
             await self.bus.publish(
                 STREAM_PROPOSALS,
