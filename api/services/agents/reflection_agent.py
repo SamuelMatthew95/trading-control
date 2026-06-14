@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 import uuid
 from collections import deque
 from datetime import datetime, timezone
@@ -47,6 +49,7 @@ from api.services.agents.trade_scorer import (
     compute_patterns,
     compute_recommendations,
 )
+from api.services.param_evolution import tunable_parameters
 
 if TYPE_CHECKING:
     from api.services.agents.grade_agent import GradeAgent
@@ -86,6 +89,20 @@ class ReflectionAgent(MultiStreamAgent):
         self._close_dedup = PairedCloseDeduper()
         # Holds the GradeAgent eval_buffer reference injected at startup (optional)
         self._grade_agent: GradeAgent | None = None
+        # Carry-forward of the previous reflection (summary + hypotheses +
+        # winning/losing factors). Fed back into the next prompt so each
+        # reflection LEARNS FROM THE LAST — comparing new fills against prior
+        # conclusions and refining them — instead of starting from scratch every
+        # time. This is what makes the loop cumulative rather than batch-static.
+        self._last_reflection: dict[str, Any] = {}
+        # Cost governance: reflection fires a chain of LLM calls, and three paths
+        # can request one (per-fill, periodic, manual). A monotonic cooldown +
+        # a single-flight lock keep spend bounded and prevent concurrent runs
+        # racing on the shared buffers. ``_fills_at_last_reflection`` skips
+        # re-reflecting unchanged data.
+        self._last_reflection_at: float = 0.0
+        self._fills_at_last_reflection: int = -1
+        self._reflection_lock: asyncio.Lock | None = None
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         if stream in {STREAM_TRADE_PERFORMANCE, STREAM_TRADE_COMPLETED}:
@@ -141,12 +158,103 @@ class ReflectionAgent(MultiStreamAgent):
             except Exception:
                 log_structured("warning", "reflection_idle_heartbeat_failed", exc_info=True)
             return
-        if len(self._recent_fills) < 3:
-            return
+        await self.maybe_reflect()
 
-        await self._run_reflection()
+    def _get_reflection_lock(self) -> asyncio.Lock:
+        """Lazily create the single-flight lock on the running loop (avoids a
+        cross-loop bind in tests / reload flows)."""
+        if self._reflection_lock is None:
+            self._reflection_lock = asyncio.Lock()
+        return self._reflection_lock
 
-    async def _run_reflection(self) -> None:
+    async def maybe_reflect(self, *, force: bool = False) -> bool:
+        """Run a reflection if it's due. Returns True iff one ran.
+
+        Cost governance — three paths request reflection (per-fill, periodic,
+        manual). Auto/periodic calls are gated by a min-interval cooldown and a
+        "no new fills since last reflection" check so a burst of trades or the
+        periodic tick can't fan out into repeated LLM-call chains. ``force=True``
+        (operator-initiated reflect-now) bypasses the cooldown but never the
+        single-flight lock.
+        """
+        if self.buffered_fill_count() < max(int(settings.REFLECT_MIN_FILLS), 1):
+            return False
+        if not force:
+            interval = float(settings.REFLECTION_MIN_INTERVAL_SECONDS)
+            if (
+                self._last_reflection_at
+                and (time.monotonic() - self._last_reflection_at) < interval
+            ):
+                return False
+            if self._fills == self._fills_at_last_reflection:
+                return False  # nothing new to learn from since last reflection
+        return await self._run_reflection()
+
+    async def trigger_reflection(self) -> dict[str, Any]:
+        """Force one reflection cycle now (operator reflect-now), bypassing the
+        cooldown so a proposal can be generated on demand."""
+        ran = await self.maybe_reflect(force=True)
+        return {
+            FieldName.STATUS: "ok" if ran else "skipped",
+            FieldName.FILLS_ANALYZED: self._fills,
+            FieldName.BUFFERED_FILLS: len(self._recent_fills),
+        }
+
+    def buffered_fill_count(self) -> int:
+        """How many fills are currently buffered for analysis."""
+        return len(self._recent_fills)
+
+    def fills_seen(self) -> int:
+        """Total fills counted (drives the reflection cadence)."""
+        return self._fills
+
+    def seed_history(self, trades: list[dict[str, Any]]) -> int:
+        """Pre-load recent closed trades into the fill buffer after a restart.
+
+        ``_recent_fills`` is in-memory and empties on every redeploy, so
+        reflection had no data to analyze until brand-new trades closed — a long
+        wait, especially while trading is paused. Seeding from the durable
+        closed-trade history lets reflection produce data-grounded proposals
+        immediately after a restart. The deque is bounded, so this keeps only the
+        most recent fills. Trades are expected oldest-first.
+        """
+        seeded = 0
+        for t in trades:
+            self._recent_fills.append(
+                {
+                    FieldName.SYMBOL: t.get(FieldName.SYMBOL),
+                    FieldName.SIDE: t.get(FieldName.SIDE),
+                    FieldName.PNL: t.get(FieldName.PNL),
+                    FieldName.PNL_PERCENT: t.get(FieldName.PNL_PERCENT),
+                    FieldName.FILL_PRICE: (
+                        t.get(FieldName.FILL_PRICE)
+                        or t.get(FieldName.FILLED_PRICE)
+                        or t.get(FieldName.PRICE)
+                    ),
+                    FieldName.FILLED_AT: t.get(FieldName.FILLED_AT),
+                    FieldName.MODEL_USED: t.get(FieldName.MODEL_USED),
+                    FieldName.PRIMARY_EDGE: t.get(FieldName.PRIMARY_EDGE),
+                }
+            )
+            seeded += 1
+        self._fills = max(self._fills, len(self._recent_fills))
+        return seeded
+
+    async def _run_reflection(self) -> bool:
+        """Single-flight: skip if a reflection is already in progress, else run
+        exactly one cycle. Returns True iff a cycle executed. Stamps the cooldown
+        clock so auto/periodic callers space out their LLM-call chains."""
+        lock = self._get_reflection_lock()
+        if lock.locked():
+            log_structured("info", "reflection_skipped_in_progress")
+            return False
+        async with lock:
+            self._last_reflection_at = time.monotonic()
+            self._fills_at_last_reflection = self._fills
+            await self._do_reflection()
+        return True
+
+    async def _do_reflection(self) -> None:
         trace_id = f"reflection_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
 
         today = datetime.now(timezone.utc).date().isoformat()
@@ -254,6 +362,17 @@ class ReflectionAgent(MultiStreamAgent):
             FieldName.CONFIDENCE: quant[FieldName.CONFIDENCE],
         }
 
+        # Carry this reflection's conclusions into the next cycle so the loop
+        # compounds (compare → refine) instead of restarting each time. Keep a
+        # compact subset to bound the next prompt's size.
+        self._last_reflection = {
+            FieldName.SUMMARY: reflection_data.get(FieldName.SUMMARY, ""),
+            FieldName.HYPOTHESES: reflection_data.get(FieldName.HYPOTHESES, []),
+            FieldName.WINNING_FACTORS: reflection_data.get(FieldName.WINNING_FACTORS, []),
+            FieldName.LOSING_FACTORS: reflection_data.get(FieldName.LOSING_FACTORS, []),
+            FieldName.FILLS_ANALYZED: self._fills,
+        }
+
         await self.bus.publish(STREAM_REFLECTION_OUTPUTS, reflection_payload)
         await write_agent_log(trace_id, LogType.REFLECTION, reflection_payload)
         await persist_reflection_record(reflection_payload)
@@ -352,6 +471,14 @@ class ReflectionAgent(MultiStreamAgent):
                 # Per-model win-rate/PnL so the LLM can reason about which model
                 # is trading well, not just aggregate outcomes.
                 FieldName.MODEL_PERFORMANCE: aggregate_model_performance(recent_fills),
+                # The previous reflection's conclusions — the LLM is asked to
+                # build on / compare against / refine these rather than restart,
+                # so successive reflections compound into better hypotheses.
+                FieldName.PRIOR_REFLECTION: self._last_reflection,
+                # The auto-tunable parameters (current value + safe bounds) so a
+                # 'parameter' hypothesis can name a CONCRETE, in-bounds change —
+                # which is what becomes a real config PR downstream.
+                FieldName.TUNABLE_PARAMETERS: tunable_parameters(),
             },
             default=str,
         )

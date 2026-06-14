@@ -46,6 +46,7 @@ from api.constants import (
     SOURCE_PROPOSAL_APPLIER,
     STREAM_GITHUB_PRS,
     STREAM_PROPOSALS,
+    TRADING_PAUSE_PROBATION_SECONDS,
     FieldName,
     LogType,
     ProposalStatus,
@@ -569,15 +570,51 @@ class ProposalApplier(MultiStreamAgent):
     async def _apply_trading_pause(
         self, content: dict[str, Any], trace_id: str = ""
     ) -> dict[str, Any]:
-        """System-wide trading pause — ExecutionEngine refuses new orders."""
+        """Halt trading on a Grade-F retirement.
+
+        Safety is mode-dependent:
+        - **Live money (`ALPACA_PAPER=False`):** a full, long halt
+          (`LEARNING_CONTROL_TTL_SECONDS`) pending human review. We never
+          auto-resume a losing strategy with real capital.
+        - **Paper:** a bounded probation (`TRADING_PAUSE_PROBATION_SECONDS`) that
+          auto-resumes at a reduced signal weight — a long hard stop would
+          deadlock the learning loop (paused → no trades → no grades/reflection →
+          no fix), so paper trading resumes cautiously and keeps gathering data.
+        """
         reason = content.get(FieldName.REASON) or "grade F retirement proposal"
-        await self.redis.set(REDIS_KEY_TRADING_PAUSED, "1", ex=LEARNING_CONTROL_TTL_SECONDS)
+        paper = bool(settings.ALPACA_PAPER)
+        pause_ttl = TRADING_PAUSE_PROBATION_SECONDS if paper else LEARNING_CONTROL_TTL_SECONDS
+        await self.redis.set(REDIS_KEY_TRADING_PAUSED, "1", ex=pause_ttl)
+        await self.redis.set(REDIS_KEY_TRADING_PAUSED_REASON, str(reason), ex=pause_ttl)
+
+        if not paper:
+            # Live: full stop, no automatic cautious-resume — a human decides.
+            return {
+                FieldName.MESSAGE: (
+                    f"LIVE trading halted for {pause_ttl}s pending review (no auto-resume): {reason}"
+                ),
+                FieldName.REASON: reason,
+            }
+
+        # Paper: resume cautiously by shrinking the global signal-weight scale so
+        # post-probation trades are smaller until performance recovers.
+        current_raw = await self.redis.get(REDIS_KEY_SIGNAL_WEIGHT_SCALE)
+        try:
+            current = float(current_raw) if current_raw is not None else 1.0
+        except (TypeError, ValueError):
+            current = 1.0
+        new_scale = max(current * SIGNAL_WEIGHT_REDUCTION_FACTOR, SIGNAL_WEIGHT_SCALE_MIN)
         await self.redis.set(
-            REDIS_KEY_TRADING_PAUSED_REASON, str(reason), ex=LEARNING_CONTROL_TTL_SECONDS
+            REDIS_KEY_SIGNAL_WEIGHT_SCALE, f"{new_scale:.6f}", ex=LEARNING_CONTROL_TTL_SECONDS
         )
         return {
-            FieldName.MESSAGE: f"trading paused: {reason}",
+            FieldName.MESSAGE: (
+                f"trading paused {TRADING_PAUSE_PROBATION_SECONDS}s (probation), then resumes at "
+                f"signal weight {new_scale:.4f}: {reason}"
+            ),
             FieldName.REASON: reason,
+            FieldName.WEIGHT_SCALE: round(new_scale, 6),
+            FieldName.PREVIOUS_SCALE: round(current, 6),
         }
 
     async def _emit_param_change_artifact(

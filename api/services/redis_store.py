@@ -30,8 +30,10 @@ from api.constants import (
     REDIS_KEY_LLM_METRICS,
     REDIS_KEY_NOTIFICATIONS_READ,
     REDIS_KEY_NOTIFICATIONS_RECENT,
+    REDIS_KEY_PROPOSALS_RECENT,
     REDIS_KEY_TOOL_TELEMETRY,
     REDIS_NOTIFICATIONS_MAX,
+    REDIS_PROPOSALS_MAX,
     FieldName,
 )
 from api.observability import log_structured
@@ -316,6 +318,47 @@ class RedisStore:
             raw_items = await self.redis.lrange(REDIS_KEY_CLOSED_TRADES_RECENT, 0, safe_limit - 1)
         except Exception:
             log_structured("warning", "redis_store_closed_trade_list_failed", exc_info=True)
+            return []
+        items: list[dict[str, Any]] = []
+        for raw in raw_items:
+            parsed = _safe_loads(raw)
+            if parsed is not None:
+                items.append(parsed)
+        return items
+
+    # ------------------------------------------------------------------ #
+    # Proposals — durable mirror of the voteable proposal queue
+    # ------------------------------------------------------------------ #
+
+    async def push_proposal(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Push one proposal to ``proposals:recent`` (LPUSH + LTRIM).
+
+        Proposals are published to the STREAM_PROPOSALS event bus, but the
+        dashboard reads them from the persisted store. In memory mode that store
+        (InMemoryStore.event_history) is wiped on every restart, so without this
+        durable mirror the Proposals page emptied on each redeploy. Stores the
+        proposal payload verbatim; startup hydration replays it into the store.
+        """
+        entry = dict(payload)
+        if not entry.get(FieldName.TIMESTAMP):
+            entry[FieldName.TIMESTAMP] = _now_iso()
+        encoded = json.dumps(entry, default=str)
+        try:
+            async with self.redis.pipeline(transaction=True) as pipe:
+                pipe.lpush(REDIS_KEY_PROPOSALS_RECENT, encoded)
+                pipe.ltrim(REDIS_KEY_PROPOSALS_RECENT, 0, REDIS_PROPOSALS_MAX - 1)
+                await pipe.execute()
+        except Exception:
+            log_structured("warning", "redis_store_proposal_push_failed", exc_info=True)
+        return entry
+
+    async def list_proposals(self, limit: int = REDIS_PROPOSALS_MAX) -> list[dict[str, Any]]:
+        """Recent proposals, newest first."""
+        safe_limit = max(1, min(int(limit), REDIS_PROPOSALS_MAX))
+        try:
+            raw_items = await self.redis.lrange(REDIS_KEY_PROPOSALS_RECENT, 0, safe_limit - 1)
+        except Exception:
+            log_structured("warning", "redis_store_proposal_list_failed", exc_info=True)
             return []
         items: list[dict[str, Any]] = []
         for raw in raw_items:

@@ -284,6 +284,7 @@ def test_compute_accuracy_empty_buffer(grade_agent):
 @patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
 async def test_consecutive_low_grades_tracked(grade_agent):
     """Three D-grade actions should increment _consecutive_low_grades to 3."""
+    grade_agent._fills = 25  # above GRADE_ACTION_MIN_FILLS so actions are live
     grade_payload_d = {
         "score_pct": 38.0,
         "metrics": {"accuracy": 0.4, "ic": -0.1},
@@ -300,6 +301,7 @@ async def test_consecutive_low_grades_tracked(grade_agent):
 @patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
 async def test_consecutive_low_grades_reset_on_good_grade(grade_agent):
     """A grade of B or better resets the consecutive low-grade counter."""
+    grade_agent._fills = 25  # above GRADE_ACTION_MIN_FILLS so actions are live
     grade_payload = {"score_pct": 38.0, "metrics": {"accuracy": 0.4, "ic": -0.1}}
     await grade_agent._take_grade_action("D", grade_payload)
     await grade_agent._take_grade_action("D", grade_payload)
@@ -311,6 +313,37 @@ async def test_consecutive_low_grades_reset_on_good_grade(grade_agent):
     await grade_agent._take_grade_action("B", good_payload)
 
     assert grade_agent._consecutive_low_grades == 0
+
+
+@pytest.mark.asyncio
+@patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
+async def test_grade_f_does_not_pause_on_insufficient_sample(grade_agent, mock_bus):
+    """SAFETY: a Grade F on too few fills must NOT emit a retirement (pause)
+    proposal — a handful of noisy trades cannot hard-pause the system."""
+    grade_agent._fills = 3  # below GRADE_ACTION_MIN_FILLS (20)
+    payload = {"score_pct": 18.0, "metrics": {"accuracy": 0.2, "ic": -0.3}}
+    await grade_agent._take_grade_action("F", payload)
+
+    proposal_publishes = [
+        c for c in mock_bus.publish.call_args_list if c.args and c.args[0] == "proposals"
+    ]
+    assert proposal_publishes == []  # no retirement/destructive proposal
+    assert grade_agent._consecutive_low_grades == 0  # noisy grade not counted
+
+
+@pytest.mark.asyncio
+@patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
+async def test_grade_f_pauses_with_sufficient_sample(grade_agent, mock_bus):
+    """With enough graded fills, a Grade F does emit the retirement proposal."""
+    grade_agent._fills = 25  # above GRADE_ACTION_MIN_FILLS
+    payload = {"score_pct": 18.0, "metrics": {"accuracy": 0.2, "ic": -0.3}}
+    await grade_agent._take_grade_action("F", payload)
+
+    proposal_publishes = [
+        c for c in mock_bus.publish.call_args_list if c.args and c.args[0] == "proposals"
+    ]
+    assert len(proposal_publishes) == 1
+    assert proposal_publishes[0].args[1]["proposal_type"] == "agent_retirement"
 
 
 # ---------------------------------------------------------------------------

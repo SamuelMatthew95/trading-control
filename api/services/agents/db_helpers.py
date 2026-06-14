@@ -29,6 +29,7 @@ from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
 from api.schema_version import DB_SCHEMA_VERSION
+from api.services.redis_store import get_redis_store
 
 
 async def write_agent_log(
@@ -216,6 +217,13 @@ async def persist_proposal(proposal: dict[str, Any]) -> None:
                 "payload": proposal,
             }
         )
+        # Mirror to Redis so the proposal survives a restart. The InMemoryStore
+        # is wiped on every redeploy and is never reconstructed for proposals, so
+        # without this the Proposals UI emptied on each restart even when the
+        # proposal had been created.
+        redis_store = get_redis_store()
+        if redis_store is not None:
+            await redis_store.push_proposal(proposal)
         return
     try:
         async with AsyncSessionFactory() as session:

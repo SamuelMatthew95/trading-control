@@ -502,6 +502,7 @@ class FieldName(StrEnum):
     FILLED_PRICE = "filled_price"
     FILLED_QTY = "filled_qty"
     FILLED_QUANTITY = "filled_quantity"
+    BUFFERED_FILLS = "buffered_fills"
     FILLS = "fills"
     FILLS_ANALYZED = "fills_analyzed"
     FILLS_GRADED = "fills_graded"
@@ -784,6 +785,7 @@ class FieldName(StrEnum):
     PRICES = "prices"
     PRICE_HINT = "price_hint"
     PRIMARY_EDGE = "primary_edge"
+    PRIOR_REFLECTION = "prior_reflection"
     PR_URL = "pr_url"
     PROCESSED_COUNT = "processed_count"
     PROCESSED_EVENTS_LAST_HOUR = "processed_events_last_hour"
@@ -1048,6 +1050,7 @@ class FieldName(StrEnum):
     TRAJECTORY_SIMILARITY = "trajectory_similarity"
     TS = "ts"
     TYPE = "type"
+    TUNABLE_PARAMETERS = "tunable_parameters"
     UNIT = "unit"
     UNITS = "units"
     UNREALIZED_PNL = "unrealized_pnl"
@@ -1474,6 +1477,12 @@ SIGNAL_WEIGHT_SCALE_MIN: Final[float] = (
 SIGNAL_WEIGHT_REDUCTION_FACTOR: Final[float] = 0.7  # one Grade C → 30% reduction
 AGENT_SUSPEND_TTL_SECONDS: Final[int] = 86_400  # 24h cooling-off; auto-recover
 LEARNING_CONTROL_TTL_SECONDS: Final[int] = 90_000  # ~25h, matches IC weights
+# A Grade-F retirement pauses LIVE trading, but a long hard stop deadlocks the
+# learning loop: paused → no closed trades → no grades/reflection → the loop
+# can't produce the fix for the bad grade. So the pause is a bounded PROBATION
+# that auto-lifts, and we simultaneously reduce signal weight so trading resumes
+# cautiously (smaller size) rather than not at all.
+TRADING_PAUSE_PROBATION_SECONDS: Final[int] = 1_800  # 30 min, then auto-resume
 
 # ---------------------------------------------------------------------------
 # Regression gate — hard thresholds a challenger must clear before promotion.
@@ -1553,6 +1562,15 @@ REDIS_KEY_RECENT_OUTCOMES: Final[str] = "trading:recent_outcomes"
 REDIS_RECENT_OUTCOMES_MAXLEN: Final[int] = 10
 REDIS_NOTIFICATIONS_MAX: Final[int] = 20
 REDIS_DECISIONS_MAX: Final[int] = 50
+# Strategy/governance proposals (LPUSH, LTRIM cap) — the voteable proposal queue
+# behind the dashboard Proposals page. Proposals are published to the
+# STREAM_PROPOSALS event bus, but the dashboard reads them from the persisted
+# store; in memory mode that store (InMemoryStore.event_history) is wiped on
+# every restart with no rehydration, so without this durable Redis mirror the
+# Proposals UI emptied on each redeploy. Producers persist here; startup
+# hydration replays it back into the runtime store.
+REDIS_KEY_PROPOSALS_RECENT: Final[str] = "proposals:recent"
+REDIS_PROPOSALS_MAX: Final[int] = 50
 
 # Stream names
 STREAM_MARKET_TICKS: Final[str] = "market_ticks"

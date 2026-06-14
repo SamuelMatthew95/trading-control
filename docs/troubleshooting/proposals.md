@@ -344,3 +344,89 @@ in Redis.
 `::test_in_place_update_keeps_version_and_history`,
 `::test_read_self_heals_stacked_promotion_advisories`,
 `tests/agents/test_proposal_applier.py::test_repromotion_refreshes_advisory_without_version_bump`
+
+## Proposals created by GradeAgent / ChallengerAgent never appeared on the UI
+
+**Symptom:** Operator: "proposals not showing on the UI, nothing working — I
+don't see any being created, no auto-PRs, no prompt updates." The `proposals`
+Redis stream held 31 entries, but the dashboard Proposals queue was empty.
+
+**Root cause:** Two layers.
+1. *Primary (operational):* the only LLM provider (`groq`) was failing 100% of
+   calls (0 successes ever — missing/invalid `GROQ_API_KEY`), so the LLM-driven
+   chain was dead: ReflectionAgent emitted no hypotheses (`reflection_outputs`
+   stream empty), so StrategyProposer produced no proposals, no
+   `PROMPT_EVOLUTION`, and no `PARAMETER_CHANGE` → no auto-PRs, no prompt
+   updates. Fix is a deployment secret, not code.
+2. *Code gap:* the proposals that DO get created without the LLM —
+   `GradeAgent` tool-governance and `ChallengerAgent` promotions — published to
+   `STREAM_PROPOSALS` but never called `persist_proposal()`. The dashboard reads
+   the *persisted* store, not the stream, and `ProposalApplier` only persists a
+   proposal once it APPLIES it (returning early on an approval-gated pending
+   proposal without persisting). So a pending human-approval proposal never
+   surfaced. In memory mode the persisted store (`InMemoryStore.event_history`)
+   is also wiped on every restart with no rehydration, so even applied proposals
+   vanished on redeploy.
+
+**Fix:** `GradeAgent._emit_tool_governance` and
+`ChallengerAgent._maybe_propose_shadow_promotion` now call `persist_proposal()` right
+after publishing (mirroring StrategyProposer). `persist_proposal()`
+(`api/services/agents/db_helpers.py`) mirrors to a durable Redis list
+(`proposals:recent`, `RedisStore.push_proposal`/`list_proposals`), and
+`api/startup.py::_hydrate_proposals_from_redis()` replays it into the runtime
+store on boot — so the queue survives restarts in memory mode. Control-plane
+grade reactions (weight reduction / suspension / retirement) are deliberately
+NOT persisted at creation: they auto-apply and the applier records them as
+applied audit rows, so persisting them as pending would spam the queue with
+Approve/Reject buttons for actions already taken.
+
+**Regression tests:**
+`tests/api/test_redis_store.py::test_push_proposal_roundtrip_and_defaults`,
+`::test_proposals_list_cap_is_enforced`,
+`::test_persist_proposal_mirrors_to_redis_in_memory_mode`,
+`::test_startup_hydrates_proposals_from_redis`
+
+## The self-improvement loop produced nothing — no proposals, no PRs, no prompt evolution
+
+**Symptom:** Operator: "nothing is creating proposals — no new agents, no
+challengers, no auto-PRs or GitHub issues, no prompt updates. The proposals are
+bullshit, not helpful links." The `reflection_outputs` stream was empty (0 ever)
+while challenger/grade proposals fired normally.
+
+**Root cause:** Three independent things, none of them the LLM key (which works
+intermittently — Groq free-tier rate-limits cause periodic `fallback:reject_signal`):
+1. **ReflectionAgent never triggered.** `REFLECT_EVERY_N_FILLS` defaulted to 10,
+   but this paper system closes only a handful of trades a day (3 total when
+   diagnosed), so `self._fills % 10 == 0` was never true → no reflection → no
+   hypotheses → `StrategyProposer` never ran. StrategyProposer is the ONLY
+   producer of the artifact-creating proposal types
+   (`PARAMETER_CHANGE`→PR, `CODE_CHANGE`/`REGIME`/`NEW_AGENT`→issue,
+   `PROMPT_EVOLUTION`). So the entire "create artifacts" half of the loop was
+   dark, while the non-LLM producers (GradeAgent/ChallengerAgent) kept firing.
+2. **No on-demand trigger.** There was no way to force the loop, so at low trade
+   volume an operator could not generate a proposal to verify the chain.
+3. **The artifact link was never surfaced.** When GitOps DID open a PR/issue,
+   `GitOpsPublisher` returned the URL and the applier stored it in the proposal
+   payload (`pr_url`), but no read path or the frontend exposed it — the link was
+   buried inside a stringified `content` blob, so proposals looked like dead text
+   instead of helpful links.
+
+**Fix:**
+- `REFLECT_EVERY_N_FILLS` default 10 → 3 (`api/config.py`) so reflection fires at
+  realistic paper-trade cadence.
+- `ReflectionAgent.trigger_reflection()` + `POST /dashboard/learning/reflect-now`
+  (`api/routes/dashboard_v2.py` → `trigger_reflection_payload`) force a reflection
+  cycle on demand → hypotheses → proposals → applier → PR/issue/prompt-evolution.
+- `get_learning_proposals_payload` and `_in_memory_proposals` now surface `pr_url`
+  and the applier `message`; the frontend `Proposal` type carries them and
+  `ProposalDetailModal` renders an "Artifact" section with a clickable
+  GitHub issue/PR link.
+
+**Still operational, not code:** real PR/issue creation requires `GITHUB_TOKEN`
+in the Render env (`GITHUB_REPO` + `GITHUB_AUTOPR_ENABLED` are already defaulted);
+without it `GitOpsPublisher` runs dry and the proposal records "GitOps not
+configured" instead of a link.
+
+**Regression tests:**
+`tests/api/test_learning_routes.py::test_trigger_reflection_runs_live_agent`,
+`::test_trigger_reflection_degrades_when_no_agent`

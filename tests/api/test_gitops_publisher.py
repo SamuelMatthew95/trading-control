@@ -215,3 +215,78 @@ async def test_autopr_refuses_to_write_outside_overrides_file(monkeypatch):
     with pytest.raises(ValueError, match="outside"):
         await pub._put_file(client, "api/constants.py", "{}", "br", "msg")
     client.put.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Error observability + access verification (the now-live path)
+# ---------------------------------------------------------------------------
+
+
+async def test_open_parameter_pr_surfaces_github_error_detail(monkeypatch):
+    """A GitHub failure (e.g. token lacks PR scope) reports the status + message
+    instead of an opaque 'github_api_error', so the operator can diagnose it."""
+    monkeypatch.setattr(settings, "GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(settings, "GITHUB_REPO", "o/r")
+    monkeypatch.setattr(settings, "GITHUB_AUTOPR_ENABLED", True)
+
+    client = _mock_github_client()
+    err_resp = MagicMock(status_code=403)
+    err_resp.json.return_value = {"message": "Resource not accessible by personal access token"}
+
+    def _raise_403():
+        raise gitops_publisher.httpx.HTTPStatusError("403", request=MagicMock(), response=err_resp)
+
+    branch_resp = MagicMock()
+    branch_resp.raise_for_status = MagicMock()
+    pr_resp = MagicMock()
+    pr_resp.raise_for_status = _raise_403
+    client.post = AsyncMock(side_effect=[branch_resp, pr_resp])
+
+    with patch.object(gitops_publisher.httpx, "AsyncClient", lambda **_: _ClientCM(client)):
+        result = await GitOpsPublisher().open_parameter_pr(_artifact())
+
+    assert result[FieldName.STATUS] == "error"
+    assert "github_403" in result[FieldName.REASON]
+    assert "personal access token" in result[FieldName.REASON]
+
+
+async def test_verify_access_disabled_when_no_token(monkeypatch):
+    monkeypatch.setattr(settings, "GITHUB_TOKEN", "")
+    monkeypatch.setattr(settings, "GITHUB_REPO", "o/r")
+    monkeypatch.setattr(settings, "GITHUB_AUTOPR_ENABLED", True)
+    result = await GitOpsPublisher().verify_access()
+    assert result[FieldName.STATUS] == "disabled"
+    assert result["ready"] is False
+    assert "GITHUB_TOKEN" in result[FieldName.REASON]
+
+
+async def test_verify_access_ok(monkeypatch):
+    monkeypatch.setattr(settings, "GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(settings, "GITHUB_REPO", "o/r")
+    monkeypatch.setattr(settings, "GITHUB_AUTOPR_ENABLED", True)
+    repo_resp = MagicMock(status_code=200)
+    ref_resp = MagicMock(status_code=200)
+    ref_resp.json.return_value = {"object": {"sha": "s"}}
+    client = MagicMock()
+    client.get = AsyncMock(side_effect=[repo_resp, ref_resp])
+    with patch.object(gitops_publisher.httpx, "AsyncClient", lambda **_: _ClientCM(client)):
+        result = await GitOpsPublisher().verify_access()
+    assert result[FieldName.STATUS] == "ok"
+    assert result["ready"] is True
+    assert result["repo"] == "o/r"
+
+
+async def test_verify_access_reports_repo_error(monkeypatch):
+    monkeypatch.setattr(settings, "GITHUB_TOKEN", "badtok")
+    monkeypatch.setattr(settings, "GITHUB_REPO", "o/r")
+    monkeypatch.setattr(settings, "GITHUB_AUTOPR_ENABLED", True)
+    repo_resp = MagicMock(status_code=401)
+    repo_resp.json.return_value = {"message": "Bad credentials"}
+    client = MagicMock()
+    client.get = AsyncMock(side_effect=[repo_resp])
+    with patch.object(gitops_publisher.httpx, "AsyncClient", lambda **_: _ClientCM(client)):
+        result = await GitOpsPublisher().verify_access()
+    assert result[FieldName.STATUS] == "error"
+    assert result["ready"] is False
+    assert result["http_status"] == 401
+    assert "Bad credentials" in result[FieldName.REASON]

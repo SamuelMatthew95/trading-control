@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 
 from api.constants import (
+    AGENT_REFLECTION,
     ALL_AGENT_NAMES,
     REDIS_KEY_AGENT_SUSPENDED,
     REDIS_KEY_IC_WEIGHTS,
@@ -470,6 +471,7 @@ async def get_learning_proposals_payload(limit: int) -> dict[str, Any]:
         proposals = []
         for row in rows:
             payload = _as_dict(row[1])
+            content = _as_dict(payload.get(FieldName.CONTENT))
             proposals.append(
                 {
                     FieldName.ID: row[0],
@@ -479,6 +481,13 @@ async def get_learning_proposals_payload(limit: int) -> dict[str, Any]:
                     "confidence": payload.get(FieldName.CONFIDENCE),
                     "reflection_trace_id": payload.get(FieldName.REFLECTION_TRACE_ID),
                     "status": payload.get(FieldName.STATUS, OrderStatus.PENDING),
+                    # Surface the artifact the applier produced so the UI can show
+                    # a clickable link (the GitHub issue/PR URL) and the
+                    # human-readable outcome instead of a buried JSON blob.
+                    FieldName.PR_URL: payload.get(FieldName.PR_URL)
+                    or content.get(FieldName.PR_URL),
+                    FieldName.MESSAGE: payload.get(FieldName.MESSAGE)
+                    or content.get(FieldName.MESSAGE),
                     "timestamp": row[2].isoformat() if row[2] else None,
                 }
             )
@@ -537,6 +546,33 @@ async def get_learning_proposals_payload(limit: int) -> dict[str, Any]:
             FieldName.TOTAL: 0,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+
+
+async def trigger_reflection_payload(agents: list[Any]) -> dict[str, Any]:
+    """Force the live ReflectionAgent to run one reflection cycle on demand.
+
+    The reflection→proposal chain only fires automatically every
+    ``REFLECT_EVERY_N_FILLS`` closed trades. This lets an operator generate
+    hypotheses (and therefore proposals / prompt-evolution) immediately, without
+    waiting for the trade cadence. Degrades gracefully (never raises) when no
+    ReflectionAgent is wired — e.g. a reduced-mode startup.
+    """
+    agent = next(
+        (a for a in (agents or []) if getattr(a, "_state_name", None) == AGENT_REFLECTION),
+        None,
+    )
+    if agent is None:
+        return {
+            FieldName.STATUS: "unavailable",
+            FieldName.MESSAGE: "ReflectionAgent is not running",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    try:
+        result = await agent.trigger_reflection()
+    except Exception:
+        log_structured("error", "manual_reflection_trigger_failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from None
+    return {**result, "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 async def update_proposal_status_payload(trace_id: str, status: str) -> dict[str, Any]:

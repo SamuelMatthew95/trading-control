@@ -79,7 +79,12 @@ def _in_memory_proposals(limit: int = 20) -> list[dict[str, Any]]:
                 FieldName.APPLIED: bool(payload.get(FieldName.APPLIED, False)),
                 FieldName.APPLIED_AT: payload.get(FieldName.APPLIED_AT),
                 FieldName.APPLIED_BY: payload.get(FieldName.APPLIED_BY),
-                FieldName.MESSAGE: payload.get(FieldName.MESSAGE),
+                FieldName.MESSAGE: payload.get(FieldName.MESSAGE)
+                or _as_dict(payload.get(FieldName.CONTENT)).get(FieldName.MESSAGE),
+                # The clickable artifact link (GitHub issue/PR) the applier
+                # produced — so a proposal is a helpful link, not a dead blob.
+                FieldName.PR_URL: payload.get(FieldName.PR_URL)
+                or _as_dict(payload.get(FieldName.CONTENT)).get(FieldName.PR_URL),
                 "timestamp": timestamp,
             }
         )

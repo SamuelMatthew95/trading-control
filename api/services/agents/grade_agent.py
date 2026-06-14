@@ -44,6 +44,7 @@ from api.services.agent_pnl_store import get_agent_pnl_store
 from api.services.agent_state import AgentStateRegistry
 from api.services.agents.base import MultiStreamAgent, PairedCloseDeduper
 from api.services.agents.db_helpers import (
+    persist_proposal,
     persist_trade_evaluation,
     write_agent_log,
     write_grade_to_db,
@@ -550,27 +551,30 @@ class GradeAgent(MultiStreamAgent):
             for t in get_tool_registry().attribution()
         ]
         now_iso = datetime.now(timezone.utc).isoformat()
-        await self.bus.publish(
-            STREAM_PROPOSALS,
-            {
-                FieldName.MSG_ID: str(uuid.uuid4()),
-                FieldName.SOURCE: SOURCE_GRADE,
-                FieldName.TYPE: "proposal",
-                FieldName.PROPOSAL_TYPE: ProposalType.TOOL_GOVERNANCE,
-                FieldName.REQUIRES_APPROVAL: True,
-                FieldName.CONTENT: {
-                    FieldName.SUGGESTIONS: serialized,
-                    FieldName.ATTRIBUTION: attribution,
-                    FieldName.BACKTEST: self._recent_backtest_evidence(),
-                    FieldName.REASON: (
-                        f"{len(actionable)} tool-governance action(s) from live "
-                        "reasoning telemetry (alpha / reliability / usage)"
-                    ),
-                },
-                FieldName.TRACE_ID: trace_id,
-                FieldName.TIMESTAMP: now_iso,
+        proposal = {
+            FieldName.MSG_ID: str(uuid.uuid4()),
+            FieldName.SOURCE: SOURCE_GRADE,
+            FieldName.TYPE: "proposal",
+            FieldName.PROPOSAL_TYPE: ProposalType.TOOL_GOVERNANCE,
+            FieldName.REQUIRES_APPROVAL: True,
+            FieldName.CONTENT: {
+                FieldName.SUGGESTIONS: serialized,
+                FieldName.ATTRIBUTION: attribution,
+                FieldName.BACKTEST: self._recent_backtest_evidence(),
+                FieldName.REASON: (
+                    f"{len(actionable)} tool-governance action(s) from live "
+                    "reasoning telemetry (alpha / reliability / usage)"
+                ),
             },
-        )
+            FieldName.TRACE_ID: trace_id,
+            FieldName.TIMESTAMP: now_iso,
+        }
+        await self.bus.publish(STREAM_PROPOSALS, proposal)
+        # Persist so the proposal is visible in the dashboard queue. Publishing
+        # to the stream alone is invisible to the UI, which reads the persisted
+        # store — the ProposalApplier only persists a proposal once it APPLIES
+        # it, so a pending human-approval proposal never surfaced.
+        await persist_proposal(proposal)
         await self.bus.publish(
             STREAM_NOTIFICATIONS,
             {
@@ -776,6 +780,22 @@ class GradeAgent(MultiStreamAgent):
                     FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
                 },
             )
+
+        # Statistical-significance gate: never take a capital-affecting action
+        # (weight cut / suspend / retire→pause) on a sample too small for the
+        # win-rate / IC to mean anything. A few noisy trades must not pause the
+        # whole system — that deadlocks the learning loop (paused → no trades →
+        # no grades → no recovery). The grade above is still shown; only the
+        # destructive automation waits for enough data.
+        if self._fills < int(settings.GRADE_ACTION_MIN_FILLS):
+            log_structured(
+                "info",
+                "grade_action_deferred_insufficient_sample",
+                grade=grade,
+                fills=self._fills,
+                min_fills=int(settings.GRADE_ACTION_MIN_FILLS),
+            )
+            return
 
         if grade == Grade.C:
             await self.bus.publish(

@@ -65,7 +65,25 @@ class Settings(BaseSettings):
     SIGNAL_EVERY_N_TICKS: int = 10
     GRADE_EVERY_N_FILLS: int = 5
     IC_UPDATE_EVERY_N_FILLS: int = 10
-    REFLECT_EVERY_N_FILLS: int = 10
+    # Reflect every N closed trades. Set to 1 so learning is INCREMENTAL: the
+    # ReflectionAgent reflects after each closed trade, carrying the previous
+    # reflection forward (compare → refine → improve) rather than waiting for a
+    # batch. At the old default of 10 it never reached the trigger (this paper
+    # system closes a handful of trades a day), so StrategyProposer never ran.
+    REFLECT_EVERY_N_FILLS: int = 1
+    # Minimum buffered fills before the first reflection runs. 1 = start learning
+    # from the very first closed trade, then accumulate.
+    REFLECT_MIN_FILLS: int = 1
+    # Cost governance: minimum seconds between automatic reflections. A reflection
+    # fires a chain of LLM calls, so without this a burst of closed trades (with
+    # REFLECT_EVERY_N_FILLS=1) would fan out into a call per trade and spike spend
+    # / rate-limits. The operator reflect-now endpoint bypasses this.
+    REFLECTION_MIN_INTERVAL_SECONDS: float = 300.0
+    # Periodic reflection safety-net interval (seconds). Triggers a reflection
+    # when new fills have arrived since the last one — and once shortly after
+    # startup on seeded history, so a restart produces proposals without waiting
+    # for a fresh trade. 0 disables. Bounded by the proposal dedup/daily cap.
+    REFLECTION_PERIODIC_SECONDS: int = 1_800
     # Per-symbol reasoning cooldown — minimum seconds between LLM reasoning
     # calls for the SAME symbol. Decouples LLM spend from raw signal volume:
     # momentum signals can fire every few seconds per symbol, and previously
@@ -113,6 +131,12 @@ class Settings(BaseSettings):
     GRADE_WEIGHT_COST: float = 0.20
     GRADE_WEIGHT_LATENCY: float = 0.15
     RETIRE_AFTER_N_GRADES: int = 3
+    # Statistical-significance gate: minimum graded fills before the GradeAgent
+    # may take a CAPITAL-AFFECTING action (signal-weight cut / suspension /
+    # retirement→pause). Below this, win-rate and IC are noise — acting on them
+    # can hard-pause the whole system off a handful of trades (the deadlock we
+    # hit). The grade is still computed and shown; only destructive actions wait.
+    GRADE_ACTION_MIN_FILLS: int = 20
 
     # IC updater
     IC_LOOKBACK_DAYS: int = 30
@@ -151,7 +175,10 @@ class Settings(BaseSettings):
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
     GROQ_FALLBACK_MODEL: str = "llama-3.1-8b-instant"
     GEMINI_API_KEY: str | None = Field(default=None)
-    GEMINI_MODEL: str = "gemini-1.5-flash"
+    # Verified against ai.google.dev (June 2026): gemini-3.5-flash is the current
+    # GA Flash model and the API default. gemini-1.5/2.0/2.5-flash are retired or
+    # deprecating — using them 404s every call. Override via GEMINI_MODEL env.
+    GEMINI_MODEL: str = "gemini-3.5-flash"
 
     # Alpaca - use paper trading keys from alpaca.markets
     ALPACA_API_KEY: str = ""

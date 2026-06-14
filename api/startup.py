@@ -25,7 +25,7 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from api.config import settings
-from api.constants import VALID_SYMBOLS, FieldName
+from api.constants import VALID_SYMBOLS, FieldName, LogType
 from api.database import engine, get_settings_info, init_database, test_database_connection
 from api.events.bus import EventBus, ensure_all_streams_ready
 from api.events.dlq import DLQManager
@@ -320,6 +320,77 @@ async def _hydrate_closed_trades_from_redis() -> None:
     log_structured("info", "closed_trades_hydrated_from_redis", count=len(recent))
 
 
+async def _hydrate_proposals_from_redis() -> None:
+    """In memory mode, seed InMemoryStore.event_history from the Redis mirror.
+
+    Proposals are published to STREAM_PROPOSALS, but the dashboard reads them
+    from the persisted store, which in memory mode is the InMemoryStore — wiped
+    on every restart. Producers now mirror each proposal to ``proposals:recent``;
+    this replays them back into ``event_history`` in the same envelope
+    ``persist_proposal`` writes, so the proposals endpoints find them after a
+    restart. Best effort: no RedisStore or a Redis hiccup never blocks startup.
+    """
+    if is_db_available():
+        return
+    redis_store = get_redis_store()
+    if redis_store is None:
+        return
+    try:
+        recent = await redis_store.list_proposals()
+    except Exception:
+        log_structured("warning", "proposal_hydration_failed", exc_info=True)
+        return
+    if not recent:
+        return
+    store = get_runtime_store()
+    for proposal in reversed(recent):  # list is newest-first; append oldest-first
+        trace_id = (
+            proposal.get(FieldName.REFLECTION_TRACE_ID) or proposal.get(FieldName.MSG_ID) or ""
+        )
+        store.add_event(
+            {
+                FieldName.LOG_TYPE: LogType.PROPOSAL,
+                FieldName.TRACE_ID: trace_id,
+                FieldName.PAYLOAD: proposal,
+            }
+        )
+    log_structured("info", "proposals_hydrated_from_redis", count=len(recent))
+
+
+def _seed_reflection_from_history(agents: list) -> None:
+    """Seed the ReflectionAgent's fill buffer from the durable closed-trade
+    history so reflection can analyze real data immediately after a restart
+    (the in-memory buffer is otherwise empty until a fresh trade closes)."""
+    agent = next((a for a in agents if isinstance(a, ReflectionAgent)), None)
+    if agent is None:
+        return
+    try:
+        trades = list(get_runtime_store().closed_trades)
+        if not trades:
+            return
+        seeded = agent.seed_history(trades)
+        log_structured("info", "reflection_seeded_from_history", count=seeded)
+    except Exception:
+        # Seeding is a best-effort warm-start; never let it block startup.
+        log_structured("warning", "reflection_seed_from_history_failed", exc_info=True)
+
+
+async def _periodic_reflection_loop(agent: ReflectionAgent) -> None:
+    """Periodically ask the ReflectionAgent to reflect — once over seeded history
+    shortly after startup, then whenever new fills have accumulated. The agent's
+    ``maybe_reflect`` self-gates on the cooldown + new-data checks, so this is a
+    bounded safety-net, not a token firehose. Never raises into the event loop."""
+    interval = max(int(settings.REFLECTION_PERIODIC_SECONDS), 0)
+    if interval <= 0:
+        return
+    while True:
+        try:
+            await agent.maybe_reflect()
+        except Exception:
+            log_structured("warning", "periodic_reflection_failed", exc_info=True)
+        await asyncio.sleep(interval)
+
+
 def _build_agents(event_bus, dlq_manager, redis_client, agent_state, paper_broker) -> list:
     """Construct the full agent fleet (order matters only for logging)."""
     grade_agent = GradeAgent(event_bus, dlq_manager, agent_state=agent_state)
@@ -442,6 +513,7 @@ async def _shutdown(app: FastAPI, pipeline: EventPipeline | None, broadcaster) -
         "tool_telemetry_task",
         "agent_grade_snapshot_task",
         "lmstudio_probe_task",
+        "periodic_reflection_task",
     ):
         task = getattr(app.state, task_name, None)
         if task is not None:
@@ -553,6 +625,10 @@ async def lifespan(app: FastAPI):
         # header PnL (broker equity, survives restarts) is always explainable
         # by visible trades after a redeploy.
         await _hydrate_closed_trades_from_redis()
+        # Seed the proposal queue from its durable Redis mirror so the Proposals
+        # page survives a redeploy in memory mode (event_history is wiped on
+        # restart; proposals are otherwise never reconstructed).
+        await _hydrate_proposals_from_redis()
         _start_background_tasks(app)
 
         agents = _build_agents(event_bus, dlq_manager, redis_client, agent_state, paper_broker)
@@ -566,6 +642,17 @@ async def lifespan(app: FastAPI):
                 streams=getattr(agent, "streams", None),
             )
         app.state.agents = agents
+
+        # Seed reflection from durable closed-trade history and start the periodic
+        # reflection safety-net, so the learning loop produces proposals right
+        # after a restart and keeps reflecting as fills accumulate (not only on
+        # the per-fill trigger).
+        _seed_reflection_from_history(agents)
+        _reflection_agent = next((a for a in agents if isinstance(a, ReflectionAgent)), None)
+        if _reflection_agent is not None:
+            app.state.periodic_reflection_task = asyncio.create_task(
+                _periodic_reflection_loop(_reflection_agent)
+            )
 
         # Wire the shared service registry (api.main_state) so the analyze /
         # feedback / performance / positions / pnl routes operate on the same

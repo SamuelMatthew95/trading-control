@@ -224,20 +224,22 @@ async def test_reflection_triggers_at_threshold(agent, mock_bus):
         mock_reflect.assert_called_once()
 
 
-async def test_reflection_skipped_when_insufficient_data(agent, mock_bus):
-    """Even at trigger fill count, reflection is skipped if _recent_fills has < 3 items."""
+async def test_reflection_skipped_when_insufficient_data(agent, mock_bus, monkeypatch):
+    """Reflection is skipped while buffered fills are below REFLECT_MIN_FILLS.
+
+    The floor is configurable now (default 1 = learn from the first trade); this
+    raises it so the insufficient-data guard is exercised.
+    """
+    monkeypatch.setattr(settings, "REFLECT_MIN_FILLS", 3)
     trigger = max(int(settings.REFLECT_EVERY_N_FILLS), 1)
 
     with patch.object(agent, "_run_reflection", AsyncMock()) as mock_reflect:
-        # Send exactly trigger fills but _recent_fills will only have that many entries
-        # The agent checks len(_recent_fills) < 3 before running reflection
-        # Force _recent_fills to be empty after filling
+        # Each process appends one fill then we clear, so at the floor check the
+        # deque holds a single item — below REFLECT_MIN_FILLS=3 → never fires.
         for i in range(trigger):
             await agent.process("trade_performance", f"msg-{i}", _trade_performance_event())
-            # Clear the deque to simulate insufficient data at reflection time
             agent._recent_fills.clear()
 
-        # With _recent_fills always cleared, reflection should never fire
         mock_reflect.assert_not_called()
 
 
@@ -421,3 +423,156 @@ class TestParseReflectionResponse:
         assert "winning_factors" in parsed
         assert "hypotheses" in parsed
         assert parsed["hypotheses"] == []
+
+
+# ---------------------------------------------------------------------------
+# Cumulative reflection — each pass builds on the previous one
+# ---------------------------------------------------------------------------
+
+
+def test_build_prompt_carries_prior_reflection(agent):
+    """The prompt feeds the previous reflection back in so the LLM refines it."""
+    agent._recent_fills.append(_trade_performance_event(pnl=10.0))
+    agent._last_reflection = {
+        "summary": "prev-summary",
+        "hypotheses": [{"description": "prior-hyp", "confidence": 0.6, "type": "parameter"}],
+    }
+    prompt = agent._build_prompt()
+    assert "prior_reflection" in prompt
+    assert "prev-summary" in prompt
+    assert "prior-hyp" in prompt
+
+
+@patch("api.services.agents.db_helpers.AsyncSessionFactory", _MockSessionFactory())
+async def test_reflection_stores_carry_forward_for_next_cycle(agent, mock_bus):
+    """After a reflection runs, its conclusions are retained and fed into the
+    next prompt — so successive reflections compound instead of restarting."""
+    for _ in range(3):
+        agent._recent_fills.append(_trade_performance_event(pnl=40.0))
+    agent._fills = max(int(settings.REFLECT_EVERY_N_FILLS), 1)
+    mock_redis = _budget_redis(used=0)
+
+    with (
+        patch("api.redis_client.get_redis", AsyncMock(return_value=mock_redis)),
+        patch(
+            "api.services.llm_router.call_llm_with_system",
+            AsyncMock(return_value=(_valid_reflection_json(), 300, 0.001)),
+        ),
+    ):
+        await agent._run_reflection()
+
+    # Conclusions retained...
+    assert agent._last_reflection["summary"] == "Momentum strategy performing well."
+    assert agent._last_reflection["hypotheses"][0]["description"] == "test"
+    # ...and surfaced in the next prompt the agent builds.
+    assert "Momentum strategy performing well." in agent._build_prompt()
+
+
+# ---------------------------------------------------------------------------
+# Restart resilience — seed the fill buffer from durable closed-trade history
+# ---------------------------------------------------------------------------
+
+
+def test_seed_history_populates_fill_buffer(agent):
+    """After a restart the in-memory buffer is empty; seeding from closed trades
+    lets reflection analyze real history immediately."""
+    trades = [
+        {
+            "symbol": "BTC/USD",
+            "side": "buy",
+            "pnl": 10.0,
+            "pnl_percent": 0.5,
+            "filled_price": 50000.0,
+        },
+        {"symbol": "ETH/USD", "side": "sell", "pnl": -4.0, "pnl_percent": -0.2, "price": 1700.0},
+    ]
+    seeded = agent.seed_history(trades)
+    assert seeded == 2
+    assert agent.buffered_fill_count() == 2
+    assert agent.fills_seen() == 2
+    # filled_price / price are mapped onto the fill_price field reflection reads.
+    fill_prices = [f["fill_price"] for f in agent._recent_fills]
+    assert 50000.0 in fill_prices
+    assert 1700.0 in fill_prices
+
+
+def test_seed_history_respects_buffer_cap(agent):
+    """Seeding more than the deque capacity keeps only the most recent fills."""
+    cap = agent._recent_fills.maxlen
+    trades = [{"symbol": "BTC/USD", "side": "buy", "pnl": float(i)} for i in range(cap + 20)]
+    agent.seed_history(trades)
+    assert agent.buffered_fill_count() == cap
+
+
+# ---------------------------------------------------------------------------
+# Cost governance — cooldown, single-flight, new-data gating
+# ---------------------------------------------------------------------------
+
+
+@patch("api.services.agents.db_helpers.AsyncSessionFactory", _MockSessionFactory())
+async def test_cooldown_blocks_rapid_auto_reflections(agent, monkeypatch):
+    """Auto reflections respect REFLECTION_MIN_INTERVAL_SECONDS so a burst of
+    fills can't fan out into one LLM-call chain per trade."""
+    monkeypatch.setattr(settings, "REFLECTION_MIN_INTERVAL_SECONDS", 9999)
+    for _ in range(3):
+        agent._recent_fills.append(_trade_performance_event(pnl=10.0))
+    agent._fills = 3
+    mock_redis = _budget_redis(used=0)
+
+    with (
+        patch("api.redis_client.get_redis", AsyncMock(return_value=mock_redis)),
+        patch(
+            "api.services.llm_router.call_llm_with_system",
+            AsyncMock(return_value=(_valid_reflection_json(), 300, 0.001)),
+        ),
+    ):
+        first = await agent.maybe_reflect()
+        agent._fills = 4  # new data, but cooldown still active
+        agent._recent_fills.append(_trade_performance_event(pnl=5.0))
+        second = await agent.maybe_reflect()
+
+    assert first is True
+    assert second is False  # blocked by cooldown
+
+
+@patch("api.services.agents.db_helpers.AsyncSessionFactory", _MockSessionFactory())
+async def test_no_new_data_skips_reflection(agent, monkeypatch):
+    """maybe_reflect skips when no new fills arrived since the last reflection."""
+    monkeypatch.setattr(settings, "REFLECTION_MIN_INTERVAL_SECONDS", 0)
+    for _ in range(3):
+        agent._recent_fills.append(_trade_performance_event(pnl=10.0))
+    agent._fills = 3
+    mock_redis = _budget_redis(used=0)
+    with (
+        patch("api.redis_client.get_redis", AsyncMock(return_value=mock_redis)),
+        patch(
+            "api.services.llm_router.call_llm_with_system",
+            AsyncMock(return_value=(_valid_reflection_json(), 300, 0.001)),
+        ),
+    ):
+        assert await agent.maybe_reflect() is True
+        # No new fills → _fills unchanged → next auto call is a no-op.
+        assert await agent.maybe_reflect() is False
+
+
+async def test_single_flight_skips_when_already_running(agent):
+    """A second reflection while one is in progress is skipped (no double spend)."""
+    lock = agent._get_reflection_lock()
+    await lock.acquire()
+    try:
+        ran = await agent._run_reflection()
+    finally:
+        lock.release()
+    assert ran is False
+
+
+async def test_force_bypasses_cooldown(agent, monkeypatch):
+    """Operator reflect-now (force=True) ignores the cooldown."""
+    monkeypatch.setattr(settings, "REFLECTION_MIN_INTERVAL_SECONDS", 9999)
+    agent._recent_fills.append(_trade_performance_event(pnl=10.0))
+    agent._fills = 1
+    agent._last_reflection_at = 1.0  # pretend a reflection just ran
+    with patch.object(agent, "_do_reflection", AsyncMock()) as mock_do:
+        ran = await agent.maybe_reflect(force=True)
+    assert ran is True
+    mock_do.assert_awaited_once()

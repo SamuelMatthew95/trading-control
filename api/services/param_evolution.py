@@ -75,3 +75,23 @@ def validate_param_change(parameter: str, proposed_value: object) -> str | None:
     if not (lo <= numeric <= hi):
         return f"proposed value {numeric} outside safe bounds [{lo}, {hi}] for {parameter}"
     return None
+
+
+def tunable_parameters() -> dict[str, dict[str, float]]:
+    """The auto-editable parameters with their CURRENT value + safe bounds.
+
+    Fed to the ReflectionAgent prompt so the LLM proposes concrete, in-bounds
+    parameter changes (not prose), and read by the StrategyProposer to stamp the
+    current value onto a PARAMETER_CHANGE so the applier can open a real config
+    PR. A parameter whose current value can't be resolved as a finite number is
+    omitted — it can't be proposed against safely.
+    """
+    from api import constants  # noqa: PLC0415  (avoid an import cycle at module load)
+
+    out: dict[str, dict[str, float]] = {}
+    for name, (lo, hi) in PARAM_BOUNDS.items():
+        current = getattr(constants, name, None)
+        if isinstance(current, bool) or not isinstance(current, (int, float)):
+            continue
+        out[name] = {"current": float(current), "min": float(lo), "max": float(hi)}
+    return out

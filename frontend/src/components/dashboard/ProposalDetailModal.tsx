@@ -74,6 +74,25 @@ export function ProposalDetailModal({
         </div>
       </Section>
 
+      {/* Artifact — the helpful link the proposal produced (GitHub issue/PR) */}
+      {(proposal.pr_url || proposal.message) && (
+        <Section label={UI_COPY.proposalDetail.artifact}>
+          {proposal.message && (
+            <p className="mb-1.5 text-sm text-foreground/80">{proposal.message}</p>
+          )}
+          {proposal.pr_url && (
+            <a
+              href={proposal.pr_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-brand underline"
+            >
+              {UI_COPY.proposalDetail.viewArtifact}
+            </a>
+          )}
+        </Section>
+      )}
+
       {/* Provenance */}
       <Section label={UI_COPY.proposalDetail.traceability}>
         <dl className="grid grid-cols-1 gap-1 font-mono text-2xs text-muted-foreground">

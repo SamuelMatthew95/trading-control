@@ -76,6 +76,7 @@ export const API_ENDPOINTS = {
   DASHBOARD_AGENT_INSTANCES: "/dashboard/agent-instances",
   DASHBOARD_PERFORMANCE_TRENDS: "/dashboard/performance-trends",
   DASHBOARD_KILL_SWITCH: "/dashboard/kill-switch",
+  DASHBOARD_GITOPS_STATUS: "/dashboard/gitops/status",
   DASHBOARD_CHALLENGERS: "/dashboard/challengers",
   DASHBOARD_TOOLS: "/dashboard/tools",
   DASHBOARD_PROMPT_OS: "/dashboard/prompt-os",
@@ -83,6 +84,7 @@ export const API_ENDPOINTS = {
 
   // Learning loop (legacy)
   LEARNING_PROPOSALS: "/dashboard/learning/proposals",
+  LEARNING_REFLECT_NOW: "/dashboard/learning/reflect-now",
   LEARNING_GRADES: "/dashboard/learning/grades",
   LEARNING_IC_WEIGHTS: "/dashboard/learning/ic-weights",
   LEARNING_REFLECTIONS: "/dashboard/learning/reflections",
