@@ -1016,3 +1016,41 @@ async def test_pending_param_changes_empty_on_redis_error(client, monkeypatch):
     resp = await client.get("/learning/pending-param-changes")
     assert resp.status_code == 200
     assert resp.json()[FieldName.ITEMS] == []
+
+
+# ---------------------------------------------------------------------------
+# Manual reflection trigger — on-demand proposal generation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_trigger_reflection_runs_live_agent():
+    """The manual trigger forces the live ReflectionAgent to reflect now so
+    proposals/prompt-evolution are created without waiting for the fill cadence."""
+    from api.constants import AGENT_REFLECTION
+    from api.services.dashboard.learning import trigger_reflection_payload
+
+    class _FakeReflectionAgent:
+        _state_name = AGENT_REFLECTION
+
+        def __init__(self) -> None:
+            self.called = False
+
+        async def trigger_reflection(self) -> dict[str, Any]:
+            self.called = True
+            return {FieldName.STATUS: "ok", FieldName.FILLS_ANALYZED: 3}
+
+    agent = _FakeReflectionAgent()
+    result = await trigger_reflection_payload([object(), agent])
+    assert agent.called is True
+    assert result[FieldName.STATUS] == "ok"
+    assert result[FieldName.FILLS_ANALYZED] == 3
+
+
+@pytest.mark.asyncio
+async def test_trigger_reflection_degrades_when_no_agent():
+    """No ReflectionAgent wired (reduced-mode startup) → graceful, never raises."""
+    from api.services.dashboard.learning import trigger_reflection_payload
+
+    result = await trigger_reflection_payload([])
+    assert result[FieldName.STATUS] == "unavailable"
