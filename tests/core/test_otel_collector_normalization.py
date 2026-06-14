@@ -29,8 +29,8 @@ CONFIG_PATH = (
 # Each MUST appear verbatim in the YAML (asserted below) so test and config
 # cannot drift apart.
 RE_CHALLENGER_NAME = r"^agent\.process challenger-[0-9a-f]+$"
-RE_REDIS_PIPELINE_XTRIM = r"^(SET XADD PUBLISH\s*)+XTRIM$"
-RE_REDIS_PIPELINE = r"^(SET XADD PUBLISH\s*)+$"
+RE_REDIS_PIPELINE_XTRIM = r"(?i)^(set\s+xadd\s+publish)(\s+set\s+xadd\s+publish)*\s+xtrim$"
+RE_REDIS_PIPELINE = r"(?i)^(set\s+xadd\s+publish)(\s+set\s+xadd\s+publish)*$"
 RE_CHALLENGER_ATTR = r"challenger-[0-9a-f]+"
 
 # Canonical low-cardinality replacements (also asserted present in the YAML).
@@ -142,6 +142,17 @@ class TestRedisPipelineNormalization:
     def test_single_occurrence_pipeline_matches_non_xtrim_rule(self):
         assert re.compile(RE_REDIS_PIPELINE).match("SET XADD PUBLISH")
         assert re.compile(RE_REDIS_PIPELINE_XTRIM).match("SET XADD PUBLISH XTRIM")
+
+    def test_casing_and_whitespace_variance_tolerated(self):
+        # (?i) + \s+ hardening: lowercase / mixed-case / multi-space variants
+        # still collapse, so an instrumentation tweak can't leak cardinality.
+        for name in [
+            "set xadd publish set xadd publish xtrim",
+            "Set Xadd Publish XTRIM",
+            "SET  XADD   PUBLISH    XTRIM",
+        ]:
+            assert re.compile(RE_REDIS_PIPELINE_XTRIM).match(name), name
+        assert re.compile(RE_REDIS_PIPELINE).match("set  xadd  publish")
 
     def test_single_redis_commands_are_not_collapsed(self):
         xtrim = re.compile(RE_REDIS_PIPELINE_XTRIM)
