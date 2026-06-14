@@ -65,6 +65,8 @@ _gauge_task: asyncio.Task[None] | None = None
 _drift_enabled: bool = False
 _auditor: TelemetryDriftAuditor | None = None
 _drift_task: asyncio.Task[None] | None = None
+_last_action: dict[str, str] = {}
+_decision_lock = Lock()
 
 
 def is_enabled() -> bool:
@@ -251,6 +253,13 @@ def _create_instruments(meter: Any) -> None:
         telemetry_schema_drift=meter.create_counter(
             TELEMETRY_DRIFT_METRIC, description="Telemetry schema drift detections by kind"
         ),
+        agent_decisions=meter.create_counter(
+            "agent_decisions_total", description="Reasoning decisions by model and action"
+        ),
+        agent_decision_flips=meter.create_counter(
+            "agent_decision_flips_total",
+            description="Reasoning action changes vs the prior decision, per symbol",
+        ),
     )
 
     def _gauge_callback(name: str) -> Callable[[Any], list[Any]]:
@@ -417,6 +426,25 @@ def record_error(component: str) -> None:
 
 def record_retry(stream: str) -> None:
     _add("retries", stream=stream)
+
+
+def record_decision(symbol: str, action: str, model: str) -> None:
+    """Record one finalized reasoning decision: model + action, plus per-symbol flips.
+
+    Drives ``llm_fallback_ratio`` (the share of decisions whose model is a
+    fallback/policy label) and the decision-flip rate. No-op when telemetry is
+    disabled, so the reasoning hot path is untouched in the default build.
+    """
+    if not _enabled:
+        return
+    _add("agent_decisions", model=model, action=action)
+    if not symbol:
+        return
+    with _decision_lock:
+        prev = _last_action.get(symbol)
+        _last_action[symbol] = action
+    if prev is not None and prev != action:
+        _add("agent_decision_flips", symbol=symbol)
 
 
 # ---------------------------------------------------------------------------
