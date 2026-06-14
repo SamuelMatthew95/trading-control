@@ -239,7 +239,7 @@ def test_concrete_param_hypothesis_becomes_applicable_change(strategy_proposer):
         "confidence": 0.85,
         "type": "parameter",
         "parameter": "STOP_LOSS_PCT",
-        "proposed_value": 0.05,
+        "proposed_value": 0.04,  # in-bounds (0.01, 0.15) AND != current default
     }
     proposal = strategy_proposer._build_proposal(
         hypothesis, {"trace_id": "t1"}, "2026-01-01T00:00:00Z"
@@ -247,9 +247,28 @@ def test_concrete_param_hypothesis_becomes_applicable_change(strategy_proposer):
     content = proposal["content"]
     assert proposal["proposal_type"] == "parameter_change"
     assert content["parameter"] == "STOP_LOSS_PCT"
-    assert content["new_value"] == 0.05
+    assert content["new_value"] == 0.04
     assert "previous_value" in content  # current value stamped from the allowlist
     assert "PR" in content["note"]
+
+
+def test_noop_param_change_degrades_to_review_item(strategy_proposer):
+    """Proposing the value the parameter already has is a no-op — must NOT become
+    a concrete change / open a PR for nothing."""
+    from api import constants
+
+    current = float(constants.STOP_LOSS_PCT)
+    hypothesis = {
+        "description": "keep stop the same",
+        "confidence": 0.9,
+        "type": "parameter",
+        "parameter": "STOP_LOSS_PCT",
+        "proposed_value": current,
+    }
+    proposal = strategy_proposer._build_proposal(
+        hypothesis, {"trace_id": "t-noop"}, "2026-01-01T00:00:00Z"
+    )
+    assert "parameter" not in proposal["content"]
 
 
 def test_vague_param_hypothesis_degrades_to_review_item(strategy_proposer):
