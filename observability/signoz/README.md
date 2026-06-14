@@ -83,6 +83,21 @@ recreate the panels from this spec — the queries are the contract:
 | Errors by component | `error_count` rate, group by `trading.component` |
 | DB query p95 | `database_query_duration` p95 |
 
+### Cost Dashboard (`dashboards/cost.json`)
+
+Telemetry as an economic system — cost per unit of business behavior (see
+`docs/platform/telemetry-governance.md` §3). Requires the collector's
+self-telemetry scrape (`service.telemetry.metrics` on :8888, enabled in
+`otel-collector-config.yaml`).
+
+| Panel | Query / formula |
+|---|---|
+| Ingestion volume | `rate(otelcol_exporter_sent_spans)` + `rate(otelcol_exporter_sent_metric_points)` + `rate(otelcol_exporter_sent_log_records)`, exporter=`otlp/signoz` |
+| Active time series | `signoz_active_time_series` (latest) |
+| Signal efficiency | `rate(signals_generated_total + trades_submitted_total + trades_completed_total + trades_failed_total) / rate(spanmetrics calls)` |
+| Cost per business event (`cost_per_business_event`) | `ingested_units / rate(trades_completed_total)` — `ingested_units` = your SigNoz price-sheet weighting of spans / metric-points / active-series |
+| Active series growth (24h) | `(signoz_active_time_series - signoz_active_time_series offset 24h) / signoz_active_time_series offset 24h` |
+
 ## 5. Trade lifecycle tracing
 
 Every agent dispatch span carries the app-level `trading.trace_id`
