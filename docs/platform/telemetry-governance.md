@@ -349,14 +349,20 @@ agents retry more, flip decisions under latency pressure, or thrash across tools
 These are additive instruments (each new attribute registers in
 `TELEMETRY_SCHEMA` per §7) and are the natural Stage-4 follow-on to build-order #4:
 
-| Signal | Metric (proposed) | Derived from | Detects |
+| Signal | Metric | Source | Detects |
 |---|---|---|---|
-| Retry inflation | `retries_per_trade` | `rate(retry_count) / rate(trades_completed_total)` | poison-message / broker churn before it reaches the DLQ |
-| Decision instability | `agent_decision_flip_rate` | variance of `action` over `decisions:recent` per symbol | reasoning thrash / prompt regression under load |
-| Tool entropy | `tool_call_diversity` | distinct tools per decision (`ToolRegistry` / `tools/call *` spans) | tool-selection degradation as alpha decays |
-| Fallback rate | `llm_fallback_ratio` | `model_used == "policy"` share of decisions | silent LLM degradation (the fail-closed path firing) |
+| Fallback rate ✅ | `agent_decisions_total{trading.model}` | `record_decision()` in ReasoningAgent | silent LLM degradation — `llm_fallback_ratio` = share whose model is a `fallback`/`policy` label |
+| Decision instability ✅ | `agent_decision_flips_total{trading.symbol}` | `record_decision()` per-symbol action change | reasoning thrash / prompt regression under load |
+| Retry inflation | `retries_per_trade` (formula) | `rate(retry_count) / rate(trades_completed_total)` | poison-message / broker churn before the DLQ |
+| Tool entropy | `tool_call_diversity` (trace query) | distinct `tools/call *` span names per window | tool-selection degradation as alpha decays |
 
-The point: a flat `win_rate` with a rising `agent_decision_flip_rate` is the
+✅ = instrumented (build-order #4, first slice). The retry/tool signals are
+derivable from existing telemetry as SigNoz formulas/queries — no new code.
+`trading.model` / `trading.action` are registered in `TELEMETRY_SCHEMA`, so the
+Layer-A guardrail enforces them like any other attribute — the governance loop
+closing on itself.
+
+The point: a flat `win_rate` with a rising `agent_decision_flips_total` is the
 early signal of strategy drift that no latency or error dashboard shows.
 
 ## 9. What NOT to do (honors tested decisions)
