@@ -177,8 +177,9 @@ behavior**, which is what actually predicts the bill.
 
 ### Inputs
 
-Enable the collector's own telemetry pipeline (`service.telemetry.metrics`,
-scraped into SigNoz) to get ingestion volume at the gateway:
+The collector's own telemetry pipeline (`service.telemetry.metrics` on :8888) is
+enabled in `otel-collector-config.yaml`; scrape it into SigNoz for ingestion
+volume at the gateway:
 
 ```text
 otelcol_exporter_sent_spans{exporter="otlp/signoz"}
@@ -332,6 +333,11 @@ Ordered by ROI ÷ risk, matching the agreed priority:
 
 Each is independently shippable; #1 unblocks the rest by giving them a registry
 to register against.
+
+**Status:** #1 shipped (schema registry + Layer A build guardrail + Layer B
+runtime auditor). #2 partial — collector self-telemetry (the volume source), the
+cost formulas, and the governance/cost alerts shipped; only the `$`-rate
+calibration is pending your SigNoz plan (§10). #3/#4 not started.
 
 ---
 
