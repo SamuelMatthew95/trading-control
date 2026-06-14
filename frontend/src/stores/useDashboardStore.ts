@@ -588,6 +588,8 @@ export const useDashboardStore = create<DashboardState>((set) => ({
               : ((p.status as ProposalStatus) ?? ('pending' as ProposalStatus)),
             applied: p.applied === true,
             applied_at: (p.applied_at as string | null) ?? null,
+            pr_url: (p.pr_url as string | null) ?? null,
+            message: (p.message as string | null) ?? null,
           }))
         if (newProposals.length > 0) {
           updates.proposals = [...newProposals, ...currentState.proposals].slice(0, 50)
