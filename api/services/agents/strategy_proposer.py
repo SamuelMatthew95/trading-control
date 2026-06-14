@@ -36,6 +36,7 @@ from api.services.agents.prompts import (
     STRATEGY_PLANNING_PROMPT,
 )
 from api.services.agents.proposal_guardrails import register_proposal_creation
+from api.services.param_evolution import tunable_parameters, validate_param_change
 
 # ---------------------------------------------------------------------------
 # StrategyProposer — converts reflection hypotheses into concrete proposals
@@ -340,6 +341,36 @@ class StrategyProposer(MultiStreamAgent):
             log_structured("warning", "strategy_proposer_plan_failed_using_original", exc_info=True)
         return strong
 
+    @staticmethod
+    def _attach_concrete_param_change(
+        content: dict[str, Any], hypothesis: dict[str, Any], description: str
+    ) -> None:
+        """Promote a PARAMETER_CHANGE to a CONCRETE, bounds-valid change when the
+        hypothesis names an allowlisted parameter + numeric target.
+
+        This is what lets the applier open a real config PR (a helpful link)
+        instead of recording a prose-only no-op: ``_emit_param_change_artifact``
+        needs ``parameter`` + ``new_value`` on the content, and the reflection
+        hypothesis used to carry neither. A change that isn't allowlisted or is
+        out of bounds safely degrades to the description-only review item.
+        """
+        parameter = hypothesis.get(FieldName.PARAMETER)
+        proposed_value = hypothesis.get(FieldName.PROPOSED_VALUE)
+        if proposed_value is None:
+            proposed_value = hypothesis.get(FieldName.NEW_VALUE)
+        if parameter and validate_param_change(str(parameter), proposed_value) is None:
+            content[FieldName.PARAMETER] = str(parameter)
+            content[FieldName.PREVIOUS_VALUE] = (
+                tunable_parameters().get(str(parameter), {}).get("current")
+            )
+            content[FieldName.NEW_VALUE] = proposed_value
+            content[FieldName.REASON] = description
+            content[FieldName.NOTE] = (
+                "Concrete bounds-valid parameter change — routes to a config-only PR."
+            )
+        else:
+            content[FieldName.NOTE] = "Update config parameter via DB — no deploy required."
+
     def _build_proposal(
         self, hypothesis: dict[str, Any], reflection_data: dict[str, Any], now_iso: str
     ) -> dict[str, Any]:
@@ -364,9 +395,7 @@ class StrategyProposer(MultiStreamAgent):
         if hyp_type == HypothesisType.PARAMETER:
             base[FieldName.PROPOSAL_TYPE] = ProposalType.PARAMETER_CHANGE
             base[FieldName.CONTENT][FieldName.IMPLEMENTATION] = "db_update"
-            base[FieldName.CONTENT][FieldName.NOTE] = (
-                "Update config parameter via DB — no deploy required."
-            )
+            self._attach_concrete_param_change(base[FieldName.CONTENT], hypothesis, description)
         elif hyp_type == HypothesisType.RULE:
             base[FieldName.PROPOSAL_TYPE] = ProposalType.CODE_CHANGE
             base[FieldName.CONTENT][FieldName.IMPLEMENTATION] = "github_pr"
