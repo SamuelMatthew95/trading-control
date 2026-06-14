@@ -39,14 +39,18 @@ from typing import Any
 
 from api.config import settings
 from api.constants import (
+    DRIFT_KIND_LABEL,
     PNL_GRADED_AGENTS,
     REDIS_KEY_AGENT_PNL,
     REDIS_KEY_CLOSED_TRADES_RECENT,
     REDIS_KEY_PAPER_CASH,
+    REDIS_KEY_TELEMETRY_DRIFT_REPORTED,
+    TELEMETRY_DRIFT_METRIC,
     FieldName,
     OrderStatus,
 )
 from api.observability import log_structured
+from api.telemetry_drift import TelemetryDriftAuditor, fetch_signoz_observed_keys
 
 _ATTR_PREFIX = "trading."
 
@@ -58,6 +62,9 @@ _instruments: dict[str, Any] = {}
 _gauge_values: dict[str, float] = {}
 _gauge_lock = Lock()
 _gauge_task: asyncio.Task[None] | None = None
+_drift_enabled: bool = False
+_auditor: TelemetryDriftAuditor | None = None
+_drift_task: asyncio.Task[None] | None = None
 
 
 def is_enabled() -> bool:
@@ -66,7 +73,11 @@ def is_enabled() -> bool:
 
 def _attrs(**kwargs: Any) -> dict[str, Any]:
     """Build OTel attribute dicts from kwargs (namespaced, None-stripped)."""
-    return {f"{_ATTR_PREFIX}{key}": value for key, value in kwargs.items() if value is not None}
+    attrs = {f"{_ATTR_PREFIX}{key}": value for key, value in kwargs.items() if value is not None}
+    if _drift_enabled and _auditor is not None:
+        for attr_key in attrs:
+            _auditor.record_key(attr_key)
+    return attrs
 
 
 def parse_otlp_headers(raw: str) -> dict[str, str]:
@@ -95,7 +106,7 @@ def init_telemetry(app: Any = None) -> bool:
     Returns True when telemetry is live. Safe to call when disabled or when
     the SDK is not installed — both paths leave the app untouched.
     """
-    global _enabled, _trace_api, _tracer
+    global _enabled, _trace_api, _tracer, _drift_enabled, _auditor
     if not settings.OTEL_ENABLED:
         log_structured("info", "telemetry_disabled")
         return False
@@ -132,6 +143,10 @@ def init_telemetry(app: Any = None) -> bool:
     _tracer = trace.get_tracer("trading-control")
     _create_instruments(metrics.get_meter("trading-control"))
     _instrument_libraries(app)
+
+    _drift_enabled = settings.OTEL_DRIFT_AUDIT_ENABLED
+    if _drift_enabled:
+        _auditor = TelemetryDriftAuditor()
 
     _enabled = True
     log_structured(
@@ -232,6 +247,9 @@ def _create_instruments(meter: Any) -> None:
         ),
         agent_process_duration=meter.create_histogram(
             "agent_process_duration", unit="ms", description="Per-agent event processing time"
+        ),
+        telemetry_schema_drift=meter.create_counter(
+            TELEMETRY_DRIFT_METRIC, description="Telemetry schema drift detections by kind"
         ),
     )
 
@@ -542,3 +560,69 @@ async def stop_gauge_poller() -> None:
         except asyncio.CancelledError:
             pass
         _gauge_task = None
+
+
+# ---------------------------------------------------------------------------
+# Runtime schema-drift auditor (governance Layer B) — see api/telemetry_drift.py
+# ---------------------------------------------------------------------------
+
+
+def _emit_drift(kind: str) -> None:
+    counter = _instruments.get("telemetry_schema_drift")
+    if counter is not None:
+        counter.add(1, attributes={DRIFT_KIND_LABEL: kind})
+
+
+async def _drift_audit_loop(redis: Any) -> None:
+    if _auditor is None:
+        return
+    # Hydrate the dedup set so a standing violation pages once across restarts.
+    try:
+        tags = await redis.smembers(REDIS_KEY_TELEMETRY_DRIFT_REPORTED)
+        _auditor.seed_reported([t.decode() if isinstance(t, bytes) else t for t in tags])
+    except Exception:
+        log_structured("warning", "telemetry_drift_reported_hydrate_failed", exc_info=True)
+    while True:
+        try:
+            counts = _auditor.observed_snapshot()
+            b2_counts, cardinalities = await fetch_signoz_observed_keys(settings)
+            counts.update(b2_counts)
+            fresh = _auditor.unreported(_auditor.detect(counts, cardinalities))
+            for finding in fresh:
+                _emit_drift(finding.kind)
+                log_structured(
+                    "warning",
+                    "telemetry_schema_drift",
+                    kind=finding.kind,
+                    attribute=finding.attribute,
+                    occurrences=finding.occurrences,
+                )
+            if fresh:
+                await redis.sadd(
+                    REDIS_KEY_TELEMETRY_DRIFT_REPORTED,
+                    *[f"{f.kind}:{f.attribute}" for f in fresh],
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log_structured("warning", "telemetry_drift_audit_failed", exc_info=True)
+        await asyncio.sleep(settings.OTEL_DRIFT_AUDIT_INTERVAL_SECONDS)
+
+
+def start_drift_auditor(redis: Any) -> None:
+    """Launch the periodic schema-drift audit. No-op unless OTEL_DRIFT_AUDIT_ENABLED."""
+    global _drift_task
+    if not _enabled or not _drift_enabled or _drift_task is not None:
+        return
+    _drift_task = asyncio.create_task(_drift_audit_loop(redis), name="telemetry:drift")
+
+
+async def stop_drift_auditor() -> None:
+    global _drift_task
+    if _drift_task is not None:
+        _drift_task.cancel()
+        try:
+            await _drift_task
+        except asyncio.CancelledError:
+            pass
+        _drift_task = None
