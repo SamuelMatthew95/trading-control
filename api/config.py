@@ -169,7 +169,10 @@ class Settings(BaseSettings):
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
     GROQ_FALLBACK_MODEL: str = "llama-3.1-8b-instant"
     GEMINI_API_KEY: str | None = Field(default=None)
-    GEMINI_MODEL: str = "gemini-1.5-flash"
+    # gemini-1.5-flash was RETIRED by Google; using it 404s every call. Default
+    # to a current GA flash model (fast + cheap, good for trading decisions).
+    # Override via GEMINI_MODEL env if you want 2.5-flash etc.
+    GEMINI_MODEL: str = "gemini-2.0-flash"
 
     # Alpaca - use paper trading keys from alpaca.markets
     ALPACA_API_KEY: str = ""
