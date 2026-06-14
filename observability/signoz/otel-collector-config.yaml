@@ -160,6 +160,21 @@ connectors:
 
 service:
   extensions: [health_check]
+  # Collector self-telemetry — the ingestion-VOLUME source for the cost engine
+  # (otelcol_exporter_sent_spans / _metric_points / _log_records). Scrape :8888
+  # into SigNoz/Prometheus; combined with the app's business counters it yields
+  # cost_per_business_event (docs/platform/telemetry-governance.md §3).
+  # NOTE: the `readers` form is for collector >= ~v0.96 (what :latest ships); on
+  # older builds use the legacy `metrics: {level: detailed, address: 0.0.0.0:8888}`.
+  telemetry:
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
   pipelines:
     traces:
       receivers: [otlp]
