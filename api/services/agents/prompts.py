@@ -41,6 +41,11 @@ REFLECTION_SYSTEM_PROMPT = (
     "type which must be 'parameter' or 'rule' or 'regime'), regime_edge (object with keys: "
     "current_regime and recommendation), time_of_day_patterns (object with keys: best_hours "
     "as list of ints, worst_hours as list of ints), summary (one-line string). "
+    "If a 'prior_reflection' object is present in the input, treat it as your previous "
+    "conclusions: build on it incrementally — confirm hypotheses the new fills support, "
+    "revise or drop ones they contradict, and sharpen them into more specific, actionable "
+    "hypotheses. Do NOT restart from scratch; each reflection should be a refinement of the "
+    "last so the analysis compounds as more trades accumulate. "
     "Return ONLY the JSON object, no markdown fences."
 )
 
