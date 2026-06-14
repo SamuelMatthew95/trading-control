@@ -1050,6 +1050,7 @@ class FieldName(StrEnum):
     TRAJECTORY_SIMILARITY = "trajectory_similarity"
     TS = "ts"
     TYPE = "type"
+    TUNABLE_PARAMETERS = "tunable_parameters"
     UNIT = "unit"
     UNITS = "units"
     UNREALIZED_PNL = "unrealized_pnl"
