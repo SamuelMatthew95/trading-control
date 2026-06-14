@@ -9,7 +9,8 @@ from api.events.dlq import DLQManager
 from api.services.agent_state import AgentStateRegistry
 from api.services.agents.pipeline_agents import StrategyProposer
 
-pytestmark = pytest.mark.asyncio
+# Async tests run via pytest.ini `asyncio_mode = auto`; no global asyncio mark
+# here so the sync `_build_proposal` unit tests below aren't mis-marked.
 
 
 # ---------------------------------------------------------------------------
@@ -223,3 +224,67 @@ async def test_prompt_evolution_disabled_emits_nothing(strategy_proposer, mock_b
         c.args for c in mock_bus.publish.call_args_list if c.args and c.args[0] == STREAM_PROPOSALS
     ]
     assert not pubs
+
+
+# ---------------------------------------------------------------------------
+# Concrete, bounds-valid parameter changes → real config PR (helpful link)
+# ---------------------------------------------------------------------------
+
+
+def test_concrete_param_hypothesis_becomes_applicable_change(strategy_proposer):
+    """A parameter hypothesis that names an allowlisted param + in-bounds value
+    carries parameter/new_value/previous_value so the applier can open a PR."""
+    hypothesis = {
+        "description": "tighten stop loss to cut losers",
+        "confidence": 0.85,
+        "type": "parameter",
+        "parameter": "STOP_LOSS_PCT",
+        "proposed_value": 0.05,
+    }
+    proposal = strategy_proposer._build_proposal(
+        hypothesis, {"trace_id": "t1"}, "2026-01-01T00:00:00Z"
+    )
+    content = proposal["content"]
+    assert proposal["proposal_type"] == "parameter_change"
+    assert content["parameter"] == "STOP_LOSS_PCT"
+    assert content["new_value"] == 0.05
+    assert "previous_value" in content  # current value stamped from the allowlist
+    assert "PR" in content["note"]
+
+
+def test_vague_param_hypothesis_degrades_to_review_item(strategy_proposer):
+    """A parameter hypothesis with no concrete param stays description-only —
+    the applier safely no-ops it instead of opening a bogus PR."""
+    hypothesis = {"description": "do better on entries", "confidence": 0.8, "type": "parameter"}
+    proposal = strategy_proposer._build_proposal(
+        hypothesis, {"trace_id": "t2"}, "2026-01-01T00:00:00Z"
+    )
+    assert "parameter" not in proposal["content"]
+    assert proposal["proposal_type"] == "parameter_change"
+
+
+def test_out_of_bounds_param_hypothesis_is_not_promoted(strategy_proposer):
+    """An out-of-bounds value is rejected → not promoted to a concrete change."""
+    hypothesis = {
+        "description": "set an unsafe stop",
+        "confidence": 0.9,
+        "type": "parameter",
+        "parameter": "STOP_LOSS_PCT",
+        "proposed_value": 0.99,  # outside (0.01, 0.15)
+    }
+    proposal = strategy_proposer._build_proposal(
+        hypothesis, {"trace_id": "t3"}, "2026-01-01T00:00:00Z"
+    )
+    assert "parameter" not in proposal["content"]
+
+
+def test_tunable_parameters_helper_exposes_current_and_bounds():
+    from api.services.param_evolution import PARAM_BOUNDS, tunable_parameters
+
+    tp = tunable_parameters()
+    assert tp, "expected at least one resolvable tunable parameter"
+    for name, meta in tp.items():
+        assert name in PARAM_BOUNDS
+        assert set(meta) == {"current", "min", "max"}
+        assert isinstance(meta["current"], float)
+        assert meta["min"] <= meta["max"]
