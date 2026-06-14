@@ -131,6 +131,12 @@ class Settings(BaseSettings):
     GRADE_WEIGHT_COST: float = 0.20
     GRADE_WEIGHT_LATENCY: float = 0.15
     RETIRE_AFTER_N_GRADES: int = 3
+    # Statistical-significance gate: minimum graded fills before the GradeAgent
+    # may take a CAPITAL-AFFECTING action (signal-weight cut / suspension /
+    # retirement→pause). Below this, win-rate and IC are noise — acting on them
+    # can hard-pause the whole system off a handful of trades (the deadlock we
+    # hit). The grade is still computed and shown; only destructive actions wait.
+    GRADE_ACTION_MIN_FILLS: int = 20
 
     # IC updater
     IC_LOOKBACK_DAYS: int = 30
@@ -169,10 +175,10 @@ class Settings(BaseSettings):
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
     GROQ_FALLBACK_MODEL: str = "llama-3.1-8b-instant"
     GEMINI_API_KEY: str | None = Field(default=None)
-    # gemini-1.5-flash was RETIRED by Google; using it 404s every call. Default
-    # to a current GA flash model (fast + cheap, good for trading decisions).
-    # Override via GEMINI_MODEL env if you want 2.5-flash etc.
-    GEMINI_MODEL: str = "gemini-2.0-flash"
+    # Verified against ai.google.dev (June 2026): gemini-3.5-flash is the current
+    # GA Flash model and the API default. gemini-1.5/2.0/2.5-flash are retired or
+    # deprecating — using them 404s every call. Override via GEMINI_MODEL env.
+    GEMINI_MODEL: str = "gemini-3.5-flash"
 
     # Alpaca - use paper trading keys from alpaca.markets
     ALPACA_API_KEY: str = ""
