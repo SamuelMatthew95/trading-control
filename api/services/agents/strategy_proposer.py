@@ -43,6 +43,17 @@ from api.services.param_evolution import tunable_parameters, validate_param_chan
 # ---------------------------------------------------------------------------
 
 
+def _is_noop_change(current: Any, proposed: Any) -> bool:
+    """True when a proposed parameter value equals the current one (within float
+    tolerance) — a no-op change should not open a config PR."""
+    if current is None or proposed is None:
+        return False
+    try:
+        return abs(float(current) - float(proposed)) <= 1e-9
+    except (TypeError, ValueError):
+        return False
+
+
 async def _acquire_guardrail_redis() -> Any:
     """Best-effort Redis handle for the proposal-creation guardrails.
 
@@ -358,11 +369,14 @@ class StrategyProposer(MultiStreamAgent):
         proposed_value = hypothesis.get(FieldName.PROPOSED_VALUE)
         if proposed_value is None:
             proposed_value = hypothesis.get(FieldName.NEW_VALUE)
-        if parameter and validate_param_change(str(parameter), proposed_value) is None:
+        current = tunable_parameters().get(str(parameter), {}).get("current") if parameter else None
+        if (
+            parameter
+            and validate_param_change(str(parameter), proposed_value) is None
+            and not _is_noop_change(current, proposed_value)
+        ):
             content[FieldName.PARAMETER] = str(parameter)
-            content[FieldName.PREVIOUS_VALUE] = (
-                tunable_parameters().get(str(parameter), {}).get("current")
-            )
+            content[FieldName.PREVIOUS_VALUE] = current
             content[FieldName.NEW_VALUE] = proposed_value
             content[FieldName.REASON] = description
             content[FieldName.NOTE] = (
