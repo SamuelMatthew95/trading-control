@@ -73,10 +73,12 @@ processors:
 
           # Collapse the variable-length Redis pipeline concatenations into one
           # canonical signature (idempotent for the single-occurrence case).
+          # (?i) + \s+ tolerate casing/spacing variance defensively, though the
+          # redis-py + OTel contract emits uppercase, single-space tokens today.
           #   SET XADD PUBLISH (xN) XTRIM -> SET XADD PUBLISH XTRIM
-          - 'set(name, "SET XADD PUBLISH XTRIM") where IsMatch(name, "^(SET XADD PUBLISH\s*)+XTRIM$")'
+          - 'set(name, "SET XADD PUBLISH XTRIM") where IsMatch(name, "(?i)^(set\s+xadd\s+publish)(\s+set\s+xadd\s+publish)*\s+xtrim$")'
           #   SET XADD PUBLISH (xN)       -> SET XADD PUBLISH
-          - 'set(name, "SET XADD PUBLISH") where IsMatch(name, "^(SET XADD PUBLISH\s*)+$")'
+          - 'set(name, "SET XADD PUBLISH") where IsMatch(name, "(?i)^(set\s+xadd\s+publish)(\s+set\s+xadd\s+publish)*$")'
 
           # Same random id also rides as a span ATTRIBUTE — collapse it too so
           # trace group-by/filter on trading.agent stays low-cardinality.
