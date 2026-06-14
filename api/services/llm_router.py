@@ -479,6 +479,23 @@ def _find_cloud_fallback() -> str | None:
     return None
 
 
+def _cloud_fallback_chain(exclude: str) -> list[str]:
+    """Configured cloud providers (with an API key) to try, minus ``exclude``.
+
+    Priority order matches ``_find_cloud_fallback``. Used to route AROUND a
+    primary cloud provider that just failed (e.g. groq rate-limited) so the
+    cognitive loop keeps working instead of falling back to reject_signal on
+    every throttle.
+    """
+    candidates = [
+        ("groq", settings.GROQ_API_KEY or ""),
+        ("gemini", getattr(settings, "GEMINI_API_KEY", "") or ""),
+        ("anthropic", getattr(settings, "ANTHROPIC_API_KEY", "") or ""),
+        ("openai", getattr(settings, "OPENAI_API_KEY", "") or ""),
+    ]
+    return [p for p, key in candidates if key.strip() and p != exclude]
+
+
 async def _call_provider_raw(
     provider: str, prompt: str, system_prompt: str, trace_id: str
 ) -> tuple[str, int, float]:
@@ -733,6 +750,37 @@ async def call_llm_with_system(
         else:
             llm_metrics.record_error(message=str(exc), kind="provider_error")
             log_structured("warning", "LLM custom call failed", provider=provider, exc_info=True)
+
+        # Cross-provider fallback: a single provider (e.g. groq free-tier) being
+        # rate-limited used to collapse the whole cognitive loop into
+        # reject_signal / fallback reflections. Try the other configured cloud
+        # providers in priority order before giving up, so one throttled key
+        # doesn't take the system down. No-op when no alternate key is set.
+        if settings.LLM_FALLBACK_ENABLED:
+            for alt in _cloud_fallback_chain(exclude=provider):
+                try:
+                    await _inter_call_delay()
+                    t1 = _time.monotonic()
+                    result = await _call_provider_raw(alt, prompt, system_prompt, trace_id)
+                    llm_metrics.record_success(latency_ms=(_time.monotonic() - t1) * 1000)
+                    _set_model_label(result_meta, alt)
+                    log_structured(
+                        "info",
+                        "LLM cross-provider fallback succeeded",
+                        failed_provider=provider,
+                        provider=alt,
+                        trace_id=trace_id,
+                    )
+                    return result
+                except Exception:
+                    log_structured(
+                        "warning",
+                        "LLM fallback provider failed",
+                        provider=alt,
+                        trace_id=trace_id,
+                        exc_info=True,
+                    )
+                    continue
         raise
 
 
