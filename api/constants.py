@@ -5,6 +5,7 @@ Use the StrEnum classes for all string comparisons in domain logic — no bare s
 """
 
 import sys
+from dataclasses import dataclass
 from typing import Final
 
 from api.config import settings
@@ -1823,6 +1824,63 @@ INITIAL_PRICES: Final[dict[str, float]] = {
     SYMBOL_SPY: 510.0,
     SYMBOL_AAPL: 178.0,
     SYMBOL_NVDA: 875.0,
+}
+
+
+# ---------------------------------------------------------------------------
+# Telemetry governance — approved telemetry-attribute registry (v1)
+#
+# Single source of truth for which `trading.*` span/metric attributes the app
+# may emit and use as RED dimensions, plus each one's cardinality budget. The
+# telemetry sibling of FieldName (which governs payload/DB-row keys): a producer
+# registers an attribute here BEFORE emitting it, and the build-time guardrail
+# (tests/core/test_telemetry_schema_governance.py) fails CI when api/telemetry.py
+# emits an unregistered key or the collector's spanmetrics dimension allowlist
+# references one. Design: docs/platform/telemetry-governance.md.
+#
+# cardinality_budget = max distinct values before drift is an incident. The 0
+# sentinel marks a deliberately UNBOUNDED key that must stay a span attribute and
+# NEVER become a metric label (e.g. trace_id).
+TELEMETRY_ATTR_PREFIX: Final[str] = "trading."
+
+
+@dataclass(frozen=True)
+class TelemetryAttr:
+    """One approved telemetry attribute: cardinality budget + ownership."""
+
+    key: str
+    cardinality_budget: int
+    is_red_dimension: bool
+    owner: str
+    note: str
+
+
+TELEMETRY_SCHEMA: Final[dict[str, TelemetryAttr]] = {
+    attr.key: attr
+    for attr in (
+        TelemetryAttr("trading.symbol", 50, True, "backend", "approved trading universe"),
+        TelemetryAttr(
+            "trading.agent", 200, True, "backend", "7-agent fleet + normalized challenger-<id>"
+        ),
+        TelemetryAttr("trading.operation", 30, True, "backend", "broker / agent operation names"),
+        TelemetryAttr("trading.side", 4, True, "backend", "buy / sell / none"),
+        TelemetryAttr("trading.stream", 30, True, "backend", "Redis stream names"),
+        TelemetryAttr("trading.component", 40, True, "backend", "error-source components"),
+        TelemetryAttr("trading.broker", 5, True, "backend", "paper / alpaca"),
+        TelemetryAttr(
+            "trading.signal_type", 20, False, "backend", "metric label only; not a RED dimension"
+        ),
+        TelemetryAttr(
+            "trading.success", 3, False, "backend", "broker-call outcome flag; not a RED dimension"
+        ),
+        TelemetryAttr(
+            "trading.trace_id",
+            0,
+            False,
+            "backend",
+            "UNBOUNDED sentinel — span attribute for lifecycle search only, never a metric label",
+        ),
+    )
 }
 
 
