@@ -364,27 +364,28 @@ def _seed_reflection_from_history(agents: list) -> None:
     agent = next((a for a in agents if isinstance(a, ReflectionAgent)), None)
     if agent is None:
         return
-    trades = list(get_runtime_store().closed_trades)
-    if not trades:
-        return
-    seeded = agent.seed_history(trades)
-    log_structured("info", "reflection_seeded_from_history", count=seeded)
+    try:
+        trades = list(get_runtime_store().closed_trades)
+        if not trades:
+            return
+        seeded = agent.seed_history(trades)
+        log_structured("info", "reflection_seeded_from_history", count=seeded)
+    except Exception:
+        # Seeding is a best-effort warm-start; never let it block startup.
+        log_structured("warning", "reflection_seed_from_history_failed", exc_info=True)
 
 
 async def _periodic_reflection_loop(agent: ReflectionAgent) -> None:
-    """Trigger reflection on an interval when new fills have accumulated (and once
-    on startup over seeded history), so the loop keeps producing proposals even
-    when the per-fill trigger is quiet. Never raises into the event loop."""
+    """Periodically ask the ReflectionAgent to reflect — once over seeded history
+    shortly after startup, then whenever new fills have accumulated. The agent's
+    ``maybe_reflect`` self-gates on the cooldown + new-data checks, so this is a
+    bounded safety-net, not a token firehose. Never raises into the event loop."""
     interval = max(int(settings.REFLECTION_PERIODIC_SECONDS), 0)
     if interval <= 0:
         return
-    min_fills = max(int(settings.REFLECT_MIN_FILLS), 1)
-    last_fills = -1  # -1 forces an initial pass over any seeded history
     while True:
         try:
-            if agent.buffered_fill_count() >= min_fills and agent.fills_seen() != last_fills:
-                await agent.trigger_reflection()
-                last_fills = agent.fills_seen()
+            await agent.maybe_reflect()
         except Exception:
             log_structured("warning", "periodic_reflection_failed", exc_info=True)
         await asyncio.sleep(interval)
