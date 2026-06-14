@@ -65,11 +65,15 @@ class Settings(BaseSettings):
     SIGNAL_EVERY_N_TICKS: int = 10
     GRADE_EVERY_N_FILLS: int = 5
     IC_UPDATE_EVERY_N_FILLS: int = 10
-    # Reflect every N closed trades. Kept low because this paper system closes
-    # trades infrequently (a handful per day): at the old default of 10 the
-    # ReflectionAgent never reached the trigger, so StrategyProposer never ran
-    # and the loop produced no proposals / prompt-evolution / param-change PRs.
-    REFLECT_EVERY_N_FILLS: int = 3
+    # Reflect every N closed trades. Set to 1 so learning is INCREMENTAL: the
+    # ReflectionAgent reflects after each closed trade, carrying the previous
+    # reflection forward (compare → refine → improve) rather than waiting for a
+    # batch. At the old default of 10 it never reached the trigger (this paper
+    # system closes a handful of trades a day), so StrategyProposer never ran.
+    REFLECT_EVERY_N_FILLS: int = 1
+    # Minimum buffered fills before the first reflection runs. 1 = start learning
+    # from the very first closed trade, then accumulate.
+    REFLECT_MIN_FILLS: int = 1
     # Per-symbol reasoning cooldown — minimum seconds between LLM reasoning
     # calls for the SAME symbol. Decouples LLM spend from raw signal volume:
     # momentum signals can fire every few seconds per symbol, and previously
