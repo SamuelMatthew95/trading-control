@@ -74,6 +74,11 @@ class Settings(BaseSettings):
     # Minimum buffered fills before the first reflection runs. 1 = start learning
     # from the very first closed trade, then accumulate.
     REFLECT_MIN_FILLS: int = 1
+    # Periodic reflection safety-net interval (seconds). Triggers a reflection
+    # when new fills have arrived since the last one — and once shortly after
+    # startup on seeded history, so a restart produces proposals without waiting
+    # for a fresh trade. 0 disables. Bounded by the proposal dedup/daily cap.
+    REFLECTION_PERIODIC_SECONDS: int = 1_800
     # Per-symbol reasoning cooldown — minimum seconds between LLM reasoning
     # calls for the SAME symbol. Decouples LLM spend from raw signal volume:
     # momentum signals can fire every few seconds per symbol, and previously
