@@ -1,0 +1,182 @@
+# OpenTelemetry Collector — span/metric name + attribute normalization gateway
+# =============================================================================
+# Purpose
+#   trading-control's auto-instrumentation emits a handful of HIGH-CARDINALITY
+#   operation identifiers that blow up the SigNoz "Services → Operations" table
+#   (and the active time-series budget) with one row per random id:
+#
+#     * agent.process challenger-6d80ebcb / -1cbb937e / -3b5f8264 ...  (one
+#       per dynamically-spawned shadow challenger; the id is a random hex uuid)
+#     * SET XADD PUBLISH SET XADD PUBLISH ... XTRIM  (Redis pipeline spans whose
+#       name is the *concatenation of every command*, so a 3-item batch and a
+#       6-item batch are two different operations)
+#
+#   This collector sits BETWEEN the app and SigNoz Cloud and rewrites those
+#   names/attributes to stable, low-cardinality signatures BEFORE they are
+#   written to ClickHouse, so the P50/P95/P99/error-rate of all challenger
+#   executions (and all Redis pipelines) aggregate into a single row.
+#
+# Wiring
+#   app  --OTLP-->  THIS collector  --OTLP/TLS-->  SigNoz Cloud (us2)
+#   Point the app at this collector:
+#     OTEL_ENABLED=true
+#     OTEL_EXPORTER_OTLP_ENDPOINT=http://<collector-host>:4317   (grpc)
+#   and give the collector the cloud ingestion key:
+#     SIGNOZ_INGESTION_KEY=<your-key>     (SigNoz → Settings → Ingestion)
+#
+# IMPORTANT — image
+#   The `transform` processor lives in the *contrib* distribution. Run
+#   `otel/opentelemetry-collector-contrib`, NOT the core `opentelemetry-collector`
+#   image, or the collector will fail to start with "unknown processors type".
+#
+#     docker run --rm -p 4317:4317 -p 4318:4318 \
+#       -e SIGNOZ_INGESTION_KEY="$SIGNOZ_INGESTION_KEY" \
+#       -v "$PWD/observability/signoz/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro" \
+#       otel/opentelemetry-collector-contrib:latest
+#
+# Guardrail: tests/core/test_otel_collector_normalization.py keeps the regexes
+# below in lock-step with the real operation names exported by the app.
+# =============================================================================
+
+extensions:
+  # Liveness endpoint for container / k8s probes (contrib).
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Shed load before the heap is exhausted — must be the FIRST processor.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+
+  # ---------------------------------------------------------------------------
+  # TRACES — normalize the operation name (drives the Operations table) and the
+  # trading.agent span attribute (used for group-by / filtering).
+  # ---------------------------------------------------------------------------
+  transform/standardize_operations:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          # Collapse the random challenger id in the span NAME.
+          #   agent.process challenger-6d80ebcb -> agent.process challenger-<id>
+          - 'set(name, "agent.process challenger-<id>") where IsMatch(name, "^agent\.process challenger-[0-9a-f]+$")'
+
+          # Collapse the variable-length Redis pipeline concatenations into one
+          # canonical signature (idempotent for the single-occurrence case).
+          # (?i) + \s+ tolerate casing/spacing variance defensively, though the
+          # redis-py + OTel contract emits uppercase, single-space tokens today.
+          #   SET XADD PUBLISH (xN) XTRIM -> SET XADD PUBLISH XTRIM
+          - 'set(name, "SET XADD PUBLISH XTRIM") where IsMatch(name, "(?i)^(set\s+xadd\s+publish)(\s+set\s+xadd\s+publish)*\s+xtrim$")'
+          #   SET XADD PUBLISH (xN)       -> SET XADD PUBLISH
+          - 'set(name, "SET XADD PUBLISH") where IsMatch(name, "(?i)^(set\s+xadd\s+publish)(\s+set\s+xadd\s+publish)*$")'
+
+          # Same random id also rides as a span ATTRIBUTE — collapse it too so
+          # trace group-by/filter on trading.agent stays low-cardinality.
+          - 'replace_pattern(attributes["trading.agent"], "challenger-[0-9a-f]+", "challenger-<id>") where attributes["trading.agent"] != nil'
+
+  # ---------------------------------------------------------------------------
+  # METRICS — the metric NAMES are already static (agent_process_duration, ...);
+  # the cardinality lives in the trading.agent datapoint ATTRIBUTE, so that is
+  # what we collapse (this is what actually reduces the active time-series count).
+  # ---------------------------------------------------------------------------
+  transform/standardize_metrics:
+    error_mode: ignore
+    metric_statements:
+      - context: datapoint
+        statements:
+          - 'replace_pattern(attributes["trading.agent"], "challenger-[0-9a-f]+", "challenger-<id>") where attributes["trading.agent"] != nil'
+
+  # Batch before export — must be the LAST processor in each pipeline.
+  batch:
+    send_batch_size: 1024
+    timeout: 5s
+
+exporters:
+  # SigNoz Cloud (us2). The ingestion key is a secret — supply it via the
+  # SIGNOZ_INGESTION_KEY environment variable; never commit it here.
+  # For another region change the host: ingest.{region}.signoz.cloud:443
+  otlp/signoz:
+    endpoint: ingest.us2.signoz.cloud:443
+    tls:
+      insecure: false
+    headers:
+      signoz-ingestion-key: ${env:SIGNOZ_INGESTION_KEY}
+  # Uncomment to print normalized spans/metrics locally while validating.
+  # debug:
+  #   verbosity: normal
+
+connectors:
+  # ADDITIVE R.E.D. (Request / Error / Duration) generation.
+  # Builds uniform `calls` + `duration` metrics from the spans the app already
+  # emits, with identical latency buckets for every operation. This runs at the
+  # exporter end of the traces pipeline, so it sees spans AFTER
+  # transform/standardize_operations — the generated metrics inherit the
+  # already-normalized span names and trading.agent value (low cardinality).
+  #
+  # The app's DOMAIN metrics (daily_pnl / win_rate / account_balance /
+  # signals_generated_total / trades_* / broker_api_latency /
+  # trade_execution_duration / agent_process_duration) are NOT replaced — RED
+  # cannot express PnL or win-rate. This is belt-and-suspenders next to SigNoz
+  # Cloud's own trace-derived RED, with bucket/dimension control owned here.
+  #
+  # The `dimensions` list IS the schema allowlist: ONLY these span attributes
+  # become RED labels, so cardinality stays bounded while the trading.* domain
+  # schema is preserved (service.name / span.name / span.kind / status.code and
+  # resource attrs such as deployment.environment are added automatically).
+  spanmetrics:
+    histogram:
+      explicit:
+        # Uniform buckets for every operation. Top bucket exceeds the LLM
+        # reasoning span's measured P99 (~66.8s in the SigNoz export) so the
+        # slowest percentile lands in a real bucket, not the +Inf overflow.
+        buckets:
+          [1ms, 2ms, 5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2500ms, 5s, 10s, 30s, 60s, 90s, 120s]
+    dimensions:
+      # Standard RED dims (populated on HTTP server spans; empty elsewhere).
+      - name: http.method
+      - name: http.status_code
+      # Trading domain schema — PRESERVED so RED can be sliced like the app
+      # metrics (by symbol / agent / operation / ...), never stripped.
+      - name: trading.symbol
+      - name: trading.agent
+      - name: trading.operation
+      - name: trading.side
+      - name: trading.stream
+      - name: trading.component
+      - name: trading.broker
+    exemplars:
+      enabled: true
+    metrics_flush_interval: 15s
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/standardize_operations, batch]
+      # Spans go to trace storage AND feed the spanmetrics connector (RED).
+      exporters: [otlp/signoz, spanmetrics]
+    # App-emitted OTLP metrics (domain metrics + gauges). transform collapses
+    # the high-cardinality trading.agent=challenger-<hex> label here.
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/standardize_metrics, batch]
+      exporters: [otlp/signoz]
+    # Collector-generated RED metrics from the spanmetrics connector. Names are
+    # already normalized (transform ran upstream), so no transform needed here.
+    metrics/spanmetrics:
+      receivers: [spanmetrics]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/signoz]
+    # Logs are shipped to SigNoz separately from container stdout (filelog /
+    # k8s-infra) — see README §3 — so no OTLP logs pipeline is defined here.
