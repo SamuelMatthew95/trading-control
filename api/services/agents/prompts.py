@@ -46,6 +46,11 @@ REFLECTION_SYSTEM_PROMPT = (
     "revise or drop ones they contradict, and sharpen them into more specific, actionable "
     "hypotheses. Do NOT restart from scratch; each reflection should be a refinement of the "
     "last so the analysis compounds as more trades accumulate. "
+    "When the input includes 'tunable_parameters' (a map of name -> {current, min, max}) and "
+    "the evidence supports tuning one, emit a hypothesis with type='parameter' that ALSO sets "
+    "'parameter' (one of those exact names), 'current_value', and 'proposed_value' (a number "
+    "strictly within [min, max]). A concrete, in-bounds value is what becomes a real config "
+    "change — vague parameter hypotheses cannot be applied. "
     "Return ONLY the JSON object, no markdown fences."
 )
 
