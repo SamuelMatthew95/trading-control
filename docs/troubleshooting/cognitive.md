@@ -288,3 +288,36 @@ redeploy reflection had no data.
 `tests/agents/test_proposal_applier.py::test_retirement_is_bounded_probation_with_cautious_resume`,
 `tests/agents/test_reflection_agent.py::test_seed_history_populates_fill_buffer`,
 `tests/core/test_periodic_reflection.py`
+
+## Production hardening: reflection cost governance + live-money safety
+
+**Symptom:** After enabling per-fill reflection, on-demand reflect-now, and a
+periodic loop, three paths could all fire the (multi-call) reflection chain —
+risking a token/rate-limit spike and concurrent runs racing on shared buffers.
+Separately, the Grade-F probation auto-resumed trading, which is unsafe with
+real capital.
+
+**Fixes:**
+- **Reflection cooldown + single-flight** (`api/services/agents/reflection_agent.py`):
+  `maybe_reflect()` gates auto/periodic reflections behind
+  `REFLECTION_MIN_INTERVAL_SECONDS` (default 300s) and a "no new fills since last
+  reflection" check; `_run_reflection` holds an `asyncio.Lock` and skips if a
+  reflection is already running. `reflect-now` (`force=True`) bypasses the
+  cooldown but never the lock. The periodic loop (`api/startup.py`) just calls
+  `maybe_reflect()` and lets the agent self-gate.
+- **Live-money safety** (`api/services/agents/proposal_applier._apply_trading_pause`):
+  a Grade-F retirement is a bounded probation + cautious resume ONLY in paper
+  mode; with `ALPACA_PAPER=False` it is a full long halt pending human review —
+  never an auto-resume, never a silent size reduction.
+- **No-op param PRs** (`api/services/agents/strategy_proposer._is_noop_change`):
+  a proposed parameter value equal to the current one no longer opens a config PR.
+- **Startup robustness** (`api/startup._seed_reflection_from_history`): seeding is
+  wrapped so a failure can never block boot.
+
+**Regression tests:**
+`tests/agents/test_reflection_agent.py::test_cooldown_blocks_rapid_auto_reflections`,
+`::test_single_flight_skips_when_already_running`, `::test_no_new_data_skips_reflection`,
+`::test_force_bypasses_cooldown`,
+`tests/agents/test_proposal_applier.py::test_retirement_in_live_mode_is_full_halt_no_auto_resume`,
+`tests/agents/test_strategy_proposer.py::test_noop_param_change_degrades_to_review_item`,
+`tests/core/test_periodic_reflection.py`
