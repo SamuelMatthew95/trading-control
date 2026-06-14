@@ -119,3 +119,64 @@ async def test_acquire_returns_before_retry_sleep() -> None:
     elapsed = time.monotonic() - start
     # acquire() with room in the window should be nearly instantaneous.
     assert elapsed < 0.1, f"acquire() took {elapsed:.3f} s — looks like a retry sleep leaked inside"
+
+
+# ---------------------------------------------------------------------------
+# Cross-provider fallback — one throttled provider must not down the loop
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cross_provider_fallback_on_primary_failure(monkeypatch):
+    """When the primary cloud provider fails and another key is configured, the
+    call transparently routes to the next provider instead of raising."""
+    from unittest.mock import AsyncMock
+
+    from api.config import settings
+    from api.services import llm_router
+
+    monkeypatch.setattr(settings, "LLM_PROVIDER", "groq")
+    monkeypatch.setattr(settings, "GROQ_API_KEY", "g-key")
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "gem-key")
+    monkeypatch.setattr(settings, "LLM_FALLBACK_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", False)
+    monkeypatch.setattr(llm_router, "_is_lmstudio_primary", lambda: False)
+    monkeypatch.setattr(llm_router, "_inter_call_delay", AsyncMock())
+
+    async def fake_call(provider, *_a, **_k):
+        if provider == "groq":
+            raise RuntimeError("rate_limited")
+        return (f"OK:{provider}", 7, 0.0)
+
+    monkeypatch.setattr(llm_router, "_call_provider_raw", AsyncMock(side_effect=fake_call))
+
+    meta: dict = {}
+    text, tokens, _ = await llm_router.call_llm_with_system("p", "sys", "trace-1", result_meta=meta)
+    assert text == "OK:gemini"
+    assert tokens == 7
+    assert meta["model_label"].startswith("gemini:")
+
+
+@pytest.mark.asyncio
+async def test_no_fallback_key_reraises(monkeypatch):
+    """With no alternate provider key, a primary failure still raises (unchanged)."""
+    from unittest.mock import AsyncMock
+
+    from api.config import settings
+    from api.services import llm_router
+
+    monkeypatch.setattr(settings, "LLM_PROVIDER", "groq")
+    monkeypatch.setattr(settings, "GROQ_API_KEY", "g-key")
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "")
+    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "")
+    monkeypatch.setattr(settings, "LLM_FALLBACK_ENABLED", True)
+    monkeypatch.setattr(settings, "LM_STUDIO_ENABLED", False)
+    monkeypatch.setattr(llm_router, "_is_lmstudio_primary", lambda: False)
+    monkeypatch.setattr(llm_router, "_inter_call_delay", AsyncMock())
+    monkeypatch.setattr(
+        llm_router, "_call_provider_raw", AsyncMock(side_effect=RuntimeError("boom"))
+    )
+
+    with pytest.raises(RuntimeError):
+        await llm_router.call_llm_with_system("p", "sys", "trace-2")
