@@ -205,6 +205,10 @@ export function useRestPoll(wsConnected: boolean): RestPollState {
             strategy_name: (p.strategy_name as string | undefined) ?? undefined,
             status: (p.status as ProposalStatus) ?? 'pending',
             timestamp: (p.timestamp as string) ?? new Date().toISOString(),
+            // Carry the artifact link + outcome so the queue shows a helpful
+            // link (GitHub issue/PR) instead of a dead JSON blob.
+            pr_url: (p.pr_url as string | undefined) ?? undefined,
+            message: (p.message as string | undefined) ?? undefined,
           })
         }
       } catch {
