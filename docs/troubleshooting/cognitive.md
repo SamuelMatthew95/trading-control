@@ -245,3 +245,46 @@ so absence became a confident zero.
 **Fix:** `api/routes/cognitive.py` now backs **every** endpoint with `api/services/cognitive_live.py` (the real pipeline) — `build_live_config()` / `live_roster()` / `build_live_trace()` were added, the `?demo=true` branch and `POST /cognitive/reseed` were removed, and the route no longer imports the `cognitive/` package at all. The standalone deterministic engine in `cognitive/` stays as a tested library, just unwired from the API.
 
 **Regression test:** `tests/api/test_cognitive_routes.py` (asserts config/agents/trace are live; `test_trace_endpoint_reconstructs_live_chain_by_id`, `test_trace_endpoint_unknown_id_returns_keyed_empty`).
+
+## The self-evolving loop stalled, lost context on restart, and died on one rate-limited LLM
+
+**Symptom:** Operator: "nothing keeps improving — it pauses and never comes
+back, and one provider hiccup stops everything." In practice the loop sat idle:
+trading paused on a Grade F, the LLM intermittently rate-limited, and after each
+redeploy reflection had no data.
+
+**Root causes (four, all addressed):**
+1. **Self-stalling pause deadlock.** A Grade-F `AGENT_RETIREMENT` set
+   `trading_paused=1` for ~25h (`LEARNING_CONTROL_TTL_SECONDS`). Paused → no
+   closed trades → no grades/reflection → the loop can't generate the fix for
+   the bad grade. It froze itself exactly when it needed to learn.
+2. **Single-LLM fragility.** Only one cloud provider was tried; a groq free-tier
+   rate-limit collapsed reasoning into `reject_signal` and reflection into the
+   generic fallback, even when other provider keys were configured.
+3. **Restart amnesia.** `ReflectionAgent._recent_fills` is in-memory; every
+   redeploy wiped it, so reflection had nothing to analyze until a brand-new
+   trade closed — which can be a long wait while paused.
+4. **Fill-gated only.** Reflection ran solely on the per-fill trigger, so a
+   restart produced no proposals until fresh trades arrived.
+
+**Fixes:**
+1. `_apply_trading_pause` (`api/services/agents/proposal_applier.py`) now pauses
+   for a bounded `TRADING_PAUSE_PROBATION_SECONDS` (30 min, auto-resume) AND
+   reduces the signal-weight scale, so trading resumes *cautiously* instead of
+   stopping dead for a day.
+2. `call_llm_with_system` (`api/services/llm_router.py`) falls back across the
+   configured cloud providers (`_cloud_fallback_chain`) when the primary fails —
+   one throttled key no longer downs the cognitive loop. No-op when no alternate
+   key is set (behaviour unchanged).
+3. `ReflectionAgent.seed_history()` + `api/startup._seed_reflection_from_history`
+   seed the fill buffer from the durable closed-trade history on boot.
+4. `REFLECTION_PERIODIC_SECONDS` + `api/startup._periodic_reflection_loop` trigger
+   reflection once over seeded history after startup and again when new fills
+   accumulate, bounded by the proposal dedup/daily cap.
+
+**Regression tests:**
+`tests/core/test_llm_router.py::test_cross_provider_fallback_on_primary_failure`,
+`::test_no_fallback_key_reraises`,
+`tests/agents/test_proposal_applier.py::test_retirement_is_bounded_probation_with_cautious_resume`,
+`tests/agents/test_reflection_agent.py::test_seed_history_populates_fill_buffer`,
+`tests/core/test_periodic_reflection.py`
