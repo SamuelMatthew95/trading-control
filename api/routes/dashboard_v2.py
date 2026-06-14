@@ -22,6 +22,7 @@ from api.services.dashboard.agents import (
 )
 from api.services.dashboard.control import (
     get_debug_state_payload,
+    get_gitops_status_payload,
     get_kill_switch_payload,
     list_challengers_payload,
     spawn_challenger_payload,
@@ -208,6 +209,13 @@ async def get_ic_weights() -> dict[str, Any]:
 @router.get("/learning/reflections")
 async def get_reflections(limit: int = 20) -> dict[str, Any]:
     return await get_reflections_payload(limit)
+
+
+@router.get("/gitops/status")
+async def gitops_status() -> dict[str, Any]:
+    """Confirm GitHub auto-PR/issue creation is configured and the token reaches
+    the repo (status: disabled / ok / error; ready: can open a PR now)."""
+    return await get_gitops_status_payload()
 
 
 @router.post("/learning/reflect-now")
