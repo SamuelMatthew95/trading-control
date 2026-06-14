@@ -785,6 +785,7 @@ class FieldName(StrEnum):
     PRICES = "prices"
     PRICE_HINT = "price_hint"
     PRIMARY_EDGE = "primary_edge"
+    PRIOR_REFLECTION = "prior_reflection"
     PR_URL = "pr_url"
     PROCESSED_COUNT = "processed_count"
     PROCESSED_EVENTS_LAST_HOUR = "processed_events_last_hour"
