@@ -67,6 +67,17 @@ async def list_challengers_payload(agents: list[Any]) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail="Internal server error") from None
 
 
+async def get_gitops_status_payload() -> dict[str, Any]:
+    """Report whether auto-PR/issue creation is wired and the token actually
+    reaches the repo — so an operator can confirm GitOps WITHOUT waiting for a
+    trade→proposal→PR. Never raises."""
+    from api.services.gitops_publisher import GitOpsPublisher  # noqa: PLC0415
+
+    result = await GitOpsPublisher().verify_access()
+    result[FieldName.TIMESTAMP] = datetime.now(timezone.utc).isoformat()
+    return result
+
+
 async def get_kill_switch_payload() -> dict[str, Any]:
     """Get current kill switch state."""
     try:
