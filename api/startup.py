@@ -357,6 +357,39 @@ async def _hydrate_proposals_from_redis() -> None:
     log_structured("info", "proposals_hydrated_from_redis", count=len(recent))
 
 
+def _seed_reflection_from_history(agents: list) -> None:
+    """Seed the ReflectionAgent's fill buffer from the durable closed-trade
+    history so reflection can analyze real data immediately after a restart
+    (the in-memory buffer is otherwise empty until a fresh trade closes)."""
+    agent = next((a for a in agents if isinstance(a, ReflectionAgent)), None)
+    if agent is None:
+        return
+    trades = list(get_runtime_store().closed_trades)
+    if not trades:
+        return
+    seeded = agent.seed_history(trades)
+    log_structured("info", "reflection_seeded_from_history", count=seeded)
+
+
+async def _periodic_reflection_loop(agent: ReflectionAgent) -> None:
+    """Trigger reflection on an interval when new fills have accumulated (and once
+    on startup over seeded history), so the loop keeps producing proposals even
+    when the per-fill trigger is quiet. Never raises into the event loop."""
+    interval = max(int(settings.REFLECTION_PERIODIC_SECONDS), 0)
+    if interval <= 0:
+        return
+    min_fills = max(int(settings.REFLECT_MIN_FILLS), 1)
+    last_fills = -1  # -1 forces an initial pass over any seeded history
+    while True:
+        try:
+            if agent.buffered_fill_count() >= min_fills and agent.fills_seen() != last_fills:
+                await agent.trigger_reflection()
+                last_fills = agent.fills_seen()
+        except Exception:
+            log_structured("warning", "periodic_reflection_failed", exc_info=True)
+        await asyncio.sleep(interval)
+
+
 def _build_agents(event_bus, dlq_manager, redis_client, agent_state, paper_broker) -> list:
     """Construct the full agent fleet (order matters only for logging)."""
     grade_agent = GradeAgent(event_bus, dlq_manager, agent_state=agent_state)
@@ -479,6 +512,7 @@ async def _shutdown(app: FastAPI, pipeline: EventPipeline | None, broadcaster) -
         "tool_telemetry_task",
         "agent_grade_snapshot_task",
         "lmstudio_probe_task",
+        "periodic_reflection_task",
     ):
         task = getattr(app.state, task_name, None)
         if task is not None:
@@ -607,6 +641,17 @@ async def lifespan(app: FastAPI):
                 streams=getattr(agent, "streams", None),
             )
         app.state.agents = agents
+
+        # Seed reflection from durable closed-trade history and start the periodic
+        # reflection safety-net, so the learning loop produces proposals right
+        # after a restart and keeps reflecting as fills accumulate (not only on
+        # the per-fill trigger).
+        _seed_reflection_from_history(agents)
+        _reflection_agent = next((a for a in agents if isinstance(a, ReflectionAgent)), None)
+        if _reflection_agent is not None:
+            app.state.periodic_reflection_task = asyncio.create_task(
+                _periodic_reflection_loop(_reflection_agent)
+            )
 
         # Wire the shared service registry (api.main_state) so the analyze /
         # feedback / performance / positions / pnl routes operate on the same
