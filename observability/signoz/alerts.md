@@ -31,6 +31,15 @@ the telemetry governance layer (`docs/platform/telemetry-governance.md`).
 | 15 | Cost per trade anomaly | `cost_per_business_event > 3 × rolling_7d_median` | 6h | P2 | telemetry spend rising while trades are flat — ingest bloat |
 | 16 | Active series growth | `(signoz_active_time_series - offset 24h) / offset 24h > 0.25` | 24h | P2 | structural cardinality creep |
 
+## Behavioral alerts
+
+System "green" but behavior degrading (`docs/platform/telemetry-governance.md` §8.5).
+
+| # | Alert | Query / condition | Window | Severity | Why |
+|---|---|---|---|---|---|
+| 17 | LLM fallback ratio high | share of `agent_decisions_total` with `trading.model in (fallback, policy)` > 0.20 | 15 min | P2 | reasoning LLM degraded — decisions falling back to the deterministic policy |
+| 18 | Decision flip spike | `rate(agent_decision_flips_total) > 0.1/s` per symbol | 15 min | P3 | reasoning thrash / prompt regression — actions oscillating |
+
 Routing: SigNoz supports Slack/PagerDuty/webhook channels — point P1 at the
 pager, P2 at the team channel, P3 at a digest. Every alert should link the
 matching runbook in `docs/runbooks/`.
