@@ -13,6 +13,7 @@ import pytest
 
 from api.constants import (
     AGENT_REASONING,
+    LEARNING_CONTROL_TTL_SECONDS,
     REDIS_KEY_AGENT_SUSPENDED,
     REDIS_KEY_SIGNAL_WEIGHT_SCALE,
     REDIS_KEY_TRADING_PAUSED,
@@ -159,9 +160,12 @@ async def test_agent_retirement_pauses_trading(monkeypatch):
 
 
 async def test_retirement_is_bounded_probation_with_cautious_resume(monkeypatch):
-    """Grade-F retirement pauses for a bounded probation window (auto-resume)
-    and reduces the signal-weight scale so trading resumes cautiously — instead
-    of a 25h hard stop that deadlocks the learning loop."""
+    """In PAPER mode a Grade-F retirement pauses for a bounded probation window
+    (auto-resume) and reduces the signal-weight scale so trading resumes
+    cautiously — instead of a 25h hard stop that deadlocks the learning loop."""
+    from api.config import settings
+
+    monkeypatch.setattr(settings, "ALPACA_PAPER", True)
     monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
     monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
     redis = _FakeRedis({REDIS_KEY_SIGNAL_WEIGHT_SCALE: "1.0"})
@@ -182,6 +186,33 @@ async def test_retirement_is_bounded_probation_with_cautious_resume(monkeypatch)
     # Signal weight shrunk so post-probation trading is smaller.
     new_scale = float(await redis.get(REDIS_KEY_SIGNAL_WEIGHT_SCALE))
     assert new_scale == max(1.0 * SIGNAL_WEIGHT_REDUCTION_FACTOR, SIGNAL_WEIGHT_SCALE_MIN)
+
+
+async def test_retirement_in_live_mode_is_full_halt_no_auto_resume(monkeypatch):
+    """SAFETY: with real money (ALPACA_PAPER=False) a Grade-F retirement is a
+    full long halt pending human review — never an auto-resume, never a quiet
+    size reduction that masks the stop."""
+    from api.config import settings
+
+    monkeypatch.setattr(settings, "ALPACA_PAPER", False)
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    redis = _FakeRedis({REDIS_KEY_SIGNAL_WEIGHT_SCALE: "1.0"})
+    applier = _make_applier(redis)
+
+    await applier.process(
+        "proposals",
+        "1-0",
+        {
+            FieldName.PROPOSAL_TYPE: ProposalType.AGENT_RETIREMENT,
+            FieldName.CONTENT: {FieldName.ACTION: "retire_immediately", FieldName.REASON: "F"},
+        },
+    )
+
+    pause_set = next(c for c in redis.set_calls if c[0] == REDIS_KEY_TRADING_PAUSED)
+    assert pause_set[2] == LEARNING_CONTROL_TTL_SECONDS  # long halt, not probation
+    # Weight is untouched — no cautious-resume path in live mode.
+    assert await redis.get(REDIS_KEY_SIGNAL_WEIGHT_SCALE) == "1.0"
 
 
 async def test_unknown_proposal_type_is_logged_not_applied(monkeypatch):
