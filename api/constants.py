@@ -502,6 +502,7 @@ class FieldName(StrEnum):
     FILLED_PRICE = "filled_price"
     FILLED_QTY = "filled_qty"
     FILLED_QUANTITY = "filled_quantity"
+    BUFFERED_FILLS = "buffered_fills"
     FILLS = "fills"
     FILLS_ANALYZED = "fills_analyzed"
     FILLS_GRADED = "fills_graded"
