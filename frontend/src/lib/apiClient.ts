@@ -76,6 +76,7 @@ export const API_ENDPOINTS = {
   DASHBOARD_AGENT_INSTANCES: "/dashboard/agent-instances",
   DASHBOARD_PERFORMANCE_TRENDS: "/dashboard/performance-trends",
   DASHBOARD_KILL_SWITCH: "/dashboard/kill-switch",
+  DASHBOARD_GITOPS_STATUS: "/dashboard/gitops/status",
   DASHBOARD_CHALLENGERS: "/dashboard/challengers",
   DASHBOARD_TOOLS: "/dashboard/tools",
   DASHBOARD_PROMPT_OS: "/dashboard/prompt-os",
