@@ -385,3 +385,48 @@ Approve/Reject buttons for actions already taken.
 `::test_proposals_list_cap_is_enforced`,
 `::test_persist_proposal_mirrors_to_redis_in_memory_mode`,
 `::test_startup_hydrates_proposals_from_redis`
+
+## The self-improvement loop produced nothing — no proposals, no PRs, no prompt evolution
+
+**Symptom:** Operator: "nothing is creating proposals — no new agents, no
+challengers, no auto-PRs or GitHub issues, no prompt updates. The proposals are
+bullshit, not helpful links." The `reflection_outputs` stream was empty (0 ever)
+while challenger/grade proposals fired normally.
+
+**Root cause:** Three independent things, none of them the LLM key (which works
+intermittently — Groq free-tier rate-limits cause periodic `fallback:reject_signal`):
+1. **ReflectionAgent never triggered.** `REFLECT_EVERY_N_FILLS` defaulted to 10,
+   but this paper system closes only a handful of trades a day (3 total when
+   diagnosed), so `self._fills % 10 == 0` was never true → no reflection → no
+   hypotheses → `StrategyProposer` never ran. StrategyProposer is the ONLY
+   producer of the artifact-creating proposal types
+   (`PARAMETER_CHANGE`→PR, `CODE_CHANGE`/`REGIME`/`NEW_AGENT`→issue,
+   `PROMPT_EVOLUTION`). So the entire "create artifacts" half of the loop was
+   dark, while the non-LLM producers (GradeAgent/ChallengerAgent) kept firing.
+2. **No on-demand trigger.** There was no way to force the loop, so at low trade
+   volume an operator could not generate a proposal to verify the chain.
+3. **The artifact link was never surfaced.** When GitOps DID open a PR/issue,
+   `GitOpsPublisher` returned the URL and the applier stored it in the proposal
+   payload (`pr_url`), but no read path or the frontend exposed it — the link was
+   buried inside a stringified `content` blob, so proposals looked like dead text
+   instead of helpful links.
+
+**Fix:**
+- `REFLECT_EVERY_N_FILLS` default 10 → 3 (`api/config.py`) so reflection fires at
+  realistic paper-trade cadence.
+- `ReflectionAgent.trigger_reflection()` + `POST /dashboard/learning/reflect-now`
+  (`api/routes/dashboard_v2.py` → `trigger_reflection_payload`) force a reflection
+  cycle on demand → hypotheses → proposals → applier → PR/issue/prompt-evolution.
+- `get_learning_proposals_payload` and `_in_memory_proposals` now surface `pr_url`
+  and the applier `message`; the frontend `Proposal` type carries them and
+  `ProposalDetailModal` renders an "Artifact" section with a clickable
+  GitHub issue/PR link.
+
+**Still operational, not code:** real PR/issue creation requires `GITHUB_TOKEN`
+in the Render env (`GITHUB_REPO` + `GITHUB_AUTOPR_ENABLED` are already defaulted);
+without it `GitOpsPublisher` runs dry and the proposal records "GitOps not
+configured" instead of a link.
+
+**Regression tests:**
+`tests/api/test_learning_routes.py::test_trigger_reflection_runs_live_agent`,
+`::test_trigger_reflection_degrades_when_no_agent`
