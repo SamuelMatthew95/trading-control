@@ -1874,6 +1874,12 @@ TELEMETRY_SCHEMA: Final[dict[str, TelemetryAttr]] = {
             "trading.success", 3, False, "backend", "broker-call outcome flag; not a RED dimension"
         ),
         TelemetryAttr(
+            "trading.model", 10, False, "backend", "model_used label on agent_decisions_total"
+        ),
+        TelemetryAttr(
+            "trading.action", 6, False, "backend", "action label on agent_decisions_total"
+        ),
+        TelemetryAttr(
             "trading.trace_id",
             0,
             False,
