@@ -86,6 +86,12 @@ class ReflectionAgent(MultiStreamAgent):
         self._close_dedup = PairedCloseDeduper()
         # Holds the GradeAgent eval_buffer reference injected at startup (optional)
         self._grade_agent: GradeAgent | None = None
+        # Carry-forward of the previous reflection (summary + hypotheses +
+        # winning/losing factors). Fed back into the next prompt so each
+        # reflection LEARNS FROM THE LAST — comparing new fills against prior
+        # conclusions and refining them — instead of starting from scratch every
+        # time. This is what makes the loop cumulative rather than batch-static.
+        self._last_reflection: dict[str, Any] = {}
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         if stream in {STREAM_TRADE_PERFORMANCE, STREAM_TRADE_COMPLETED}:
@@ -141,7 +147,7 @@ class ReflectionAgent(MultiStreamAgent):
             except Exception:
                 log_structured("warning", "reflection_idle_heartbeat_failed", exc_info=True)
             return
-        if len(self._recent_fills) < 3:
+        if len(self._recent_fills) < max(int(settings.REFLECT_MIN_FILLS), 1):
             return
 
         await self._run_reflection()
@@ -271,6 +277,17 @@ class ReflectionAgent(MultiStreamAgent):
             FieldName.CONFIDENCE: quant[FieldName.CONFIDENCE],
         }
 
+        # Carry this reflection's conclusions into the next cycle so the loop
+        # compounds (compare → refine) instead of restarting each time. Keep a
+        # compact subset to bound the next prompt's size.
+        self._last_reflection = {
+            FieldName.SUMMARY: reflection_data.get(FieldName.SUMMARY, ""),
+            FieldName.HYPOTHESES: reflection_data.get(FieldName.HYPOTHESES, []),
+            FieldName.WINNING_FACTORS: reflection_data.get(FieldName.WINNING_FACTORS, []),
+            FieldName.LOSING_FACTORS: reflection_data.get(FieldName.LOSING_FACTORS, []),
+            FieldName.FILLS_ANALYZED: self._fills,
+        }
+
         await self.bus.publish(STREAM_REFLECTION_OUTPUTS, reflection_payload)
         await write_agent_log(trace_id, LogType.REFLECTION, reflection_payload)
         await persist_reflection_record(reflection_payload)
@@ -369,6 +386,10 @@ class ReflectionAgent(MultiStreamAgent):
                 # Per-model win-rate/PnL so the LLM can reason about which model
                 # is trading well, not just aggregate outcomes.
                 FieldName.MODEL_PERFORMANCE: aggregate_model_performance(recent_fills),
+                # The previous reflection's conclusions — the LLM is asked to
+                # build on / compare against / refine these rather than restart,
+                # so successive reflections compound into better hypotheses.
+                FieldName.PRIOR_REFLECTION: self._last_reflection,
             },
             default=str,
         )
