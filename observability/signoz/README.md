@@ -98,6 +98,19 @@ self-telemetry scrape (`service.telemetry.metrics` on :8888, enabled in
 | Cost per business event (`cost_per_business_event`) | `ingested_units / rate(trades_completed_total)` — `ingested_units` = your SigNoz price-sheet weighting of spans / metric-points / active-series |
 | Active series growth (24h) | `(signoz_active_time_series - signoz_active_time_series offset 24h) / signoz_active_time_series offset 24h` |
 
+### Behavioral Dashboard (`dashboards/behavioral.json`)
+
+Behavior degrading while the system stays "green" (see
+`docs/platform/telemetry-governance.md` §8.5).
+
+| Panel | Query / formula |
+|---|---|
+| LLM fallback ratio | `agent_decisions_total` filtered `trading.model in (fallback, policy)` ÷ total `agent_decisions_total` |
+| Decision flip rate | `rate(agent_decision_flips_total)`, group by `trading.symbol` |
+| Action mix | `rate(agent_decisions_total)`, group by `trading.action` |
+| Retry inflation | `rate(retry_count) / rate(trades_completed_total)` |
+| Tool entropy | distinct `tools/call *` operation count per window |
+
 ## 5. Trade lifecycle tracing
 
 Every agent dispatch span carries the app-level `trading.trace_id`
