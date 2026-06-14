@@ -243,6 +243,10 @@ its runbook in `docs/runbooks/`.
 > defensible multiple of observed P99 — the same discipline that sized the
 > RED buckets above measured P99.
 
+**Spec:** the concrete SLO definitions (SLIs, error budgets, and multi-window
+burn-rate alerts) live in `observability/signoz/slos.md`; every target is flagged
+`CALIBRATE` until set from your measured P99.
+
 ---
 
 ## 5. Governance alerts
@@ -335,9 +339,12 @@ Each is independently shippable; #1 unblocks the rest by giving them a registry
 to register against.
 
 **Status:** #1 shipped (schema registry + Layer A build guardrail + Layer B
-runtime auditor). #2 partial — collector self-telemetry (the volume source), the
-cost formulas, and the governance/cost alerts shipped; only the `$`-rate
-calibration is pending your SigNoz plan (§10). #3/#4 not started.
+runtime auditor). #2 partial — collector self-telemetry, cost formulas, and
+governance/cost alerts shipped; only the `$`-rate calibration is pending your
+SigNoz plan (§10). #3 scaffolded — SLO spec (`observability/signoz/slos.md`):
+SLIs + error budgets + multi-window burn-rate alerts defined; targets pending
+your measured-P99 calibration. #4 partial — behavioral fallback + flip signals
+instrumented (§8.5).
 
 ---
 
