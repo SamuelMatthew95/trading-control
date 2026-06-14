@@ -891,6 +891,8 @@ export const UI_COPY = {
     yes: 'yes',
     no: 'no',
     traceability: 'Traceability',
+    artifact: 'Artifact',
+    viewArtifact: 'View GitHub issue / PR',
   },
   trace: {
     title: 'Trace:',
