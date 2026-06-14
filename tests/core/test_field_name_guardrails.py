@@ -133,6 +133,7 @@ CLEAN_FILES: frozenset[str] = frozenset(
         "api/security.py",
         "api/startup.py",
         "api/telemetry.py",
+        "api/telemetry_drift.py",
         "api/services/agent_heartbeat.py",
         "api/services/agent_log_stream.py",
         "api/services/agent_state.py",
