@@ -135,30 +135,37 @@ It is additive to Layer A (which already blocks the unregistered case); the
 score's value is making **RED-dimension changes** — the costliest kind, since
 they multiply active time series — loud in review rather than buried in a diff.
 
-### Layer B — runtime auditor (defence in depth)
+### Layer B — runtime auditor (defence in depth) — IMPLEMENTED
 
-A lightweight scheduled job (`OTEL_DRIFT_AUDIT_ENABLED`, default off) queries
-SigNoz's metric-metadata API for the *observed* label keys and per-key distinct
-counts over a rolling window, and diffs against the registry:
+`api/telemetry_drift.py` + the audit loop in `api/telemetry.py`, gated by
+`OTEL_DRIFT_AUDIT_ENABLED` (default off), interval `OTEL_DRIFT_AUDIT_INTERVAL_SECONDS`.
+One auditor, two observation sources:
 
-```text
-approved      = set(TELEMETRY_SCHEMA)
-observed_keys = signoz.label_keys(service="trading-control", window="24h")
-for key in observed_keys - approved:
-    emit unknown_attribute_detected_total{service, key} += 1     # -> alert (drift)
-for key in approved:
-    if key carries the cardinality_budget==0 sentinel and key is seen as a metric label:
-        emit schema_violation_total{service, key}                # -> alert (hard rule)
-    elif distinct_count(service, key, window) > TELEMETRY_SCHEMA[key].cardinality_budget:
-        emit cardinality_budget_exceeded_total{service, key}     # -> alert (budget)
-```
+- **B1 — app-side (built).** Every `trading.*` key is recorded as it passes the
+  `_attrs()` choke point; the loop diffs the observed set against
+  `TELEMETRY_SCHEMA`. Catches dynamically-keyed / conditional / production-only
+  *app* emissions the static Layer-A scan can't see. Does **not** see
+  library-injected attributes (`http.*`/`db.*` are added by the instrumentors
+  straight to spans, bypassing `_attrs`).
+- **B2 — SigNoz-side (seam).** `fetch_signoz_observed_keys()` pulls observed
+  label keys + per-key value-cardinality from SigNoz's query API; the same diff
+  runs over them. Catches library drift and true cardinality growth. The live
+  fetch is a thin adapter you wire (`SIGNOZ_QUERY_URL`/`SIGNOZ_QUERY_KEY`); empty
+  URL → B2 is a clean no-op and B1 still runs.
 
-Why a job and not a collector OTTL rule: enumerating *unknown* keys generically
-in OTTL is awkward and the registry is finite and code-owned, so the diff lives
-where the registry lives (the app) and reads observed state from SigNoz. The job
-emits its findings as OTLP metrics so they flow through the same pipeline and
-alert like everything else. It is read-only and fail-open (a SigNoz query error
-logs a warning and retries next interval — never blocks trading).
+**The drift signal is bounded (the critical rule).** Findings emit a *single*
+counter `telemetry_schema_drift_total` labelled only by a 2-value `drift_kind`
+(`unknown_key` | `budget_exceeded`); the offending key + count ride in a
+structured log line (`telemetry_schema_drift`), **never as a metric label** — a
+per-key label would make the detector the cardinality bomb it polices. A
+Redis-persisted reported-set (`telemetry:drift:reported`) dedups so a standing
+violation pages once across restarts. The loop is read-only and fail-open (a
+query error logs a warning and retries next interval — never blocks trading).
+
+Budget breaches require value-cardinality, which only B2 can measure cheaply;
+B1 alone reports unknown keys. The unbounded sentinel (`cardinality_budget == 0`,
+e.g. `trace_id`) is additionally enforced at *build* time by Layer A — it can
+never be a RED dimension.
 
 ---
 
@@ -244,9 +251,8 @@ under a "Governance" group (same severity contract):
 
 | Alert | Condition | Window | Severity |
 |---|---|---|---|
-| Schema drift — unknown attribute | `rate(unknown_attribute_detected_total) > 0` | 1h | P2 |
-| Cardinality budget exceeded | `rate(cardinality_budget_exceeded_total) > 0` | 1h | P2 |
-| Hard-rule violation (unbounded key as label) | `rate(schema_violation_total) > 0` | instant | P1 |
+| Schema drift — unknown attribute | `rate(telemetry_schema_drift_total{drift_kind="unknown_key"}) > 0` | 1h | P2 |
+| Cardinality budget exceeded | `rate(telemetry_schema_drift_total{drift_kind="budget_exceeded"}) > 0` | 6h | P2 |
 | Cost per trade anomaly | `cost_per_business_event > 3× rolling_7d_median` | 6h | P2 |
 | Active series growth | `active_series_growth_24h > 0.25` | 24h | P2 |
 | SLO burn (per SLO) | error-budget burn rate > 5%/1h | 1h | P1/P2 |
@@ -272,6 +278,14 @@ Each layer has exactly one accountable owner so drift has an addressee:
 The contract: **the producer of an attribute owns its budget**. A new agent that
 emits a new tag does not get to expand cardinality silently — it must land a
 registry entry (Backend review) before the guardrail will go green.
+
+**Schema location & extraction trigger.** `TELEMETRY_SCHEMA` lives in
+`api/constants.py` today per the repo's placement rule (a cross-module contract
+with ≥2 consumers). When it outgrows the single `trading.*` namespace or a second
+telemetry-emitting service appears, lift `TelemetryAttr` + `TELEMETRY_SCHEMA` into
+`api/telemetry_schema.py` and re-export from `constants.py` — zero import churn,
+and the Layer-A guardrail catches any breakage. Until that trigger, keeping it in
+`constants.py` avoids premature structure.
 
 ---
 
@@ -364,8 +378,8 @@ re-introduce them:
   SLO targets at a defensible multiple of measured P99.
 - Confirm the SigNoz Cloud price sheet (active time series + ingested GB rates)
   to express `cost_per_business_event` in real currency.
-- Confirm SigNoz exposes a label-keys / metadata API the Layer B auditor can
-  query; if not, derive observed keys from a periodic metrics scrape instead.
-- Decide whether the drift auditor runs as an in-app task
-  (`OTEL_DRIFT_AUDIT_ENABLED`) or a CI/cron job — leaning in-app for parity with
-  the existing read-only gauge poller (`start_gauge_poller`).
+- **Wire B2:** implement `fetch_signoz_observed_keys()` against your SigNoz query
+  API (endpoint / auth / response shape) — it ships as a fail-open stub. B1
+  (app-side) runs today without it.
+- ~~In-app vs cron auditor~~ — resolved: in-app task (`start_drift_auditor`,
+  parity with the read-only gauge poller).
