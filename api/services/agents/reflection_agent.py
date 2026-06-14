@@ -47,6 +47,7 @@ from api.services.agents.trade_scorer import (
     compute_patterns,
     compute_recommendations,
 )
+from api.services.param_evolution import tunable_parameters
 
 if TYPE_CHECKING:
     from api.services.agents.grade_agent import GradeAgent
@@ -390,6 +391,10 @@ class ReflectionAgent(MultiStreamAgent):
                 # build on / compare against / refine these rather than restart,
                 # so successive reflections compound into better hypotheses.
                 FieldName.PRIOR_REFLECTION: self._last_reflection,
+                # The auto-tunable parameters (current value + safe bounds) so a
+                # 'parameter' hypothesis can name a CONCRETE, in-bounds change —
+                # which is what becomes a real config PR downstream.
+                FieldName.TUNABLE_PARAMETERS: tunable_parameters(),
             },
             default=str,
         )
