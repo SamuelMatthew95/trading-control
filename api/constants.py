@@ -1884,6 +1884,19 @@ TELEMETRY_SCHEMA: Final[dict[str, TelemetryAttr]] = {
 }
 
 
+# Telemetry drift auditor (governance Layer B — docs/platform/telemetry-governance.md §2).
+# The bounded drift SIGNAL: one counter labelled only by a 2-value kind; the
+# offending key rides in a log line, never as a metric label (a per-key label
+# would make the detector the cardinality bomb it polices).
+TELEMETRY_DRIFT_METRIC: Final[str] = "telemetry_schema_drift_total"
+DRIFT_KIND_LABEL: Final[str] = "drift_kind"  # metric label key (2 bounded values)
+DRIFT_KIND_UNKNOWN_KEY: Final[str] = "unknown_key"
+DRIFT_KIND_BUDGET_EXCEEDED: Final[str] = "budget_exceeded"
+# Redis SET of already-reported "{kind}:{attribute}" tags, so a standing
+# violation pages once across restarts. No TTL — owner: telemetry drift auditor.
+REDIS_KEY_TELEMETRY_DRIFT_REPORTED: Final[str] = "telemetry:drift:reported"
+
+
 # ---------------------------------------------------------------------------
 # Learning-loop parameter overrides (applied LAST, over the defaults above).
 #
