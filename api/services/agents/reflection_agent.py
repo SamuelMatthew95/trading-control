@@ -146,6 +146,23 @@ class ReflectionAgent(MultiStreamAgent):
 
         await self._run_reflection()
 
+    async def trigger_reflection(self) -> dict[str, Any]:
+        """Force one reflection cycle now, independent of the fill-count trigger.
+
+        The automatic path only reflects every ``REFLECT_EVERY_N_FILLS`` closed
+        trades; at low paper-trade volume that can be a long wait, so this gives
+        an operator (via ``POST /dashboard/learning/reflect-now``) an on-demand
+        way to generate hypotheses → proposals / prompt-evolution. Reflects on
+        whatever fills are currently buffered; the published reflection still
+        flows to StrategyProposer exactly as the automatic path does.
+        """
+        await self._run_reflection()
+        return {
+            FieldName.STATUS: "ok",
+            FieldName.FILLS_ANALYZED: self._fills,
+            FieldName.BUFFERED_FILLS: len(self._recent_fills),
+        }
+
     async def _run_reflection(self) -> None:
         trace_id = f"reflection_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
 
