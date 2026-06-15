@@ -1851,6 +1851,37 @@ VALID_SYMBOLS: Final[set[str]] = {
     SYMBOL_GOOGL,
 }
 
+# Minimum tradeable order size per symbol (base-asset units).
+#
+# This is the order-size floor the trading memory (.claude/rules/memory-trading.md)
+# always specified but the code never actually enforced — so the book could open,
+# and PARTIAL-CLOSE down to, an arbitrarily tiny "dust" position (e.g. 0.00016819
+# BTC). On a live Alpaca account a sub-minimum SELL is rejected, which would make
+# such dust permanently UNCLOSEABLE — a stale cost basis frozen on the dashboard
+# forever. Enforced by ExecutionEngine (reject sub-min opens; never leave a sub-min
+# remainder on a partial close) and swept by RiskGuardian (flush sub-min holdings).
+# Crypto floors mirror Alpaca's documented minimums; equities trade whole shares.
+SYMBOL_MIN_SIZE: Final[dict[str, float]] = {
+    SYMBOL_BTC_USD: 0.001,
+    SYMBOL_ETH_USD: 0.01,
+    SYMBOL_SOL_USD: 0.1,
+    SYMBOL_SPY: 1.0,
+    SYMBOL_AAPL: 1.0,
+    SYMBOL_NVDA: 1.0,
+    SYMBOL_MSFT: 1.0,
+    SYMBOL_GOOGL: 1.0,
+}
+
+
+def get_min_size(symbol: str) -> float:
+    """Minimum tradeable order size for ``symbol`` in base-asset units.
+
+    Returns ``0.0`` for an unknown symbol — i.e. no floor is enforced — so an
+    untracked instrument degrades to the old permissive behaviour rather than
+    having every order blocked.
+    """
+    return SYMBOL_MIN_SIZE.get(symbol, 0.0)
+
 
 # ---------------------------------------------------------------------------
 # Learning-loop parameter overrides (applied LAST, over the defaults above).
