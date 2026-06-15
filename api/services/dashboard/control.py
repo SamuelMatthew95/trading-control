@@ -6,12 +6,14 @@ from fastapi import HTTPException
 from api.constants import (
     REDIS_KEY_KILL_SWITCH,
     REDIS_KEY_KILL_SWITCH_UPDATED_AT,
+    ChallengerLearningStatus,
     FieldName,
 )
 from api.observability import log_structured
 from api.redis_client import get_redis
 from api.runtime_state import get_runtime_store, is_db_available
 from api.services.challenger_spawner import ChallengerSpawner
+from api.services.challenger_store import get_challenger_store
 from api.services.dashboard.state import hydrate_dashboard_state_from_redis
 
 
@@ -38,27 +40,44 @@ async def list_challengers_payload(agents: list[Any]) -> dict[str, Any]:
 
     try:
         challengers = [a for a in agents if isinstance(a, ChallengerAgent)]
+        store = get_challenger_store()
+        rows: list[dict[str, Any]] = []
+        for c in challengers:
+            strategy = c._config.get(FieldName.STRATEGY) or ""
+            row: dict[str, Any] = {
+                FieldName.CHALLENGER_ID: c._challenger_id,
+                FieldName.INSTANCE_ID: c._instance_id,
+                FieldName.CONSUMER: c.consumer,
+                FieldName.FILLS: c._fills,
+                FieldName.MAX_FILLS: c._max_fills,
+                FieldName.CONFIG: c._config,
+                FieldName.STRATEGY: strategy,
+                FieldName.RUNNING: c._running,
+                # Full connected challenger state: own-vs-baseline shadow
+                # evidence + liveness (last tick / last trade / ticks seen),
+                # promotion progress (min_shadow_trades threshold), recent
+                # shadow-trade flow, and the live self-grade if any. Lets the
+                # dashboard show what the CONFIG is doing and WHY — not just a
+                # fill counter and three frozen numbers.
+                **c.activity_snapshot(),
+            }
+            # Overlay the durable graduation state (set by ProposalApplier on an
+            # approved promotion). Read here rather than from the agent's snapshot
+            # so it stays fresh even when the agent graduated after it started.
+            row[FieldName.GRADUATED] = False
+            row[FieldName.GRADUATED_AT] = None
+            if store is not None and strategy:
+                record = await store.load(strategy)
+                if record is not None and record.get(FieldName.GRADUATED):
+                    row[FieldName.GRADUATED] = True
+                    row[FieldName.GRADUATED_AT] = record.get(FieldName.GRADUATED_AT)
+                    # Graduation is the terminal learning state — the backend
+                    # decides it here, where the durable flag lives, so the UI
+                    # never has to reconcile snapshot status with graduation.
+                    row[FieldName.LEARNING_STATUS] = ChallengerLearningStatus.GRADUATED
+            rows.append(row)
         return {
-            FieldName.CHALLENGERS: [
-                {
-                    FieldName.CHALLENGER_ID: c._challenger_id,
-                    FieldName.INSTANCE_ID: c._instance_id,
-                    FieldName.CONSUMER: c.consumer,
-                    FieldName.FILLS: c._fills,
-                    FieldName.MAX_FILLS: c._max_fills,
-                    FieldName.CONFIG: c._config,
-                    FieldName.STRATEGY: c._config.get(FieldName.STRATEGY) or "",
-                    FieldName.RUNNING: c._running,
-                    # Full connected challenger state: own-vs-baseline shadow
-                    # evidence + liveness (last tick / last trade / ticks seen),
-                    # promotion progress (min_shadow_trades threshold), recent
-                    # shadow-trade flow, and the live self-grade if any. Lets the
-                    # dashboard show what the CONFIG is doing and WHY — not just a
-                    # fill counter and three frozen numbers.
-                    **c.activity_snapshot(),
-                }
-                for c in challengers
-            ],
+            FieldName.CHALLENGERS: rows,
             FieldName.COUNT: len(challengers),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }

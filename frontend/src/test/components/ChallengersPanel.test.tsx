@@ -90,6 +90,20 @@ describe('ChallengersPanel', () => {
     expect(await screen.findByText('eligible')).toBeInTheDocument()
   })
 
+  it('marks a graduated challenger from the backend status', async () => {
+    mockApiFetch.mockResolvedValue({
+      challengers: [
+        {
+          ...CHALLENGERS.challengers[0],
+          graduated: true,
+          learning_status: 'graduated',
+        },
+      ],
+    })
+    render(<ChallengersPanel />)
+    expect(await screen.findByText('graduated')).toBeInTheDocument()
+  })
+
   it('degrades gracefully when the endpoint fails', async () => {
     mockApiFetch.mockRejectedValue(new Error('network'))
     render(<ChallengersPanel />)

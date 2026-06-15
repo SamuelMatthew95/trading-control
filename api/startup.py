@@ -56,6 +56,7 @@ from api.services.agents.proposal_applier import ProposalApplier
 from api.services.agents.reasoning_agent import ReasoningAgent
 from api.services.agents.risk_guardian import RiskGuardian
 from api.services.challenger_spawner import ChallengerSpawner
+from api.services.challenger_store import ChallengerStore, set_challenger_store
 from api.services.dashboard.agent_performance import agent_grade_snapshot_loop
 from api.services.event_pipeline import EventPipeline
 from api.services.execution.brokers.paper import PaperBroker
@@ -188,6 +189,13 @@ async def _init_redis(app: FastAPI):
     pnl_store = AgentPnLStore(redis_client)
     app.state.agent_pnl_store = pnl_store
     set_agent_pnl_store(pnl_store)
+    # Durable per-challenger shadow track record (Redis — survives restarts) so a
+    # shadow challenger's performance accumulates toward a promotion proposal
+    # instead of resetting to zero on every cold start. Installed BEFORE the
+    # agent fleet starts so each ChallengerAgent warm-starts from it.
+    challenger_store = ChallengerStore(redis_client)
+    app.state.challenger_store = challenger_store
+    set_challenger_store(challenger_store)
     # Restore durable tool telemetry so the dashboard reflects cumulative usage
     # across restarts instead of resetting every tool to its seeded prior.
     await hydrate_tool_registry()

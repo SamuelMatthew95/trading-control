@@ -321,6 +321,7 @@ class FieldName(StrEnum):
     BASELINE = "baseline"
     BASE_URL_HOST = "base_url_host"
     BASELINE_MEAN = "baseline_mean"
+    BASELINE_PNLS = "baseline_pnls"
     BASELINE_SAMPLES = "baseline_samples"
     BASELINE_STD = "baseline_std"
     BEATS_BASELINE = "beats_baseline"
@@ -531,6 +532,8 @@ class FieldName(StrEnum):
     GRADE_TRACE_ID = "grade_trace_id"
     GRADE_TREND = "grade_trend"
     GRADE_TYPE = "grade_type"
+    GRADUATED = "graduated"
+    GRADUATED_AT = "graduated_at"
     GROQ = "groq"
     GROUNDING = "grounding"
     GROUPS = "groups"
@@ -625,6 +628,7 @@ class FieldName(StrEnum):
     LATEST_OPEN_POSITION = "latest_open_position"
     LATE_ENTRY = "late_entry"
     LEARNING_EVENTS = "learning_events"
+    LEARNING_STATUS = "learning_status"
     LEDGER_SOURCE = "ledger_source"
     LENGTH = "length"
     LEVEL = "level"
@@ -764,6 +768,7 @@ class FieldName(StrEnum):
     PIPELINE_RUNNING = "pipeline_running"
     PNL = "pnl"
     PNL_PERCENT = "pnl_percent"
+    PNLS = "pnls"
     POOL = "pool"
     POOL_NAME = "pool_name"
     POOL_UTILIZATION_PERCENT = "pool_utilization_percent"
@@ -792,6 +797,7 @@ class FieldName(StrEnum):
     PROCESSED_EVENTS_LAST_HOUR = "processed_events_last_hour"
     PROCESSING_ATTEMPT = "processing_attempt"
     PROPOSALS = "proposals"
+    PROPOSAL_EMITTED = "proposal_emitted"
     PROPOSAL_TYPE = "proposal_type"
     PROPOSED_VALUE = "proposed_value"
     PROVIDER = "provider"
@@ -1199,6 +1205,23 @@ class StrategyStatus(StrEnum):
     RETIRED = "retired"
 
 
+class ChallengerLearningStatus(StrEnum):
+    """Where a shadow challenger sits in the learning loop — decided by the
+    BACKEND (challenger evidence + durable graduation), never re-derived in the
+    UI. The frontend maps this enum to a label/colour and nothing more.
+
+    Progression: WARMING (no closed shadow trade yet) → BUILDING (trading, bar
+    not cleared) → ELIGIBLE (cleared every promotion blocker) → PROMOTION_PROPOSED
+    (proposal fired) → GRADUATED (an approved promotion adopted it).
+    """
+
+    WARMING = "warming"
+    BUILDING = "building"
+    ELIGIBLE = "eligible"
+    PROMOTION_PROPOSED = "promotion_proposed"
+    GRADUATED = "graduated"
+
+
 class ToolPhase(StrEnum):
     """DAG phase a runtime tool belongs to.
 
@@ -1395,6 +1418,13 @@ PNL_GRADED_AGENTS: Final[frozenset[str]] = frozenset(
 # Durable per-agent PnL accumulator (Redis hash, no TTL → survives restarts /
 # deploys; InMemoryStore is NOT used because it is wiped on restart).
 REDIS_KEY_AGENT_PNL: Final[str] = "agent:pnl:{name}"
+# Durable per-CHALLENGER shadow track record (Redis hash, no TTL, keyed by the
+# strategy name — challenger_ids are random per process). This is what makes a
+# challenger's performance SURVIVE restarts/deploys: without it the shadow
+# metrics lived only in process memory, reset to zero on every Render cold
+# start, so a challenger could never accumulate the CHALLENGER_MIN_SHADOW_TRADES
+# needed to earn a promotion proposal. Managed via api/services/challenger_store.py.
+REDIS_KEY_CHALLENGER_PERF: Final[str] = "challenger:perf:{strategy}"
 # A trading agent must have closed at least this many trades before its PnL
 # dimension is scored (avoids grading on a 1-trade fluke) AND before PnL can
 # gate promotion. Below this the dimension reads "no data", never fabricated.
@@ -1521,6 +1551,12 @@ CHALLENGER_MIN_SHADOW_WIN_RATE: Final[float] = 0.55
 # baseline → promotes again) appended near-identical challengers to the live
 # fleet without bound.
 MAX_CONCURRENT_CHALLENGERS: Final[int] = 3
+# Cap on how many recent per-trade shadow PnLs are persisted per challenger
+# (REDIS_KEY_CHALLENGER_PERF). The durable record reconstructs the ShadowMetrics
+# from this list on warm start, so the cap bounds the Redis value while staying
+# far above CHALLENGER_MIN_SHADOW_TRADES — a challenger promotes long before it
+# could be reached, so capping never drops evidence that matters for a promotion.
+CHALLENGER_PERF_PNL_CAP: Final[int] = 1000
 
 REDIS_KEY_PRICES: Final[str] = "prices:{symbol}"  # use .format(symbol=symbol)
 # Market-intel caches (Category 1 market-data cache) — written by the reasoning

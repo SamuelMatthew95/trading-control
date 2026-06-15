@@ -7,11 +7,16 @@ import { usePolledApi } from '@/hooks/usePolledApi'
 import { cardClass, errorTextClass, sectionTitleClass } from '@/lib/dashboard-styles'
 import { LEARNING_REFRESH_MS, gradeColor } from '@/lib/grade-colors'
 import { sentimentTextClass } from '@/lib/design/sentiment'
-import { signedUSD } from '@/lib/formatters'
+import { formatPercent, signedUSD } from '@/lib/formatters'
 import { agentDisplayName } from '@/constants/agents'
 import { NO_DATA, UI_COPY } from '@/constants/copy'
 import { cn } from '@/lib/utils'
-import type { ChallengerInfo } from '@/components/dashboard/ChallengersPanel'
+import { Badge } from '@/components/ui/badge'
+import {
+  challengerLearningStatus,
+  CHALLENGER_STATUS_TONE,
+  type ChallengerInfo,
+} from '@/components/dashboard/ChallengersPanel'
 
 type LatestGrade = {
   trace_id: string
@@ -68,6 +73,16 @@ type PendingParamChange = {
 
 const COPY = UI_COPY.learningLoop
 
+// backend ChallengerLearningStatus → a short, badge-sized label. The state is
+// decided server-side (challengerLearningStatus); this is pure presentation.
+const STATUS_LABEL: Record<string, string> = {
+  graduated: COPY.statusGraduated,
+  promotion_proposed: COPY.promotionProposedSingular,
+  eligible: COPY.statusEligible,
+  building: COPY.statusBuilding,
+  warming: COPY.statusWarming,
+}
+
 const subTableWrapClass = 'max-h-48 overflow-y-auto rounded-lg border'
 const subTableClass = 'w-full font-mono text-xs'
 const subTableHeadClass = 'bg-muted/60'
@@ -99,6 +114,8 @@ export function LearningLoopPanel() {
   const appliedCount = proposals.filter((p) => p.applied).length
   const pendingCount = proposals.length - appliedCount
   const promotionsProposed = challengers.filter((c) => c.shadow_proposal_emitted).length
+  const beatingCount = challengers.filter((c) => c.beats_baseline_shadow).length
+  const graduatedCount = challengers.filter((c) => c.graduated).length
 
   return (
     <div className={cardClass}>
@@ -250,20 +267,78 @@ export function LearningLoopPanel() {
         )}
       </div>
 
-      {/* Challenger shadows — summary only; the full evidence trail lives on
-          its own page so each challenger can be followed in detail. */}
+      {/* Challenger learning — the durable shadow track records, so the learning
+          page shows what the rival strategies have actually earned and where each
+          sits in the loop (building → eligible → proposed → graduated). The full
+          per-challenger evidence trail still lives on its own page via the link. */}
       <div className="mt-4">
-        <p className={cn(sectionTitleClass, 'mb-1')}>{COPY.challengerShadows}</p>
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
-          <span className="font-mono text-xs text-foreground/70">
-            {challengers.length === 0
-              ? COPY.noChallengers
-              : `${challengers.length} ${COPY.running} · ${challengers.filter((c) => c.beats_baseline_shadow).length} ${COPY.beatingBaseline} · ${promotionsProposed} ${promotionsProposed === 1 ? COPY.promotionProposedSingular : COPY.promotionProposedPlural}`}
-          </span>
-          <Link href="/dashboard/challengers" className="text-xs font-semibold text-brand hover:underline">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <p className={sectionTitleClass}>{COPY.challengerLearning}</p>
+          <Link
+            href="/dashboard/challengers"
+            className="text-xs font-semibold text-brand hover:underline"
+          >
             {COPY.followChallengers}
           </Link>
         </div>
+        <p className="mb-2 text-xs text-muted-foreground">{COPY.challengerLearningDesc}</p>
+        {challengers.length === 0 ? (
+          <p className="text-xs text-muted-foreground">{COPY.noChallengers}</p>
+        ) : (
+          <>
+            <p className="mb-2 font-mono text-2xs text-foreground/70">
+              {challengers.length} {COPY.running} · {beatingCount} {COPY.beatingBaseline} ·{' '}
+              {promotionsProposed}{' '}
+              {promotionsProposed === 1
+                ? COPY.promotionProposedSingular
+                : COPY.promotionProposedPlural}{' '}
+              · {graduatedCount} {COPY.graduatedCount}
+            </p>
+            <div className={subTableWrapClass}>
+              <table className={subTableClass}>
+                <thead className={subTableHeadClass}>
+                  <tr className="text-left">
+                    <th className="p-2">{COPY.columns.strategy}</th>
+                    <th className="p-2 text-right">{COPY.columns.trades}</th>
+                    <th className="p-2 text-right">{COPY.columns.win}</th>
+                    <th className="p-2 text-right">{COPY.columns.pnl}</th>
+                    <th className="p-2 text-right">{COPY.columns.vsBaseline}</th>
+                    <th className="p-2">{COPY.columns.status}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {challengers.map((c) => {
+                    // The backend decides both the edge and the loop state.
+                    const edge = c.shadow_edge ?? 0
+                    const ls = challengerLearningStatus(c)
+                    return (
+                      <tr key={c.challenger_id} className="border-t">
+                        <td className="truncate p-2" title={c.strategy ?? c.challenger_id}>
+                          {c.strategy || c.challenger_id}
+                        </td>
+                        <td className="p-2 text-right tabular-nums">{c.shadow_trades ?? 0}</td>
+                        <td className="p-2 text-right tabular-nums">
+                          {formatPercent(c.shadow_win_rate, { decimals: 0 })}
+                        </td>
+                        <td className={cn('p-2 text-right tabular-nums', sentimentTextClass(c.shadow_pnl ?? 0))}>
+                          {signedUSD(c.shadow_pnl)}
+                        </td>
+                        <td className={cn('p-2 text-right tabular-nums', sentimentTextClass(edge))}>
+                          {signedUSD(edge)}
+                        </td>
+                        <td className="p-2">
+                          <Badge tone={CHALLENGER_STATUS_TONE[ls] ?? 'neutral'} size="xs" pill>
+                            {STATUS_LABEL[ls] ?? ls}
+                          </Badge>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Parameter Evolution — pending GitOps PRs that tune live params */}

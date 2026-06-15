@@ -17,6 +17,7 @@ from api.constants import (
     STREAM_MARKET_EVENTS,
     STREAM_PROPOSALS,
     STREAM_TRADE_PERFORMANCE,
+    ChallengerLearningStatus,
     FieldName,
     Grade,
 )
@@ -26,6 +27,7 @@ from api.observability import log_structured
 from api.services.agent_state import AgentStateRegistry
 from api.services.agents.base import MultiStreamAgent
 from api.services.agents.db_helpers import persist_proposal
+from api.services.challenger_store import get_challenger_store
 
 # ---------------------------------------------------------------------------
 # ChallengerAgent — parallel experimental agent instance
@@ -143,7 +145,73 @@ class ChallengerAgent(MultiStreamAgent):
         flows — which matters when the pipeline is idle.
         """
         await super().start()
+        await self._hydrate_shadow_state()
         self._ensure_lifecycle_registered()
+
+    async def _hydrate_shadow_state(self) -> None:
+        """Warm-start this challenger's shadow record from the durable store.
+
+        Without this, the in-process ``ShadowMetrics`` reset to zero on every
+        restart/deploy, so a challenger could never accumulate the
+        ``CHALLENGER_MIN_SHADOW_TRADES`` needed to earn a promotion proposal —
+        the evidence kept evaporating. Reconstructing both engines from the
+        persisted per-trade PnL lists keeps the hydrated metrics internally
+        consistent (trades / wins / realized PnL / Sharpe all derive from the
+        same list). Best-effort: no store, no record, or a Redis hiccup leaves a
+        cold (empty) challenger, which is safe.
+        """
+        if self._shadow is None:
+            return
+        strategy = str(self._config.get(FieldName.STRATEGY) or "")
+        store = get_challenger_store()
+        if not strategy or store is None:
+            return
+        record = await store.load(strategy)
+        if record is None:
+            return
+        self._restore_metrics(self._shadow.metrics, record.get(FieldName.PNLS) or [])
+        if self._baseline_shadow is not None:
+            self._restore_metrics(
+                self._baseline_shadow.metrics, record.get(FieldName.BASELINE_PNLS) or []
+            )
+        self._shadow_proposal_emitted = bool(record.get(FieldName.PROPOSAL_EMITTED))
+        log_structured(
+            "info",
+            "challenger_warm_started",
+            challenger_id=self._challenger_id,
+            strategy=strategy,
+            shadow_trades=self._shadow.metrics.trades,
+            proposal_emitted=self._shadow_proposal_emitted,
+        )
+
+    @staticmethod
+    def _restore_metrics(metrics: Any, pnls: list[float]) -> None:
+        """Rebuild a ShadowMetrics from a persisted per-trade PnL list, in place."""
+        metrics.pnls = list(pnls)
+        metrics.trades = len(metrics.pnls)
+        metrics.wins = sum(1 for p in metrics.pnls if p > 0)
+        metrics.realized_pnl = sum(metrics.pnls)
+
+    async def _persist_shadow_state(self) -> None:
+        """Persist the rolling shadow record so it survives restarts/deploys.
+
+        Best-effort and keyed by strategy (challenger_ids are ephemeral). A
+        no-op when no strategy is configured or no store is installed."""
+        if self._shadow is None:
+            return
+        strategy = str(self._config.get(FieldName.STRATEGY) or "")
+        store = get_challenger_store()
+        if not strategy or store is None:
+            return
+        baseline_pnls = (
+            list(self._baseline_shadow.metrics.pnls) if self._baseline_shadow is not None else []
+        )
+        await store.save_performance(
+            strategy,
+            own_pnls=list(self._shadow.metrics.pnls),
+            baseline_pnls=baseline_pnls,
+            proposal_emitted=self._shadow_proposal_emitted,
+        )
 
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         self._ensure_lifecycle_registered()
@@ -152,7 +220,11 @@ class ChallengerAgent(MultiStreamAgent):
         # its OWN strategy (and baseline) on EVERY price tick the poller emits — the
         # same series the backtest harness measures — not the throttled signal stream.
         if stream == STREAM_MARKET_EVENTS:
-            self._observe_shadow(data)
+            closed = self._observe_shadow(data)
+            # Persist the durable track record on every realized shadow round-trip
+            # so it survives restarts (the whole point — see _hydrate_shadow_state).
+            if closed:
+                await self._persist_shadow_state()
             # Surface a winning challenger from SHADOW evidence — independent of
             # live fills, which may never arrive when the pipeline is idle.
             await self._maybe_propose_shadow_promotion()
@@ -171,7 +243,7 @@ class ChallengerAgent(MultiStreamAgent):
         if self._fills >= self._max_fills:
             await self._retire_with_summary()
 
-    def _observe_shadow(self, data: dict[str, Any]) -> None:
+    def _observe_shadow(self, data: dict[str, Any]) -> bool:
         """Run the configured strategy (and baseline) on one market-events price tick.
 
         This is what makes the challenger's config REAL: it executes the strategy on
@@ -180,15 +252,19 @@ class ChallengerAgent(MultiStreamAgent):
 
         market_events wraps the tick in a JSON ``payload`` string (PricePoller); parse
         it the same way SignalGenerator does so we read the same unfiltered series.
+
+        Returns ``True`` when this tick closed a shadow round-trip on EITHER engine
+        (own or baseline), so the caller knows the durable record changed and should
+        be persisted.
         """
         if self._shadow is None:
-            return
+            return False
         raw = data.get(FieldName.PAYLOAD)
         if isinstance(raw, str):
             try:
                 payload = json.loads(raw)
             except (json.JSONDecodeError, TypeError):
-                return
+                return False
         elif isinstance(raw, dict):
             payload = raw
         else:
@@ -198,9 +274,9 @@ class ChallengerAgent(MultiStreamAgent):
         try:
             price = float(payload.get(FieldName.PRICE) or 0.0)
         except (TypeError, ValueError):
-            return
+            return False
         if not symbol or price <= 0:
-            return
+            return False
         now = datetime.now(timezone.utc).isoformat()
         self._last_tick_at = now
         self._ticks_observed += 1
@@ -219,8 +295,10 @@ class ChallengerAgent(MultiStreamAgent):
                     FieldName.TIMESTAMP: now,
                 }
             )
+        baseline_closed = None
         if self._baseline_shadow is not None:
-            self._baseline_shadow.observe(symbol, price)
+            baseline_closed = self._baseline_shadow.observe(symbol, price)
+        return closed is not None or baseline_closed is not None
 
     def _shadow_summary(self) -> dict[str, Any]:
         """Own vs baseline shadow performance on live data (empty when no engine).
@@ -270,11 +348,45 @@ class ChallengerAgent(MultiStreamAgent):
         snap["recent_shadow_trades"] = list(self._recent_shadow_trades)
         if self._shadow is not None:
             snap["open_shadow_positions"] = self._shadow.open_position_count
+        # The BACKEND decides where this challenger sits in the loop and its edge
+        # over baseline, so the UI only renders (it never re-derives the state).
+        # GRADUATED is overlaid later in the dashboard payload, where the durable
+        # graduation flag is read from the store.
+        snap[FieldName.LEARNING_STATUS] = self._learning_status(snap)
+        snap[FieldName.SHADOW_EDGE] = self._shadow_edge(snap)
         if self._grade_history:
             # The most recent LIVE self-grade (needs live fills — absent while the
             # pipeline is idle, which the frontend explains rather than hides).
             snap[FieldName.LATEST_GRADE] = self._grade_history[-1]
         return snap
+
+    def _learning_status(self, snap: dict[str, Any]) -> str:
+        """Classify this challenger's place in the learning loop (pre-graduation).
+
+        Single source of truth for the state the dashboard shows — computed here,
+        never in the frontend. ELIGIBLE requires a baseline to compare against and
+        every promotion blocker cleared.
+        """
+        trades = int(snap.get("shadow_trades") or 0)
+        if self._shadow_proposal_emitted:
+            return ChallengerLearningStatus.PROMOTION_PROPOSED
+        has_baseline = self._shadow is not None and self._baseline_shadow is not None
+        no_blockers = not snap.get("promotion_blockers")
+        if has_baseline and no_blockers and trades > 0:
+            return ChallengerLearningStatus.ELIGIBLE
+        if trades > 0:
+            return ChallengerLearningStatus.BUILDING
+        return ChallengerLearningStatus.WARMING
+
+    @staticmethod
+    def _shadow_edge(snap: dict[str, Any]) -> float | None:
+        """Own realized shadow PnL minus the baseline's on the same ticks, or
+        ``None`` when there is no baseline to compare against."""
+        if "baseline_shadow_pnl" not in snap:
+            return None
+        return round(
+            float(snap.get("shadow_pnl") or 0.0) - float(snap.get("baseline_shadow_pnl") or 0.0), 4
+        )
 
     def _promotion_blockers(self, summary: dict[str, Any]) -> list[str]:
         """Unmet promotion criteria for the current shadow window (empty = eligible).
@@ -363,6 +475,9 @@ class ChallengerAgent(MultiStreamAgent):
         # a vote without persisting it, so a pending promotion never surfaced for
         # the operator to approve.
         await persist_proposal(payload)
+        # Persist the latch durably so a restart doesn't re-fire the same
+        # promotion proposal (the in-process latch alone resets on cold start).
+        await self._persist_shadow_state()
         log_structured(
             "info",
             "challenger_shadow_promotion_proposed",

@@ -4,7 +4,7 @@ import { API_ENDPOINTS } from '@/lib/apiClient'
 import { usePolledApi } from '@/hooks/usePolledApi'
 import { LEARNING_REFRESH_MS } from '@/lib/grade-colors'
 import { cardClass, errorTextClass, mutedClass, sectionTitleClass } from '@/lib/dashboard-styles'
-import { sentimentTextClass, TONE_DOT } from '@/lib/design/sentiment'
+import { sentimentTextClass, TONE_DOT, type Tone } from '@/lib/design/sentiment'
 import { formatPercent, formatTimeAgo, signedUSD } from '@/lib/formatters'
 import { NO_DATA, UI_COPY } from '@/constants/copy'
 import { Badge } from '@/components/ui/badge'
@@ -49,6 +49,38 @@ export type ChallengerInfo = {
   open_shadow_positions?: number
   recent_shadow_trades?: ShadowTrade[]
   latest_grade?: { win_rate?: number; avg_pnl?: number; fills?: number } | null
+  // Durable graduation state — set by ProposalApplier once an approved promotion
+  // advances this strategy SHADOW→CANARY. Survives restarts (Redis-backed).
+  graduated?: boolean
+  graduated_at?: string | null
+  // BACKEND-decided place in the learning loop + edge over baseline. The UI only
+  // renders these — it never re-derives the state (see challengerLearningStatus).
+  learning_status?: string
+  shadow_edge?: number | null
+}
+
+// The backend's ChallengerLearningStatus enum → a Tone for chips/dots. The
+// status itself is decided server-side; this map is pure presentation.
+export const CHALLENGER_STATUS_TONE: Record<string, Tone> = {
+  graduated: 'success',
+  promotion_proposed: 'success',
+  eligible: 'success',
+  building: 'warning',
+  warming: 'neutral',
+}
+
+// Single accessor for a challenger's loop state: trust the backend's
+// learning_status, falling back to deriving it only for older payloads that
+// predate the field. Both challenger views call this — neither re-implements
+// the decision.
+export function challengerLearningStatus(c: ChallengerInfo): string {
+  if (c.learning_status) return c.learning_status
+  if (c.graduated) return 'graduated'
+  if (c.shadow_proposal_emitted) return 'promotion_proposed'
+  const trades = c.shadow_trades ?? 0
+  if ((c.promotion_blockers?.length ?? 1) === 0 && trades > 0) return 'eligible'
+  if (trades > 0) return 'building'
+  return 'warming'
 }
 
 const relTime = (iso: string | null | undefined): string =>
@@ -67,6 +99,23 @@ const isFresh = (iso: string | null | undefined): boolean => {
 
 const compactStatClass = 'p-2 sm:p-2'
 
+// backend ChallengerLearningStatus → the card's narrative line / badge label.
+// Pure presentation; the state itself is decided server-side.
+const STATUS_NARRATIVE: Record<string, string> = {
+  graduated: UI_COPY.challengers.statusGraduated,
+  promotion_proposed: UI_COPY.challengers.statusPromoted,
+  eligible: UI_COPY.challengers.statusEligible,
+  building: UI_COPY.challengers.statusBuilding,
+  warming: UI_COPY.challengers.statusWarming,
+}
+const STATUS_BADGE: Record<string, string> = {
+  graduated: UI_COPY.challengers.badgeGraduated,
+  promotion_proposed: UI_COPY.challengers.badgePromoted,
+  eligible: UI_COPY.challengers.badgeEligible,
+  building: UI_COPY.challengers.badgeWarming,
+  warming: UI_COPY.challengers.badgeWarming,
+}
+
 function ChallengerCard({ c }: { c: ChallengerInfo }) {
   const shadowTrades = c.shadow_trades ?? 0
   const minTrades = c.min_shadow_trades ?? 40
@@ -74,19 +123,16 @@ function ChallengerCard({ c }: { c: ChallengerInfo }) {
   const progressPct = Math.min(100, Math.round((shadowTrades / minTrades) * 100))
   const recent = c.recent_shadow_trades ?? []
   const blockers = c.promotion_blockers ?? []
-  const eligible = blockers.length === 0 && shadowTrades > 0
 
-  // Connected status narrative — WHY it is where it is, in words.
-  let status: string
-  if (c.shadow_proposal_emitted) {
-    status = UI_COPY.challengers.statusPromoted
-  } else if (eligible) {
-    status = UI_COPY.challengers.statusEligible
-  } else if (shadowTrades > 0) {
-    status = UI_COPY.challengers.statusBuilding
-  } else {
-    status = UI_COPY.challengers.statusWarming
-  }
+  // The BACKEND decides the loop state (learning_status); the card only renders
+  // it — narrative line, badge label, and badge tone all key off this one value.
+  const ls = challengerLearningStatus(c)
+  const status = STATUS_NARRATIVE[ls] ?? UI_COPY.challengers.statusWarming
+  const badgeTone = CHALLENGER_STATUS_TONE[ls] ?? 'warning'
+  const badgeLabel =
+    ls === 'building' && blockers.length > 0
+      ? `${blockers.length} requirement${blockers.length === 1 ? '' : 's'} unmet`
+      : (STATUS_BADGE[ls] ?? UI_COPY.challengers.badgeWarming)
 
   return (
     <div className={cardClass}>
@@ -100,21 +146,9 @@ function ChallengerCard({ c }: { c: ChallengerInfo }) {
           <span className="font-mono text-sm font-semibold text-foreground">
             {c.strategy || `challenger ${c.challenger_id}`}
           </span>
-          {c.shadow_proposal_emitted ? (
-            <Badge tone="success" size="xs" pill className="font-bold">
-              {UI_COPY.challengers.badgePromoted}
-            </Badge>
-          ) : eligible ? (
-            <Badge tone="success" size="xs" pill className="font-bold">
-              {UI_COPY.challengers.badgeEligible}
-            </Badge>
-          ) : (
-            <Badge tone="warning" size="xs" pill className="font-bold">
-              {blockers.length > 0
-                ? `${blockers.length} requirement${blockers.length === 1 ? '' : 's'} unmet`
-                : UI_COPY.challengers.badgeWarming}
-            </Badge>
-          )}
+          <Badge tone={badgeTone} size="xs" pill className="font-bold">
+            {badgeLabel}
+          </Badge>
         </span>
         <span className="font-mono text-2xs tabular-nums text-muted-foreground">
           id {c.challenger_id} · ticked {relTime(c.last_tick_at)} · {c.ticks_observed ?? 0} ticks seen
