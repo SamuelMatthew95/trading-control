@@ -119,3 +119,17 @@ Three new `InMemoryStore` methods expose explicit lifecycle checks: `has_open_po
 **Fix:** `_check_cooling_off_gate` returns early for SELL/short sides — cooling-off now gates BUY entries only. Risk closes execute regardless of recent-outcome streaks; the unmatched-sell guard, oversell clamp, kill switch, and market clock still apply to sells.
 
 **Regression test:** `tests/agents/test_execution_engine.py::test_cooling_off_never_blocks_sell_close` (and `::test_cooling_off_blocks_buy_after_loss_streak` pinning that entries stay gated)
+
+---
+
+## No minimum-order-size enforcement → uncloseable sub-minimum "dust" positions
+
+**Symptom:** An operator saw a BTC position of `0.00016819 BTC` (~$11) frozen at a cost basis (`67079`) far above the live price, and read it as the system showing "fake data." The position was real, but far too small to be a normal lot.
+
+**Root cause:** `SUPPORTED_SYMBOLS` / `get_min_size` were documented in `.claude/rules/memory-trading.md` but **never implemented** — the code enforced no order-size floor. So the book could open a sub-minimum lot, and partial closes (take-profit scaling / trailing / opposite-signal exits) could reduce a position down to a sub-minimum remainder. Entry price is preserved across partial closes, so that remainder carried the original (now stale) basis indefinitely. In paper mode it lingers; on a live Alpaca account a sub-minimum SELL is **rejected**, making such dust genuinely uncloseable — a stale basis frozen forever.
+
+**Fix:** Implemented the contract: `SYMBOL_MIN_SIZE` + `get_min_size()` in `api/constants.py`, and `enforce_min_order_size()` in `api/services/execution/position_math.py`. ExecutionEngine (both DB and memory paths) now (a) rejects a BUY/open below the symbol minimum and (b) rounds a SELL up to a full close when the partial would leave a sub-minimum remainder (never leave dust). A full close of an existing sub-min lot is always permitted. RiskGuardian sweeps any existing sub-min holding via a `dust_below_min` close, which clears legacy dust like the position above.
+
+**Regression test:** `tests/agents/test_position_math.py::TestEnforceMinOrderSize`,
+`tests/agents/test_execution_engine.py::test_rejects_buy_below_min_order_size`,
+`tests/agents/test_risk_guardian.py::test_memory_mode_flushes_sub_min_dust_position`
