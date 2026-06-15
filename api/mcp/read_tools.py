@@ -45,6 +45,7 @@ from api.services.dashboard.system import get_prices_payload
 from api.services.llm_metrics import llm_metrics
 from api.services.metrics_calc import closed_trade_stats
 from api.services.redis_store import get_redis_store
+from api.utils import now_iso
 
 MCP_STREAMS: tuple[str, ...] = (
     STREAM_MARKET_TICKS,
@@ -91,10 +92,6 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _now_iso() -> str:
-    return _now().isoformat()
-
-
 def _safe_limit(value: int, *, default: int, max_value: int) -> int:
     if value <= 0:
         return default
@@ -117,7 +114,7 @@ def _wrap(
         "ok": True,
         "degraded": degraded,
         "source": source,
-        "generated_at": _now_iso(),
+        "generated_at": now_iso(),
         "data": data,
     }
     if reason:
