@@ -430,3 +430,115 @@ async def test_activity_snapshot_threshold_present_before_any_trade(mock_bus, mo
     assert snap["ticks_observed"] == 1
     assert snap["last_tick_at"] is not None
     assert snap["recent_shadow_trades"] == []
+
+
+# ---------------------------------------------------------------------------
+# Durable shadow track record — survives restarts (the connected learning loop)
+# ---------------------------------------------------------------------------
+
+
+class _FakeHashRedis:
+    """Minimal Redis supporting ``hset(mapping=...)`` / ``hgetall`` for the store."""
+
+    def __init__(self) -> None:
+        self.h: dict[str, dict[str, str]] = {}
+
+    async def hset(self, key, mapping=None, **kwargs) -> int:
+        d = self.h.setdefault(key, {})
+        for k, v in (mapping or {}).items():
+            d[str(k)] = str(v)
+        return len(mapping or {})
+
+    async def hgetall(self, key) -> dict[str, str]:
+        return dict(self.h.get(key, {}))
+
+
+@pytest.fixture(autouse=True)
+def _reset_challenger_store():
+    """Keep the durable-store singleton from leaking between tests in this module."""
+    from api.services.challenger_store import set_challenger_store
+
+    set_challenger_store(None)
+    yield
+    set_challenger_store(None)
+
+
+@pytest.mark.asyncio
+async def test_warm_start_hydrates_shadow_metrics(mock_bus, mock_dlq):
+    """A challenger reconstructs its full shadow record from the durable store on
+    start — trades/wins/realized PnL all derive from the persisted PnL list, so
+    the metrics are exactly what they were before the restart."""
+    from api.services.challenger_store import ChallengerStore, set_challenger_store
+
+    store = ChallengerStore(_FakeHashRedis())
+    set_challenger_store(store)
+    await store.save_performance(
+        "strong_only",
+        own_pnls=[5.0, -1.0, 2.0],
+        baseline_pnls=[1.0, 1.0],
+        proposal_emitted=True,
+    )
+
+    agent = ChallengerAgent(mock_bus, mock_dlq, challenger_config={"strategy": "strong_only"})
+    await agent._hydrate_shadow_state()
+
+    assert agent._shadow.metrics.trades == 3
+    assert agent._shadow.metrics.wins == 2
+    assert agent._shadow.metrics.realized_pnl == pytest.approx(6.0)
+    assert agent._baseline_shadow.metrics.trades == 2
+    assert agent._shadow_proposal_emitted is True
+
+
+@pytest.mark.asyncio
+async def test_persist_then_hydrate_survives_a_restart(mock_bus, mock_dlq):
+    """One challenger's accumulated record is picked up by a *fresh* challenger of
+    the same strategy — the cross-restart durability the loop depends on."""
+    from api.services.challenger_store import ChallengerStore, set_challenger_store
+
+    set_challenger_store(ChallengerStore(_FakeHashRedis()))
+
+    first = ChallengerAgent(mock_bus, mock_dlq, challenger_config={"strategy": "strong_only"})
+    ChallengerAgent._restore_metrics(first._shadow.metrics, [3.0, 4.0])
+    await first._persist_shadow_state()
+
+    # Simulate a redeploy: a brand-new agent instance for the same strategy.
+    second = ChallengerAgent(mock_bus, mock_dlq, challenger_config={"strategy": "strong_only"})
+    assert second._shadow.metrics.trades == 0  # cold until hydrated
+    await second._hydrate_shadow_state()
+    assert second._shadow.metrics.trades == 2
+    assert second._shadow.metrics.realized_pnl == pytest.approx(7.0)
+
+
+@pytest.mark.asyncio
+async def test_process_persists_the_record_on_a_shadow_close(mock_bus, mock_dlq, monkeypatch):
+    """A realized shadow round-trip triggers a durable write — without it the
+    record would only ever live in process memory and reset on restart."""
+    from api.services.challenger_store import ChallengerStore, set_challenger_store
+
+    set_challenger_store(ChallengerStore(_FakeHashRedis()))
+    agent = ChallengerAgent(mock_bus, mock_dlq, challenger_config={"strategy": "strong_only"})
+
+    persisted: list[bool] = []
+
+    async def _spy() -> None:
+        persisted.append(True)
+
+    monkeypatch.setattr(agent, "_persist_shadow_state", _spy)
+    monkeypatch.setattr(agent, "_observe_shadow", lambda data: True)  # report a close
+
+    await agent.process(STREAM_MARKET_EVENTS, "1-0", _tick(100.0))
+    assert persisted == [True]
+
+
+@pytest.mark.asyncio
+async def test_no_store_installed_is_a_safe_noop(mock_bus, mock_dlq):
+    """With no durable store installed (cold boot / tests), hydrate and persist
+    are silent no-ops — never raising, never blocking the shadow loop."""
+    from api.services.challenger_store import set_challenger_store
+
+    set_challenger_store(None)
+    agent = ChallengerAgent(mock_bus, mock_dlq, challenger_config={"strategy": "strong_only"})
+    await agent._hydrate_shadow_state()  # no store → no-op
+    ChallengerAgent._restore_metrics(agent._shadow.metrics, [1.0])
+    await agent._persist_shadow_state()  # no store → no-op
+    assert agent._shadow.metrics.trades == 1
