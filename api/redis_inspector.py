@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -13,6 +12,7 @@ from api.config import settings
 from api.constants import STREAM_MARKET_TICKS, FieldName
 from api.events.bus import STREAMS
 from api.observability import log_structured
+from api.utils import bytes_to_text, now_iso
 
 router = APIRouter(prefix="/debug", tags=["debug"])
 
@@ -43,7 +43,7 @@ async def debug_redis(request: Request) -> dict[str, Any]:
         FieldName.STATUS: "ok" if pong else "error",
         FieldName.PING: bool(pong),
         FieldName.MASKED_URL: _mask_redis_url(settings.REDIS_URL or ""),
-        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+        FieldName.TIMESTAMP: now_iso(),
         FieldName.LAST_ERROR: getattr(
             getattr(request.app.state, "event_pipeline", None), "_last_error", None
         ),
@@ -84,14 +84,9 @@ async def debug_streams(
             for msg_id, fields in messages:
                 parsed.append(
                     {
-                        FieldName.MSG_ID: (
-                            msg_id.decode() if isinstance(msg_id, bytes) else str(msg_id)
-                        ),
+                        FieldName.MSG_ID: bytes_to_text(msg_id),
                         FieldName.FIELDS: {
-                            (k.decode() if isinstance(k, bytes) else str(k)): (
-                                v.decode() if isinstance(v, bytes) else v
-                            )
-                            for k, v in fields.items()
+                            bytes_to_text(k): bytes_to_text(v) for k, v in fields.items()
                         },
                     }
                 )
@@ -123,7 +118,7 @@ async def debug_ws(request: Request) -> dict[str, Any]:
         FieldName.RECENT_ACTIVITY: pipeline.status().get(FieldName.RECENT, [])[:10]
         if pipeline
         else [],
-        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+        FieldName.TIMESTAMP: now_iso(),
     }
 
 
@@ -175,7 +170,7 @@ async def publish_test_event(request: Request, payload: TestEventRequest) -> dic
         FieldName.TYPE: "test_event",
         FieldName.MSG_ID: msg_id,
         FieldName.PAYLOAD: payload.payload,
-        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+        FieldName.TIMESTAMP: now_iso(),
     }
     redis_id = await bus.publish(payload.stream, event)
 
