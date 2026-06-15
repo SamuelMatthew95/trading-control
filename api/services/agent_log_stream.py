@@ -25,6 +25,7 @@ from sqlalchemy import text
 
 from api.constants import FieldName
 from api.observability import log_structured
+from api.utils import now_iso
 
 _SSE_HEADERS = {
     "Cache-Control": "no-cache",
@@ -191,6 +192,6 @@ async def _agent_log_generator(
         log_structured("error", "log stream error", exc_info=True)
         error_data = {
             FieldName.ERROR: str(e),
-            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+            FieldName.TIMESTAMP: now_iso(),
         }
         yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
