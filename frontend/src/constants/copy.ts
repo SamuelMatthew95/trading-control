@@ -482,11 +482,19 @@ export const UI_COPY = {
     lossAttribution: 'Loss Attribution',
     noClosedTrades: 'No closed trades yet — attribution appears once positions close.',
     challengerShadows: 'Challenger Shadows',
+    challengerLearning: 'Challenger Learning — Shadow Track Records',
+    challengerLearningDesc:
+      'What the parallel strategies have actually earned on live ticks (durable across restarts). A winner clears the bar → proposes promotion → graduates SHADOW→CANARY.',
     noChallengers: 'No shadow challengers running.',
     running: 'running',
     beatingBaseline: 'beating baseline',
     promotionProposedSingular: 'promotion proposed',
     promotionProposedPlural: 'promotions proposed',
+    graduatedCount: 'graduated',
+    statusGraduated: 'graduated',
+    statusEligible: 'eligible',
+    statusBuilding: 'building',
+    statusWarming: 'warming up',
     followChallengers: 'Follow challengers →',
     paramEvolution: 'Parameter Evolution — Pending PRs',
     noPendingParams:
@@ -506,6 +514,11 @@ export const UI_COPY = {
       current: 'Current',
       proposed: 'Proposed',
       reason: 'Reason',
+      strategy: 'Strategy',
+      win: 'Win',
+      pnl: 'PnL',
+      vsBaseline: 'vs Baseline',
+      status: 'Status',
     },
   },
   learning: {
@@ -746,11 +759,14 @@ export const UI_COPY = {
     emptyState:
       'No shadow challengers running. They spawn from approved challenger promotions or ' +
       'new-agent proposals on the Proposals page.',
+    statusGraduated:
+      'Graduated — an approved promotion advanced this strategy SHADOW→CANARY. It keeps shadow-trading as the live candidate.',
     statusPromoted:
       'Promotion fired — cleared every bar (trades, win rate, +PnL, +Sharpe, beats baseline).',
     statusEligible: 'Eligible — promotion proposal fires on the next confirming tick.',
     statusBuilding: 'Building its record — every unmet requirement is listed below.',
     statusWarming: 'Warming up — no shadow round-trips closed yet.',
+    badgeGraduated: 'graduated',
     badgePromoted: 'promotion proposed',
     badgeEligible: 'eligible',
     badgeWarming: 'warming up',
