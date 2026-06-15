@@ -132,6 +132,45 @@ def clamp_buy_to_position_limit(
     return min(qty, room)
 
 
+def enforce_min_order_size(
+    side: str,
+    qty: float,
+    prior_position: dict[str, Any],
+    min_size: float,
+) -> tuple[float, str | None]:
+    """Apply the minimum-tradeable-size rule. Returns ``(qty, reject_reason)``.
+
+    The order-size floor that stops the book from creating — or stranding — a
+    sub-minimum "dust" position that a live broker could never let you close:
+
+    - **Opening / adding (BUY/long):** reject when ``qty < min_size`` — never
+      open a position too small to manage or (on a live account) to exit.
+    - **Reducing (SELL/short):** if closing ``qty`` would leave ``0 < remainder
+      < min_size``, round the sell **up to a full close** so no dust is left
+      behind. A full close is always allowed even when the closed qty is itself
+      below ``min_size`` — you must always be able to flatten an existing lot.
+
+    ``reject_reason`` is non-None only for a blocked open; the reduce path never
+    rejects (it adjusts qty). ``min_size <= 0`` (unknown symbol) is a no-op.
+    Assumes the caller already clamped an oversell to the available qty. PURE.
+    """
+    if min_size <= 0:
+        return qty, None
+    if side in (OrderSide.BUY, PositionSide.LONG):
+        if qty < min_size:
+            return qty, f"below_min_size:{qty}<{min_size}"
+        return qty, None
+    # Reduce/close side: never strand a sub-minimum remainder.
+    prior_qty = float(prior_position.get(FieldName.QTY) or 0)
+    if prior_qty <= 0:
+        return qty, None
+    sell_qty = min(qty, prior_qty)
+    remainder = prior_qty - sell_qty
+    if 0 < remainder < min_size:
+        sell_qty = prior_qty
+    return sell_qty, None
+
+
 def apply_signed_delta(
     existing_pos: dict[str, Any],
     side: str,
