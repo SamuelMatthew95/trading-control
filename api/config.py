@@ -123,6 +123,12 @@ class Settings(BaseSettings):
     # reversible. Set False to restore the manual approval gate on the
     # Proposals page.
     CHALLENGER_PROMOTION_AUTO_APPLY: bool = True
+    # When True an applied challenger promotion also GRADUATES the strategy one
+    # lifecycle stage (SHADOW -> CANARY) in the strategy registry, so a winning
+    # shadow becomes a first-class canary candidate instead of staying a
+    # decorative shadow forever. Pure registry state — still places no live
+    # orders. Set False to keep promotions to a prompt-directive bias only.
+    CHALLENGER_GRADUATE_TO_CANARY: bool = True
 
     # Grade system
     GRADE_LOOKBACK_N: int = 20
