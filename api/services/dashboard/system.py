@@ -20,6 +20,7 @@ from api.observability import log_structured
 from api.redis_client import get_redis
 from api.runtime_state import get_runtime_store, is_db_available, runtime_mode
 from api.services.metrics_aggregator import MetricsAggregator
+from api.utils import now_iso
 
 
 async def get_stream_lag_payload() -> dict[str, Any]:
@@ -27,7 +28,7 @@ async def get_stream_lag_payload() -> dict[str, Any]:
     if not is_db_available():
         return {
             FieldName.STREAM_LAG: {},
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             "source": "in_memory",
         }
 
@@ -37,14 +38,14 @@ async def get_stream_lag_payload() -> dict[str, Any]:
             lag_metrics = await aggregator.get_stream_lag_metrics()
             return {
                 FieldName.STREAM_LAG: lag_metrics,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": now_iso(),
             }
 
     except Exception:
         log_structured("warning", "stream_lag_db_unavailable", exc_info=True)
         return {
             FieldName.STREAM_LAG: [],
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             "source": "in_memory",
         }
 
@@ -66,7 +67,7 @@ async def get_system_health_payload() -> dict[str, Any]:
             "status": "degraded",
             FieldName.MODE: runtime_mode(),
             FieldName.DB_HEALTH: store.last_health,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             "source": "in_memory",
         }
 
@@ -116,7 +117,7 @@ async def get_system_stream_metrics_payload() -> dict[str, Any]:
 
         return {
             **result,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
     except Exception:
         log_structured("warning", "system_metrics_unavailable", exc_info=True)
@@ -127,7 +128,7 @@ async def get_system_stream_metrics_payload() -> dict[str, Any]:
             FieldName.GRADED_DECISIONS: 0,
             FieldName.AGENT_LOGS: 0,
             FieldName.TRADE_ALERTS: 0,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             "source": "in_memory",
         }
 
@@ -160,7 +161,7 @@ async def get_prices_payload() -> dict[str, Any]:
 
         return {
             FieldName.PRICES: prices,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             "source": "redis_cache",
         }
 
@@ -170,7 +171,7 @@ async def get_prices_payload() -> dict[str, Any]:
             FieldName.PRICES: dict.fromkeys(
                 ["BTC/USD", "ETH/USD", "SOL/USD", "AAPL", "TSLA", "SPY"]
             ),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             "source": "in_memory",
         }
 
@@ -209,14 +210,14 @@ async def get_price_history_payload(limit: int = 1000) -> dict[str, Any]:
             series.reverse()
         return {
             FieldName.HISTORY: histories,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             "source": "market_events",
         }
     except Exception:
         log_structured("warning", "price_history_unavailable", exc_info=True)
         return {
             FieldName.HISTORY: {},
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             "source": "in_memory",
         }
 
