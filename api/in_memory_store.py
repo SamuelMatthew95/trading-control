@@ -5,7 +5,6 @@ import uuid
 from collections import deque
 from copy import deepcopy
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any
 
 from api.config import settings
@@ -27,7 +26,7 @@ from api.constants import (
 )
 from api.services.metrics_calc import closed_trade_stats, win_rate_from_counts
 from api.services.notification_summary import compute_notification_summary
-from api.utils import safe_float
+from api.utils import now_iso, safe_float
 
 DEFAULT_AGENTS: dict[str, dict[str, Any]] = {
     AGENT_SIGNAL: {"status": "idle"},
@@ -581,7 +580,7 @@ class InMemoryStore:
             or payload.get(FieldName.TRACE_ID)
             or f"mem-dec-{len(self.decisions) + 1}",
             FieldName.TRACE_ID: payload.get(FieldName.TRACE_ID),
-            "timestamp": payload.get(FieldName.TIMESTAMP) or datetime.now(timezone.utc).isoformat(),
+            "timestamp": payload.get(FieldName.TIMESTAMP) or now_iso(),
             FieldName.SYMBOL: symbol,
             FieldName.ACTION: action,
             FieldName.PRICE: price,
