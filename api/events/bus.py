@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from typing import Any
 
 from redis.asyncio import Redis
@@ -38,6 +37,7 @@ from api.constants import (
 )
 from api.observability import log_structured
 from api.schema_version import DB_SCHEMA_VERSION
+from api.utils import bytes_to_text, now_iso
 
 STREAMS = (
     STREAM_MARKET_EVENTS,
@@ -161,7 +161,7 @@ class EventBus:
         """
         # Bug fix: always include schema_version so consumer never sends to DLQ
         event.setdefault(FieldName.SCHEMA_VERSION, DB_SCHEMA_VERSION)
-        event.setdefault(FieldName.TIMESTAMP, datetime.now(timezone.utc).isoformat())
+        event.setdefault(FieldName.TIMESTAMP, now_iso())
 
         # Serialize all values to strings with defensive fallback
         serialized_event = {}
@@ -594,8 +594,7 @@ async def ensure_all_streams_ready(redis_client: Redis) -> None:
             group_names: set[str] = set()
             for g in groups:
                 raw = g.get(FieldName.NAME) or g.get(b"name", b"")
-                name = raw.decode() if isinstance(raw, bytes) else raw
-                group_names.add(name)
+                group_names.add(bytes_to_text(raw))
             for group in (DEFAULT_GROUP, PIPELINE_GROUP):
                 if group not in group_names:
                     missing.append((stream, group))
