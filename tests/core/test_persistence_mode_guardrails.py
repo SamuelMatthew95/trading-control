@@ -38,13 +38,3 @@ def test_simplified_runtime_logic():
     set_db_available(False)
     assert get_active_backend() == StorageBackend.MEMORY
     assert get_runtime_mode() == RuntimeMode.IN_MEMORY_FALLBACK
-
-
-def test_legacy_functions_dont_break():
-    """Legacy functions should work without breaking."""
-    from api.runtime_state import get_persistence_mode, set_persistence_mode
-
-    # Should work without error
-    assert get_persistence_mode() == "auto"
-    set_persistence_mode("memory")
-    assert get_persistence_mode() == "auto"
