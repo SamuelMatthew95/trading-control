@@ -23,13 +23,13 @@ grader treats an agent with no closed trades as UNRATED on PnL rather than 0%.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
 from redis.asyncio import Redis
 
 from api.constants import REDIS_KEY_AGENT_PNL, FieldName
 from api.observability import log_structured
+from api.utils import bytes_to_text, now_iso
 
 
 def _win_rate(trade_count: int, win_count: int) -> float:
@@ -55,7 +55,7 @@ class AgentPnLStore:
             if pnl > 0:
                 pipe.hincrby(key, FieldName.WIN_COUNT, 1)
             pipe.hincrbyfloat(key, FieldName.TOTAL_PNL, float(pnl))
-            pipe.hset(key, FieldName.UPDATED_AT, datetime.now(timezone.utc).isoformat())
+            pipe.hset(key, FieldName.UPDATED_AT, now_iso())
             await pipe.execute()
         except Exception:
             log_structured("warning", "agent_pnl_record_failed", agent=agent_name, exc_info=True)
@@ -85,11 +85,7 @@ def _coerce_stats(raw: Any) -> dict[str, Any] | None:
     if not raw:
         return None
     # redis-py may return bytes keys/values depending on decode settings.
-    decoded: dict[str, str] = {}
-    for k, v in raw.items():
-        key = k.decode() if isinstance(k, bytes) else str(k)
-        val = v.decode() if isinstance(v, bytes) else str(v)
-        decoded[key] = val
+    decoded: dict[str, str] = {bytes_to_text(k): bytes_to_text(v) for k, v in raw.items()}
     try:
         trade_count = int(decoded.get(FieldName.TRADE_COUNT, 0) or 0)
         win_count = int(decoded.get(FieldName.WIN_COUNT, 0) or 0)
