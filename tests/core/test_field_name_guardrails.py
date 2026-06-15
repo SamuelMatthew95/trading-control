@@ -60,7 +60,6 @@ CLEAN_FILES: frozenset[str] = frozenset(
     {
         "api/config.py",
         "api/constants.py",
-        "api/core/db/session.py",
         "api/core/defaults.py",
         "api/core/enums.py",
         "api/core/payload_keys.py",
