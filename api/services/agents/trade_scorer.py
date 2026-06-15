@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from api.constants import FieldName, Grade, TradeTag
-from api.utils import safe_float
+from api.utils import clamp, safe_float
 
 _EARLY_EXIT_MAX_MINUTES = 2.0
 _PATIENCE_MIN_MINUTES = 10.0
@@ -33,14 +33,10 @@ _HIGH_SPREAD_PCT = 0.25
 _MAX_TAGS_PER_BUCKET = 6
 
 
-def _clamp(value: float, lo: float = 0.0, hi: float = 1.0) -> float:
-    return max(lo, min(hi, value))
-
-
 def normalize(x: float, min_val: float, max_val: float) -> float:
     if max_val <= min_val:
         return 0.5
-    return _clamp((x - min_val) / (max_val - min_val))
+    return clamp((x - min_val) / (max_val - min_val))
 
 
 # ---------------------------------------------------------------------------
@@ -64,10 +60,10 @@ def score_risk_reward(pnl: float | None, pnl_percent: float | None) -> float:
     pct = float(pnl_percent or 0.0)
     if pnl_val > 0:
         # +5% maps to ~0.75, +10% maps to ~1.0
-        return _clamp(0.5 + (pct / 20.0))
+        return clamp(0.5 + (pct / 20.0))
     if pnl_val < 0:
         # -5% maps to ~0.25, -10% maps to 0.0
-        return _clamp(0.5 + (pct / 20.0))
+        return clamp(0.5 + (pct / 20.0))
     return 0.5
 
 
@@ -88,7 +84,7 @@ def score_exit_quality(pnl: float | None, pnl_percent: float | None) -> float:
     Break-even ≈ 0.5. Loss = below 0.5.
     """
     pct = float(pnl_percent or 0.0)
-    return _clamp(0.5 + (pct / 10.0))
+    return clamp(0.5 + (pct / 10.0))
 
 
 def score_signal_alignment(side: str | None, action: str | None) -> float:
@@ -148,13 +144,13 @@ def score_trade(trade_data: dict[str, Any]) -> dict[str, Any]:
     overall = (
         0.30 * norm_return + 0.25 * rr_score + 0.20 * entry_q + 0.15 * exit_q + 0.10 * sig_align
     )
-    overall = _clamp(overall)
+    overall = clamp(overall)
 
     # Timing score = blend of entry and return quality
-    timing = _clamp(0.5 * norm_return + 0.5 * entry_q)
+    timing = clamp(0.5 * norm_return + 0.5 * entry_q)
 
     grade = _score_to_grade(overall)
-    confidence_out = _clamp(1.0 - abs(overall - 0.5) * 0.5)
+    confidence_out = clamp(1.0 - abs(overall - 0.5) * 0.5)
 
     context = _build_trade_context(
         side=side,
@@ -619,7 +615,7 @@ def compute_learning_metrics(evaluations: list[dict[str, Any]]) -> dict[str, Any
     if avg_score > 0.01 and total > 1:
         variance = sum((s - avg_score) ** 2 for s in scores) / (total - 1)
         std_s = math.sqrt(variance) if variance > 0 else 0.0
-        consistency = _clamp(1.0 - (std_s / avg_score))
+        consistency = clamp(1.0 - (std_s / avg_score))
 
     # Classify reliability so callers can qualify displayed metrics.
     if total < _MIN_RELIABLE_TRADES:
