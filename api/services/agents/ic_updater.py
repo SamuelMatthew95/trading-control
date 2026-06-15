@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import uuid
 from collections import deque
-from datetime import datetime, timezone
 from typing import Any
 
 from redis.asyncio import Redis
@@ -38,6 +37,7 @@ from api.services.agents.db_helpers import (
 from api.services.agents.scoring import (
     spearman_correlation,
 )
+from api.utils import now_iso
 
 # ---------------------------------------------------------------------------
 # ICUpdater — Spearman-based alpha factor reweighting
@@ -162,7 +162,7 @@ class ICUpdater(MultiStreamAgent):
             fills=self._fills,
         )
 
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso_str = now_iso()
         for factor, ic_val in raw_factors.items():
             await self.bus.publish(
                 STREAM_FACTOR_IC_HISTORY,
@@ -174,10 +174,10 @@ class ICUpdater(MultiStreamAgent):
                     FieldName.IC_SCORE: round(ic_val, 6),
                     FieldName.WEIGHT: weights.get(factor, 0.0),
                     FieldName.FILLS: self._fills,
-                    FieldName.TIMESTAMP: now_iso,
+                    FieldName.TIMESTAMP: now_iso_str,
                 },
             )
-            await persist_factor_ic(factor, ic_val, now_iso)
+            await persist_factor_ic(factor, ic_val, now_iso_str)
 
         await self.bus.publish(
             STREAM_NOTIFICATIONS,
@@ -192,7 +192,7 @@ class ICUpdater(MultiStreamAgent):
                     f"composite={composite_ic:+.3f} momentum={momentum_ic:+.3f}"
                 ),
                 FieldName.WEIGHTS: weights,
-                FieldName.TIMESTAMP: now_iso,
+                FieldName.TIMESTAMP: now_iso_str,
             },
         )
 
