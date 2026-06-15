@@ -19,7 +19,6 @@ which path was used so it can surface an appropriate banner.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -51,6 +50,7 @@ from api.services.agents.trade_scorer import (
     compute_learning_metrics,
 )
 from api.services.param_evolution import validate_param_change
+from api.utils import now_iso
 
 router = APIRouter(prefix="/learning", tags=["learning"])
 
@@ -275,7 +275,7 @@ async def get_learning_metrics() -> dict[str, Any]:
         return {
             **metrics,
             FieldName.MODE: mode,
-            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+            FieldName.TIMESTAMP: now_iso(),
         }
 
     try:
@@ -333,7 +333,7 @@ async def get_learning_metrics() -> dict[str, Any]:
         return {
             **metrics,
             FieldName.MODE: mode,
-            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+            FieldName.TIMESTAMP: now_iso(),
         }
     except Exception:
         log_structured("error", "learning_metrics_failed", exc_info=True)
@@ -506,7 +506,7 @@ async def list_strategies(
 async def get_pipeline_status() -> dict[str, Any]:
     """Observable pipeline status — each stage's last-run time and counts."""
     mode = "db" if is_db_available() else "memory"
-    now = datetime.now(timezone.utc).isoformat()
+    now = now_iso()
 
     if not is_db_available():
         store = get_runtime_store()
