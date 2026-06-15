@@ -37,14 +37,11 @@ from api.constants import (
     FieldName,
 )
 from api.observability import log_structured
+from api.utils import now_iso
 
 
 def _today_iso() -> str:
     return date_cls.today().isoformat()
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _to_text(raw: Any) -> str:
@@ -95,7 +92,7 @@ class RedisStore:
         if not entry.get(FieldName.ID):
             entry[FieldName.ID] = str(uuid.uuid4())
         if not entry.get(FieldName.TIMESTAMP):
-            entry[FieldName.TIMESTAMP] = _now_iso()
+            entry[FieldName.TIMESTAMP] = now_iso()
         entry.setdefault(FieldName.SEVERITY, "info")
         entry.setdefault(FieldName.READ, False)
         encoded = json.dumps(entry, default=str)
@@ -202,7 +199,7 @@ class RedisStore:
         if not entry.get(FieldName.ID):
             entry[FieldName.ID] = str(uuid.uuid4())
         if not entry.get(FieldName.TIMESTAMP):
-            entry[FieldName.TIMESTAMP] = _now_iso()
+            entry[FieldName.TIMESTAMP] = now_iso()
         encoded = json.dumps(entry, default=str)
         try:
             async with self.redis.pipeline(transaction=True) as pipe:
@@ -298,7 +295,7 @@ class RedisStore:
         """
         entry = dict(payload)
         if not entry.get(FieldName.TIMESTAMP):
-            entry[FieldName.TIMESTAMP] = _now_iso()
+            entry[FieldName.TIMESTAMP] = now_iso()
         encoded = json.dumps(entry, default=str)
         try:
             async with self.redis.pipeline(transaction=True) as pipe:
@@ -341,7 +338,7 @@ class RedisStore:
         """
         entry = dict(payload)
         if not entry.get(FieldName.TIMESTAMP):
-            entry[FieldName.TIMESTAMP] = _now_iso()
+            entry[FieldName.TIMESTAMP] = now_iso()
         encoded = json.dumps(entry, default=str)
         try:
             async with self.redis.pipeline(transaction=True) as pipe:
@@ -404,7 +401,7 @@ class RedisStore:
                     pipe.hset(
                         REDIS_KEY_LLM_METRICS,
                         mapping={
-                            FieldName.LAST_SUCCESS_AT: _now_iso(),
+                            FieldName.LAST_SUCCESS_AT: now_iso(),
                             FieldName.LAST_LATENCY_MS: int(latency_ms),
                         },
                     )
@@ -473,7 +470,7 @@ class RedisStore:
         """
         entry = dict(snapshot)
         if not entry.get(FieldName.TIMESTAMP):
-            entry[FieldName.TIMESTAMP] = _now_iso()
+            entry[FieldName.TIMESTAMP] = now_iso()
         key = REDIS_KEY_AGENT_GRADE_HISTORY.format(name=agent_name)
         encoded = json.dumps(entry, default=str)
         try:
