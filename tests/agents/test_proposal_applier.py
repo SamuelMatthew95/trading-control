@@ -582,6 +582,88 @@ async def test_challenger_promotion_approved_biases_and_spawns(monkeypatch):
         set_prompt_store(None)
 
 
+class _FakeHashRedis:
+    """Minimal Redis (hset mapping / hgetall) for the ChallengerStore in tests."""
+
+    def __init__(self) -> None:
+        self.h: dict[str, dict[str, str]] = {}
+
+    async def hset(self, key, mapping=None, **kwargs) -> int:
+        d = self.h.setdefault(key, {})
+        for k, v in (mapping or {}).items():
+            d[str(k)] = str(v)
+        return len(mapping or {})
+
+    async def hgetall(self, key) -> dict[str, str]:
+        return dict(self.h.get(key, {}))
+
+
+async def test_challenger_promotion_approved_graduates_strategy(monkeypatch):
+    """An APPROVED promotion GRADUATES the strategy: it stamps the durable
+    challenger record graduated AND advances the strategy registry SHADOW→CANARY,
+    so a winning shadow becomes a first-class candidate — the 'modularize the
+    winner' half of the loop, not just a prompt nudge."""
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    from api.constants import StrategyStatus  # noqa: PLC0415
+    from api.services.challenger_store import (  # noqa: PLC0415
+        ChallengerStore,
+        set_challenger_store,
+    )
+    from api.services.prompt_store import set_prompt_store  # noqa: PLC0415
+    from api.services.strategy_registry import (  # noqa: PLC0415
+        StrategyRegistry,
+        get_strategy_registry,
+        set_strategy_registry,
+    )
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    monkeypatch.setattr(
+        "api.services.agents.proposal_applier.STRATEGIES", {"mean_reversion": object()}
+    )
+    await _install_prompt_store()
+    cstore = ChallengerStore(_FakeHashRedis())
+    set_challenger_store(cstore)
+    # Register the strategy at SHADOW so it can graduate one stage to CANARY.
+    registry = StrategyRegistry()
+    set_strategy_registry(registry)
+    version = registry.register({FieldName.STRATEGY: "mean_reversion"})
+    registry.transition(version.version_id, StrategyStatus.BACKTESTED)
+    registry.transition(version.version_id, StrategyStatus.SHADOW)
+    try:
+        applier = _make_applier(_FakeRedis())
+        spawner = _AsyncMock()
+        spawner.spawn = _AsyncMock(return_value={FieldName.CHALLENGER_ID: "ch1"})
+        applier.spawner = spawner
+
+        proposal = {
+            FieldName.PROPOSAL_TYPE: ProposalType.CHALLENGER_PROMOTION,
+            FieldName.APPROVED: True,
+            FieldName.CONTENT: {
+                FieldName.STRATEGY: "mean_reversion",
+                FieldName.SHADOW_EDGE: 12.0,
+                FieldName.CONFIDENCE: 0.7,
+                FieldName.CHALLENGER_CONFIG: {FieldName.STRATEGY: "mean_reversion"},
+            },
+            FieldName.TRACE_ID: "t-grad",
+        }
+        await applier.process("proposals", "1-0", proposal)
+
+        # (1) durable record stamped graduated — survives restarts.
+        rec = await cstore.load("mean_reversion")
+        assert rec is not None and rec[FieldName.GRADUATED] is True
+        # (2) lifecycle advanced one stage SHADOW→CANARY (modularized winner).
+        assert (
+            get_strategy_registry().find_by_strategy("mean_reversion").status
+            == StrategyStatus.CANARY
+        )
+    finally:
+        set_prompt_store(None)
+        set_challenger_store(None)
+        set_strategy_registry(None)
+
+
 async def test_challenger_promotion_approved_without_spawner_still_biases(monkeypatch):
     """With no spawner (or unknown strategy) the bias still applies — the advisory
     half never depends on the spawn half."""
