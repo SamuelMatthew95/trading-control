@@ -16,6 +16,7 @@ from api.database import get_async_session, test_database_connection
 from api.observability import log_structured, metrics_store
 from api.redis_client import redis_pool_stats
 from api.runtime_state import get_runtime_store, runtime_mode
+from api.utils import now_iso
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["health"])
@@ -116,7 +117,7 @@ async def root() -> dict[str, Any]:
             success=True,
             data=HealthResponse(
                 status="running",
-                timestamp=datetime.now(timezone.utc).isoformat(),
+                timestamp=now_iso(),
                 services={
                     FieldName.ORCHESTRATOR: "healthy",
                     FieldName.DATABASE: "unknown",
@@ -275,7 +276,7 @@ async def system_health() -> dict[str, Any]:
                     FieldName.AVG_LATENCY_MS: telemetry[FieldName.AVG_LATENCY_MS],
                     FieldName.TOTAL_REQUESTS: telemetry[FieldName.TOTAL_REQUESTS],
                 },
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": now_iso(),
             },
         ).model_dump()
     except Exception as e:
