@@ -209,6 +209,22 @@ async def test_publishes_execution_event(engine, mock_bus, mock_redis, mock_brok
     assert "trace_id" in payload
 
 
+async def test_rejects_buy_below_min_order_size(engine, mock_bus, mock_broker):
+    """A BUY whose qty is below the symbol's minimum tradeable size is rejected
+    before it reaches the broker — the book never opens sub-minimum dust."""
+    order = {**_make_order("buy"), "qty": 0.0005}  # < SYMBOL_MIN_SIZE['BTC/USD'] == 0.001
+
+    with patch(
+        "api.services.execution.execution_engine.AsyncSessionFactory",
+        _MockSessionFactory(),
+    ):
+        await engine.process(order)
+
+    mock_broker.place_order.assert_not_called()
+    published_streams = [call.args[0] for call in mock_bus.publish.call_args_list]
+    assert "executions" not in published_streams
+
+
 async def test_publishes_trade_performance(engine, mock_bus, mock_redis, mock_broker):
     """After successful fill, bus.publish is called with 'trade_performance' stream."""
     mock_redis.set = AsyncMock(return_value=True)
