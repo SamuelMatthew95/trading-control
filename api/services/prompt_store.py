@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
 from typing import Any
 
 from api.constants import (
@@ -32,6 +31,7 @@ from api.constants import (
     FieldName,
 )
 from api.observability import log_structured
+from api.utils import now_iso
 
 # Matches the challenger-promotion advisory line ProposalApplier writes
 # (``_bias_directive_toward``): "Promoted strategy '<name>': …". Kept in sync
@@ -129,7 +129,7 @@ class PromptStore:
             FieldName.VERSION: max(version, 1),
             FieldName.RATIONALE: rationale,
             FieldName.SOURCE: source,
-            FieldName.UPDATED_AT: datetime.now(timezone.utc).isoformat(),
+            FieldName.UPDATED_AT: now_iso(),
         }
         history_key = REDIS_KEY_PROMPT_DIRECTIVE_HISTORY.format(node=node)
         try:
