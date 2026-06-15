@@ -190,6 +190,7 @@ CLEAN_FILES: frozenset[str] = frozenset(
         "api/services/prompt_assembly.py",
         "api/services/prompt_store.py",
         "api/services/redis_store.py",
+        "api/services/regime_risk.py",
         "api/services/regression_validator.py",
         "api/services/replay_harness.py",
         "api/services/risk_filters.py",
