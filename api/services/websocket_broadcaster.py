@@ -28,6 +28,7 @@ from api.constants import (
     OrderSide,
 )
 from api.observability import log_structured
+from api.utils import now_iso
 
 _AGENT_NAMES = ALL_AGENT_NAMES
 
@@ -223,7 +224,7 @@ class WebSocketBroadcaster:
                         FieldName.TYPE: "agent_status_update",
                         FieldName.AGENTS: agents,
                         FieldName.METRICS: metrics,
-                        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                        FieldName.TIMESTAMP: now_iso(),
                     }
                 )
             except asyncio.CancelledError:
@@ -388,7 +389,7 @@ class WebSocketBroadcaster:
             event_name="ws_client_connected",
             msg_id="none",
             event_type="system",
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=now_iso(),
             active_connections=self.active_connections,
         )
 
@@ -400,7 +401,7 @@ class WebSocketBroadcaster:
             event_name="ws_client_disconnected",
             msg_id="none",
             event_type="system",
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=now_iso(),
             active_connections=self.active_connections,
         )
 
@@ -416,7 +417,7 @@ class WebSocketBroadcaster:
 
         msg_id = str(data.get(FieldName.MSG_ID, "none"))
         event_type = str(data.get(FieldName.EVENT_TYPE, data.get(FieldName.TYPE, "unknown")))
-        ts = str(data.get(FieldName.TIMESTAMP, datetime.now(timezone.utc).isoformat()))
+        ts = str(data.get(FieldName.TIMESTAMP, now_iso()))
 
         disconnected: list[WebSocket] = []
         for websocket in list(self._connections):
