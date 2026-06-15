@@ -1,6 +1,9 @@
 # Changelog
 
-## [2026-06-13] — Cognitive dashboard: real cognition, de-mocked API, memory-mode honesty
+## [2026-06-15] — Consolidate cross-cutting coercion helpers into `api/utils.py`
+
+### Changed
+- **`safe_float` and `now_iso` are now single-sourced in `api/utils.py`** — the float-coercion idiom was copy-pasted across four modules (`in_memory_store.py`, `services/learning_service.py`, `services/agents/trade_scorer.py`, `services/metrics_aggregator.py`) and the UTC-ISO-timestamp idiom across four more (`services/redis_store.py`, `services/feedback_service.py`, `mcp/read_tools.py`, `mcp/server.py`), each a slightly different private `_safe_float` / `_now_iso`. The copies had a latent divergence — `metrics_aggregator`'s variant defaulted missing values to `0.0` while the others returned `None` — which is now an explicit `safe_float(value, default=...)` parameter instead of a silent per-file behaviour difference. All call sites delegate to the shared helpers; behaviour is unchanged (`tests/core/test_payload_utils.py::TestSafeFloat`, `::TestNowIso`)
 
 ### Changed
 - **Cognitive dashboard now surfaces the real reasoning, not a sim shell** — the page modelled a simulation contract (weighted news/tech/macro/risk signals, counterfactuals, drift) the live system never fills, so it rendered zeros and `--` while discarding the genuine cognition every decision carries. `api/services/cognitive_live.py` now carries each decision's `confidence`, `reasoning_summary`, `llm_succeeded` / `downgrade_reason`, `timestamp`, and the full `tools_used` perception chain (order-book depth, news sentiment, macro regime, correlation, confluence, similar trades). The Command Center and Trace Explorer were rebuilt around this; dead sim panels (weighted Decision Flow, hardcoded-zero counterfactual quality, always-empty Drift) are gone (`docs/troubleshooting/cognitive.md`)
