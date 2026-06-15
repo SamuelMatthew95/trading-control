@@ -13,7 +13,7 @@ import asyncio
 import json
 import time
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date
 from typing import Any
 
 from sqlalchemy import text
@@ -102,6 +102,7 @@ from api.services.redis_store import get_redis_store
 from api.services.risk_filters import compute_dynamic_position_size
 from api.services.tool_registry import ToolMetadata, get_tool_registry
 from api.telemetry import record_decision
+from api.utils import now_iso
 
 
 class ReasoningAgent(BaseStreamConsumer):
@@ -370,7 +371,7 @@ class ReasoningAgent(BaseStreamConsumer):
                 "message": f"{_action.upper()} ({_conf:.0%}) — {_edge}"
                 if _edge
                 else f"{_action.upper()} ({_conf:.0%})",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": now_iso(),
                 **summary,
             },
         )
@@ -424,9 +425,7 @@ class ReasoningAgent(BaseStreamConsumer):
                     data.get(FieldName.PRICE, data.get(FieldName.LAST_PRICE, 0.0))
                 ),
                 "session_id": strategy_id,
-                FieldName.TIMESTAMP: data.get(
-                    FieldName.TIMESTAMP, datetime.now(timezone.utc).isoformat()
-                ),
+                FieldName.TIMESTAMP: data.get(FieldName.TIMESTAMP, now_iso()),
                 FieldName.TRACE_ID: trace_id,
                 FieldName.PRIMARY_EDGE: summary.get(FieldName.PRIMARY_EDGE, ""),
                 FieldName.RISK_FACTORS: summary.get(FieldName.RISK_FACTORS, []),
