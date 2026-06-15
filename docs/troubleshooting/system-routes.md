@@ -406,3 +406,45 @@ so an absent/slow local-inference host can no longer delay boot by 10s or
 interfere with startup at all.
 
 **Regression test:** `tests/core/test_startup_streams_barrier.py`
+
+## Stale prices served as live (wrong timestamp field + no freshness gate)
+
+**Symptom:** During an Alpaca outage or a stuck poller, the dashboard kept
+showing the last fetched price as a live quote (e.g. a position marked to a
+frozen number), and the price-health endpoint reported every symbol "fresh"
+even when nothing was updating.
+
+**Root cause:** Two issues. (1) The price-health check read the per-symbol
+timestamp from `FieldName.TIMESTAMP` (`"timestamp"`), but the poll cache stamps
+the tick epoch under `FieldName.TS` (`"ts"`) — the lookup always found nothing,
+so the `>90s` staleness branch never ran and no symbol was ever marked stale.
+(2) The served read paths (`/dashboard/state` enrichment and
+`get_prices_payload`) applied no freshness gate at all, so any price still
+within the 150s cache TTL was emitted as current.
+
+**Fix:** Added `filter_fresh_prices()` (`api/services/metrics_aggregator.py`),
+a pure gate that drops any cached price older than `PRICE_STALE_SECONDS` (90s,
+new constant — below the 150s TTL backstop, above the 60s stock poll). Wired it
+into both served read paths so a stale price hydrates as `--` (and is not used
+to mark positions to market). Fixed the health check to read `FieldName.TS` and
+compare against `PRICE_STALE_SECONDS`. Fail-open: a payload with no parseable
+`ts` is kept (its age is already bounded by the cache TTL).
+
+**Regression test:** `tests/core/test_price_staleness.py`
+
+## Dead `INITIAL_PRICES` constant (hardcoded BTC=67000)
+
+**Symptom:** An operator saw a position entry price near $67k and suspected the
+system was injecting a fake hardcoded price, after spotting
+`INITIAL_PRICES = {"BTC/USD": 67000.0, ...}` in `api/constants.py`.
+
+**Root cause:** `INITIAL_PRICES` was dead code — defined but referenced nowhere
+(verified by a repo-wide search). It never fed a fill or the dashboard; entry
+prices come only from real Alpaca paper fills via `PaperBroker.place_order`. The
+near-match to a real ~$67k cost basis was coincidental.
+
+**Fix:** Removed the unused `INITIAL_PRICES` dict from `api/constants.py`. The
+symbol constants it referenced stay — they are live via `VALID_SYMBOLS`.
+
+**Regression test:** n/a (dead-code removal; `ruff`/import checks + the existing
+constants test suite cover the module staying importable).
