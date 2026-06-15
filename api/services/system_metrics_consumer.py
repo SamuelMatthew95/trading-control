@@ -14,6 +14,7 @@ from api.events.bus import DEFAULT_GROUP, EventBus
 from api.events.consumer import BaseStreamConsumer
 from api.events.dlq import DLQManager
 from api.observability import log_structured
+from api.utils import parse_iso_datetime
 
 
 class SystemMetricsConsumer(BaseStreamConsumer):
@@ -67,12 +68,8 @@ class SystemMetricsConsumer(BaseStreamConsumer):
         log_structured("info", "system metric processed", msg_id=msg_id, metric_name=metric_name)
 
     def safe_parse_dt(self, dt_str):
-        """Safely parse ISO datetime strings."""
-        if not dt_str:
-            return None
-
-        try:
-            return datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-        except (ValueError, AttributeError):
-            log_structured("warning", "datetime parse failed", dt_str=dt_str, exc_info=True)
-            return None
+        """Safely parse ISO datetime strings (UTC-normalized); warns on failure."""
+        parsed = parse_iso_datetime(dt_str)
+        if parsed is None and dt_str:
+            log_structured("warning", "datetime parse failed", dt_str=dt_str)
+        return parsed
