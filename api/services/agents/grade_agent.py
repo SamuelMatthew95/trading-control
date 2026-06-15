@@ -67,6 +67,7 @@ from api.services.agents.trade_scorer import (
 from api.services.llm_metrics import llm_metrics as _llm_metrics
 from api.services.replay_harness import ReplayHarness
 from api.services.tool_registry import get_tool_registry
+from api.utils import now_iso
 
 # ---------------------------------------------------------------------------
 # GradeAgent — real 4-dimension performance scoring
@@ -354,7 +355,7 @@ class GradeAgent(MultiStreamAgent):
             },
             FieldName.FILLS_GRADED: self._fills,
             FieldName.SELF_CORRECTION: self_correction,
-            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+            FieldName.TIMESTAMP: now_iso(),
         }
 
         await self.bus.publish(STREAM_AGENT_GRADES, payload)
@@ -430,7 +431,7 @@ class GradeAgent(MultiStreamAgent):
                     grade_score=payload[FieldName.SCORE_PCT],
                     grade_label=grade_label,
                     status="graded",
-                    graded_at=datetime.now(timezone.utc).isoformat(),
+                    graded_at=now_iso(),
                 )
         except Exception:
             log_structured("warning", "grade_lifecycle_update_failed", exc_info=True)
@@ -496,7 +497,7 @@ class GradeAgent(MultiStreamAgent):
                     FieldName.SELF_CORRECTION: self_correction,
                     FieldName.TRACE_ID: trace_id,
                 },
-                FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                FieldName.TIMESTAMP: now_iso(),
             },
         )
 
@@ -550,7 +551,7 @@ class GradeAgent(MultiStreamAgent):
             }
             for t in get_tool_registry().attribution()
         ]
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso_str = now_iso()
         proposal = {
             FieldName.MSG_ID: str(uuid.uuid4()),
             FieldName.SOURCE: SOURCE_GRADE,
@@ -567,7 +568,7 @@ class GradeAgent(MultiStreamAgent):
                 ),
             },
             FieldName.TRACE_ID: trace_id,
-            FieldName.TIMESTAMP: now_iso,
+            FieldName.TIMESTAMP: now_iso_str,
         }
         await self.bus.publish(STREAM_PROPOSALS, proposal)
         # Persist so the proposal is visible in the dashboard queue. Publishing
@@ -584,7 +585,7 @@ class GradeAgent(MultiStreamAgent):
                 FieldName.SEVERITY: Severity.INFO,
                 FieldName.NOTIFICATION_TYPE: "tool_governance",
                 FieldName.MESSAGE: f"Tool governance suggests: {key}",
-                FieldName.TIMESTAMP: now_iso,
+                FieldName.TIMESTAMP: now_iso_str,
             },
         )
         log_structured(
@@ -755,7 +756,7 @@ class GradeAgent(MultiStreamAgent):
                     ),
                     FieldName.AUTO_APPLIED: True,
                 },
-                FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                FieldName.TIMESTAMP: now_iso(),
             },
         )
 
@@ -777,7 +778,7 @@ class GradeAgent(MultiStreamAgent):
                         f"IC={payload[FieldName.METRICS][FieldName.IC]:+.3f}"
                     ),
                     FieldName.PAYLOAD: payload,
-                    FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                    FieldName.TIMESTAMP: now_iso(),
                 },
             )
 
@@ -812,7 +813,7 @@ class GradeAgent(MultiStreamAgent):
                         FieldName.GRADE_PAYLOAD: payload,
                         FieldName.BACKTEST: self._recent_backtest_evidence(),
                     },
-                    FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                    FieldName.TIMESTAMP: now_iso(),
                 },
             )
             self._consecutive_low_grades += 1
@@ -833,7 +834,7 @@ class GradeAgent(MultiStreamAgent):
                             FieldName.REASON: f"{self._consecutive_low_grades} consecutive D grades",
                             FieldName.BACKTEST: self._recent_backtest_evidence(),
                         },
-                        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                        FieldName.TIMESTAMP: now_iso(),
                     },
                 )
 
@@ -851,7 +852,7 @@ class GradeAgent(MultiStreamAgent):
                         FieldName.REASON: f"Grade F: score {payload[FieldName.SCORE_PCT]}%",
                         FieldName.BACKTEST: self._recent_backtest_evidence(),
                     },
-                    FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                    FieldName.TIMESTAMP: now_iso(),
                 },
             )
 
