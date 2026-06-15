@@ -144,6 +144,43 @@ describe('LearningLoopPanel', () => {
     expect(link).toHaveAttribute('href', '/dashboard/challengers')
   })
 
+  it('renders the durable challenger track-record table with backend status and graduations', async () => {
+    // The learning page now shows what each rival strategy has earned and where
+    // it sits in the loop — the backend decides learning_status; the UI renders it.
+    mockApiFetch.mockImplementation((path: string) => {
+      if (path === '/dashboard/learning/loop') return Promise.resolve(LOOP)
+      if (path === '/dashboard/challengers')
+        return Promise.resolve({
+          challengers: [
+            { ...CHALLENGERS.challengers[0], learning_status: 'building', shadow_edge: 102.5 },
+            {
+              challenger_id: 'grad1',
+              running: true,
+              strategy: 'confirmed_trend',
+              shadow_trades: 50,
+              shadow_win_rate: 0.6,
+              shadow_pnl: 300,
+              baseline_shadow_pnl: 100,
+              beats_baseline_shadow: true,
+              graduated: true,
+              learning_status: 'graduated',
+              shadow_edge: 200,
+            },
+          ],
+        })
+      if (path === '/learning/pending-param-changes') return Promise.resolve(PENDING_PRS)
+      return Promise.reject(new Error('unexpected path'))
+    })
+    render(<LearningLoopPanel />)
+
+    // Both rival strategies appear in the track-record table.
+    expect(await screen.findByText('confirmed_trend')).toBeInTheDocument()
+    expect(screen.getByText('mean_reversion')).toBeInTheDocument()
+    // The graduation is counted in the summary and shown as a status badge.
+    expect(screen.getByText(/· 1 graduated/)).toBeInTheDocument()
+    expect(screen.getByText('graduated')).toBeInTheDocument()
+  })
+
   it('lists pending parameter-change PRs (GitOps loop)', async () => {
     _wireAll()
     render(<LearningLoopPanel />)
