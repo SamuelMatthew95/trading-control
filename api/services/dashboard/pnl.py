@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 from typing import Any
 
 from api.constants import FieldName
@@ -7,6 +6,7 @@ from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
 from api.services.metrics_aggregator import MetricsAggregator
 from api.services.metrics_calc import closed_trade_stats
+from api.utils import now_iso
 
 
 def _in_memory_pnl_payload() -> dict[str, Any]:
@@ -34,7 +34,7 @@ def _in_memory_pnl_payload() -> dict[str, Any]:
         FieldName.WORST_TRADE: round(stats.worst, 2),
         FieldName.EQUITY_CURVE: equity_curve,
         FieldName.HAS_DATA: bool(orders or open_positions or equity_curve),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": now_iso(),
         "source": "in_memory",
     }
 
@@ -45,7 +45,7 @@ def _paired_pnl_memory_payload() -> dict[str, Any]:
         FieldName.CLOSED_TRADES: payload[FieldName.CLOSED_TRADES],
         FieldName.OPEN_POSITIONS: payload[FieldName.OPEN_POSITIONS],
         "summary": payload[FieldName.SUMMARY],
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": now_iso(),
         "source": "in_memory",
     }
 
