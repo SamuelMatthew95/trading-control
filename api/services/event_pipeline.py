@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from datetime import datetime, timezone
 from typing import Any
 
 from api.constants import (
@@ -34,6 +33,7 @@ from api.services.persistence_routing import (
     determine_persist_route,
     write_event_to_memory,
 )
+from api.utils import now_iso
 
 
 class EventPipeline:
@@ -77,7 +77,7 @@ class EventPipeline:
             event_name="pipeline_started",
             msg_id="none",
             event_type="system",
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=now_iso(),
         )
 
     async def stop(self) -> None:
@@ -120,7 +120,7 @@ class EventPipeline:
     async def _process_with_retry(self, stream: str, redis_id: str, event: dict[str, Any]) -> None:
         event_type = str(event.get(FieldName.TYPE) or stream)
         msg_id = str(event.get(FieldName.MSG_ID) or redis_id)
-        ts = str(event.get(FieldName.TIMESTAMP) or datetime.now(timezone.utc).isoformat())
+        ts = str(event.get(FieldName.TIMESTAMP) or now_iso())
         retry_count = int(event.get(FieldName.RETRY_COUNT) or 0)
 
         try:
@@ -181,7 +181,7 @@ class EventPipeline:
                     FieldName.TYPE: "dlq_event",
                     FieldName.MSG_ID: msg_id,
                     FieldName.ERROR: error,
-                    FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                    FieldName.TIMESTAMP: now_iso(),
                     FieldName.PAYLOAD: event,
                 }
             )
@@ -288,7 +288,7 @@ class EventPipeline:
                         FieldName.MSG_ID: msg_id,
                         FieldName.EVENT_TYPE: "agent_status",
                         FieldName.PAYLOAD: agent_status,
-                        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                        FieldName.TIMESTAMP: now_iso(),
                     }
                 )
         log_structured(
