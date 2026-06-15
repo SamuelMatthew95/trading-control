@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import uuid
 from collections import deque
-from datetime import datetime, timezone
 from typing import Any
 
 from api.constants import (
@@ -26,6 +25,7 @@ from api.observability import log_structured
 from api.services.agent_state import AgentStateRegistry
 from api.services.agents.base import MultiStreamAgent
 from api.services.agents.db_helpers import persist_proposal
+from api.utils import now_iso
 
 # ---------------------------------------------------------------------------
 # ChallengerAgent — parallel experimental agent instance
@@ -201,7 +201,7 @@ class ChallengerAgent(MultiStreamAgent):
             return
         if not symbol or price <= 0:
             return
-        now = datetime.now(timezone.utc).isoformat()
+        now = now_iso()
         self._last_tick_at = now
         self._ticks_observed += 1
         closed = self._shadow.observe(symbol, price)
@@ -354,7 +354,7 @@ class ChallengerAgent(MultiStreamAgent):
                 ),
             },
             FieldName.TRACE_ID: trace_id,
-            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+            FieldName.TIMESTAMP: now_iso(),
         }
         payload.update(summary)  # carry the shadow_* report fields for the dashboard
         await self.bus.publish(STREAM_PROPOSALS, payload)
@@ -386,7 +386,7 @@ class ChallengerAgent(MultiStreamAgent):
             FieldName.WIN_RATE: round(win_rate, 4),
             FieldName.AVG_PNL: round(avg_pnl, 4),
             FieldName.CONFIG: self._config,
-            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+            FieldName.TIMESTAMP: now_iso(),
             # Real shadow-strategy evidence (own vs baseline) on live data.
             **self._shadow_summary(),
         }
@@ -434,7 +434,7 @@ class ChallengerAgent(MultiStreamAgent):
             FieldName.WIN_RATE: round(win_rate, 4),
             FieldName.CONFIG: self._config,
             FieldName.GRADE_HISTORY: self._grade_history[-5:],
-            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+            FieldName.TIMESTAMP: now_iso(),
             # Real shadow-strategy evidence (own vs baseline) on live data.
             **self._shadow_summary(),
         }
