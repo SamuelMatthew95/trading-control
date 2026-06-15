@@ -8,23 +8,20 @@ which keeps them trivially unit-testable.
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import text
 
 from api.constants import FieldName, GradeType
+from api.utils import safe_json_loads
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return value
     if isinstance(value, str):
-        try:
-            return json.loads(value)
-        except (json.JSONDecodeError, TypeError):
-            return {}
+        return safe_json_loads(value, default={})
     return {}
 
 
@@ -32,10 +29,7 @@ def _as_list(value: Any) -> list[Any]:
     if isinstance(value, list):
         return value
     if isinstance(value, str):
-        try:
-            return json.loads(value)
-        except (json.JSONDecodeError, TypeError):
-            return []
+        return safe_json_loads(value, default=[])
     return []
 
 
