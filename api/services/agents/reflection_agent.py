@@ -50,6 +50,7 @@ from api.services.agents.trade_scorer import (
     compute_recommendations,
 )
 from api.services.param_evolution import tunable_parameters
+from api.utils import now_iso
 
 if TYPE_CHECKING:
     from api.services.agents.grade_agent import GradeAgent
@@ -275,7 +276,7 @@ class ReflectionAgent(MultiStreamAgent):
                         FieldName.SEVERITY: Severity.WARNING,
                         FieldName.NOTIFICATION_TYPE: "reflection_skipped",
                         FieldName.MESSAGE: "Reflection skipped: daily LLM token budget exceeded",
-                        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                        FieldName.TIMESTAMP: now_iso(),
                     },
                 )
                 return
@@ -349,7 +350,7 @@ class ReflectionAgent(MultiStreamAgent):
             FieldName.TYPE: "reflection_output",
             FieldName.TRACE_ID: trace_id,
             FieldName.FILLS_ANALYZED: self._fills,
-            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+            FieldName.TIMESTAMP: now_iso(),
             **reflection_data,
             # Merge quant fields — these override any LLM-generated equivalents
             FieldName.PATTERNS: quant[FieldName.PATTERNS],
@@ -386,7 +387,7 @@ class ReflectionAgent(MultiStreamAgent):
                 FieldName.NOTIFICATION_TYPE: "reflection",
                 FieldName.MESSAGE: reflection_data.get(FieldName.SUMMARY, "Reflection completed."),
                 FieldName.HYPOTHESIS_COUNT: len(reflection_data.get(FieldName.HYPOTHESES, [])),
-                FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                FieldName.TIMESTAMP: now_iso(),
             },
         )
 
