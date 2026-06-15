@@ -87,3 +87,23 @@ for regression testing.
 
 **Regression test:** `frontend/src/test/components/notification-feed.test.ts` —
 `renders a float epoch-seconds string as relative time, not the raw value`.
+
+## Stale notifications replayed as if current
+
+**Symptom:** On dashboard load/reconnect, day-old (or older) notifications
+resurfaced in the feed as if they had just fired, and the unread badge showed a
+count the user could never clear.
+
+**Root cause:** `notifications:recent` has no Redis TTL (it must survive
+restarts), and `RedisStore.list_notifications` / `unread_count` returned every
+row in the capped list regardless of age — so an old alert was served as live.
+
+**Fix:** `api/services/redis_store.py` — both reads now drop entries older than
+`NOTIFICATIONS_STALE_SECONDS` (24h, new constant) via the `_entry_is_stale`
+helper. `unread_count` skips them too, so the badge can't strand a count for a
+row that is no longer served. `list_notifications` reads the full capped list
+before applying the limit, so stale tail rows can't crowd out fresher ones.
+Fail-open: a row with an unparseable timestamp is kept.
+
+**Regression test:** `tests/api/test_redis_store.py::test_list_notifications_drops_stale`,
+`::test_unread_count_ignores_stale_notifications`
