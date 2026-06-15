@@ -20,6 +20,7 @@ from api.services.agent_log_stream import (
     agent_log_stream_response,
     memory_mode_log_stream_response,
 )
+from api.utils import now_iso
 
 from ..config import get_database_url
 from ..core.models import Event, Order, Position
@@ -74,7 +75,7 @@ async def get_system_pulse():
         traffic_light = calculate_traffic_light(stream_health, dlq_count, db_pool_status)
 
         return {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             FieldName.TRAFFIC_LIGHT: traffic_light,
             FieldName.STREAM_HEALTH: stream_health,
             FieldName.WORKER_HEARTBEATS: heartbeats,
@@ -85,7 +86,7 @@ async def get_system_pulse():
     except Exception as e:
         log_structured("error", "pulse api error", exc_info=True)
         return {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             FieldName.TRAFFIC_LIGHT: "red",
             "error": str(e),
         }
@@ -113,7 +114,7 @@ async def get_idempotency_audit():
             ratio = processed_count / orders_count if orders_count > 0 else 0
 
             return {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": now_iso(),
                 FieldName.PROCESSED_EVENTS_LAST_HOUR: processed_count,
                 FieldName.ORDERS_LAST_HOUR: orders_count,
                 FieldName.RATIO: round(ratio, 3),
@@ -173,7 +174,7 @@ async def get_position_sync_status():
                     )
 
             return {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": now_iso(),
                 FieldName.TOTAL_FILLS: len(fill_events),
                 FieldName.SYNCED_COUNT: len(
                     [s for s in sync_status if s[FieldName.SYNC_STATUS] == "synced"]
@@ -215,7 +216,7 @@ async def pause_consumers():
         await redis_client.publish("consumer:control", json.dumps({"action": "pause"}))
 
         return {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             "status": "pause_signal_sent",
             "message": "Pause signal sent to all consumers",
         }
@@ -235,7 +236,7 @@ async def resume_consumers():
         await redis_client.publish("consumer:control", json.dumps({"action": "resume"}))
 
         return {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             "status": "resume_signal_sent",
             "message": "Resume signal sent to all consumers",
         }
@@ -288,7 +289,7 @@ async def get_stream_health(redis_client) -> dict[str, Any]:
                 FieldName.BACKLOG: total_backlog,
                 FieldName.PENDING: pending_ack,
                 FieldName.OLDEST_PENDING_AGE_SECONDS: oldest_age,
-                FieldName.LAST_CHECKED: datetime.now(timezone.utc).isoformat(),
+                FieldName.LAST_CHECKED: now_iso(),
             }
 
         except Exception as e:
@@ -299,7 +300,7 @@ async def get_stream_health(redis_client) -> dict[str, Any]:
                 FieldName.PENDING: 0,
                 FieldName.OLDEST_PENDING_AGE_SECONDS: 0,
                 "error": str(e),
-                FieldName.LAST_CHECKED: datetime.now(timezone.utc).isoformat(),
+                FieldName.LAST_CHECKED: now_iso(),
             }
 
     return health
