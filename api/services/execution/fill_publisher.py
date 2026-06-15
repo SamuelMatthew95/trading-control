@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 
 from api.constants import (
     SOURCE_EXECUTION,
@@ -22,6 +22,7 @@ from api.constants import (
 )
 from api.events.bus import EventBus
 from api.schema_version import DB_SCHEMA_VERSION
+from api.utils import now_iso
 
 
 @dataclass(frozen=True)
@@ -56,7 +57,7 @@ class FillContext:
 async def publish_fill_events(bus: EventBus, ctx: FillContext) -> None:
     """Publish EXECUTIONS, TRADE_PERFORMANCE, TRADE_COMPLETED, TRADE_LIFECYCLE events."""
     filled_at_iso = ctx.filled_at.isoformat()
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso_str = now_iso()
 
     await bus.publish(
         STREAM_EXECUTIONS,
@@ -104,7 +105,7 @@ async def publish_fill_events(bus: EventBus, ctx: FillContext) -> None:
             FieldName.FILLED_AT: filled_at_iso,
             FieldName.ENTRY_TIME: filled_at_iso,
             FieldName.EXIT_TIME: filled_at_iso if ctx.is_round_trip_close else None,
-            FieldName.TIMESTAMP: now_iso,
+            FieldName.TIMESTAMP: now_iso_str,
             FieldName.SOURCE: SOURCE_EXECUTION,
             FieldName.SESSION_ID: ctx.strategy_id,
             FieldName.MODEL_USED: ctx.model_used,
@@ -130,7 +131,7 @@ async def publish_fill_events(bus: EventBus, ctx: FillContext) -> None:
                 FieldName.EXIT_PRICE: ctx.fill_price,
                 FieldName.PNL: ctx.realized_pnl,
                 FieldName.PNL_PERCENT: ctx.pnl_percent,
-                FieldName.TIMESTAMP: now_iso,
+                FieldName.TIMESTAMP: now_iso_str,
                 FieldName.EXECUTED_AT: filled_at_iso,
                 FieldName.MODEL_USED: ctx.model_used,
                 FieldName.PRIMARY_EDGE: ctx.primary_edge,
