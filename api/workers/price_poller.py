@@ -19,8 +19,10 @@ Transport / reliability:
   - On SSL EOF: client is closed and recreated to flush poisoned connections.
   - Circuit breaker: ALPACA_CIRCUIT_BREAKER_THRESHOLD consecutive failures
     → ALPACA_CIRCUIT_BREAKER_RESET_SECONDS cooldown before resuming.
-  - Graceful degradation: stale cached prices remain in Redis (TTL 30 s)
-    during outages; dashboard shows last-known prices rather than blanks.
+  - Graceful degradation: cached prices remain in Redis for
+    REDIS_PRICES_TTL_SECONDS (150 s) during a brief outage, so the dashboard
+    shows last-known prices rather than blanks; a longer outage lets them
+    expire, and readers additionally drop any price too old to be a live quote.
 """
 
 from __future__ import annotations
@@ -191,12 +193,13 @@ def build_symbol_payloads(
     """Build a payload per symbol for a poll cycle, deriving change/pct from ``prev_prices``.
 
     ``prev_prices`` is the poll loop's own in-memory previous-price map
-    (``_PollerState.last_prices``) — NOT the Redis price cache. Reading the prev
-    price from the cache is a bug: the cache TTL (REDIS_PRICES_TTL_SECONDS) is
-    shorter than the poll interval, so the previous entry has always expired by
-    the next read, which pins pct to 0.0 and starves the momentum signal (every
-    move looks like no move → NEUTRAL/LOW → hold → no buys). Pure — no IO, so a
-    poll cycle reads Redis zero times for the delta (better than the old MGET).
+    (``_PollerState.last_prices``) — NOT the Redis price cache. The delta is
+    taken from this anchor so a poll cycle reads Redis zero times for it (pure,
+    no MGET) and change/pct never depends on the cache. Historically the prev was
+    read from the cache, and when the cache TTL was shorter than the poll
+    interval the entry had expired by the next read — pinning pct to 0.0 and
+    starving the momentum signal (every move looked flat → NEUTRAL/LOW → hold →
+    no buys). An in-memory anchor removes that dependency entirely.
 
     ``quotes`` (optional) carries the real L1 best bid/ask per symbol; a payload
     gains bid/ask only when the quote is two-sided (both > 0) — a one-sided or
@@ -379,11 +382,13 @@ class _PollerState:
 
     ``last_prices`` is the poll loop's authoritative previous-price map, used as
     the delta anchor for change/pct. It deliberately does NOT come from the Redis
-    price cache: that cache's TTL (REDIS_PRICES_TTL_SECONDS = 30s) is <= the poll
-    interval (crypto 30s, stocks 60s) and the inter-cycle sleep happens AFTER the
-    write, so a cache-derived prev has always expired by the next read — which
-    pinned pct to 0.0, classified every signal NEUTRAL/LOW, and made the momentum
-    (buy/sell) path unreachable. This in-memory anchor lives for the whole process.
+    price cache: an in-memory anchor keeps each cycle's delta Redis-free and
+    independent of the cache (TTL REDIS_PRICES_TTL_SECONDS = 150s, refreshed on
+    every write). A cache-derived prev was a bug back when the TTL was shorter
+    than the poll interval (crypto 30s, stocks 60s) — the prev expired before the
+    next read, pinning pct to 0.0, classifying every signal NEUTRAL/LOW, and
+    making the momentum (buy/sell) path unreachable. This anchor lives for the
+    whole process.
     """
 
     client: httpx.AsyncClient
@@ -498,11 +503,12 @@ async def _run_poll_cycle(
     all_prices: dict[str, float] = {sym: float(q[FieldName.PRICE]) for sym, q in all_quotes.items()}
 
     # Derive change/pct against the poller's OWN previous-price memory, not the
-    # Redis price cache. The cache (REDIS_PRICES_TTL_SECONDS = 30s) expires before
-    # the next poll reads it (crypto 30s / stocks 60s intervals, with the sleep
-    # AFTER the write), so a cache-derived prev was always missing → pct pinned to
-    # 0.0 → every signal NEUTRAL/LOW → hold → no buys ever. The in-memory anchor
-    # lives for the whole process, so deltas are correct from the second cycle on.
+    # Redis price cache: the delta stays Redis-free (no MGET) and independent of
+    # the cache TTL (REDIS_PRICES_TTL_SECONDS = 150s). A cache-derived prev was a
+    # bug back when the TTL was shorter than the poll interval (crypto 30s /
+    # stocks 60s) — it expired before the next read → pct pinned to 0.0 → every
+    # signal NEUTRAL/LOW → hold → no buys. The in-memory anchor lives for the
+    # whole process, so deltas are correct from the second cycle on.
     payloads = build_symbol_payloads(all_prices, state.last_prices, all_quotes)
     await asyncio.gather(
         publish_to_redis(redis_client, payloads),
