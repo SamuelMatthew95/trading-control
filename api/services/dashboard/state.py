@@ -16,7 +16,7 @@ from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.redis_client import get_redis
 from api.runtime_state import get_runtime_store, is_db_available, runtime_mode
-from api.services.metrics_aggregator import MetricsAggregator
+from api.services.metrics_aggregator import MetricsAggregator, filter_fresh_prices
 from api.services.redis_store import get_redis_store
 
 
@@ -200,6 +200,10 @@ async def get_state_payload() -> dict[str, Any]:
                         prices[symbol] = json.loads(raw)
                     except (json.JSONDecodeError, TypeError):
                         pass
+            # Drop prices stale enough that serving them as live would be a lie
+            # (poller stuck / Alpaca outage). A dropped symbol hydrates as "--"
+            # and is not used to mark positions to market below.
+            prices = filter_fresh_prices(prices)
             if prices:
                 data[FieldName.PRICES] = prices
                 # In memory mode the store's positions are frozen at fill price;
