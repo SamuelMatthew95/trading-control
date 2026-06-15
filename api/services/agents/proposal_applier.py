@@ -51,6 +51,7 @@ from api.constants import (
     LogType,
     ProposalStatus,
     ProposalType,
+    StrategyStatus,
 )
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
@@ -59,10 +60,12 @@ from api.services.agent_heartbeat import write_heartbeat
 from api.services.agent_state import AgentStateRegistry
 from api.services.agents.base import MultiStreamAgent
 from api.services.agents.db_helpers import write_agent_log
+from api.services.challenger_store import get_challenger_store
 from api.services.gitops_publisher import GitOpsPublisher
 from api.services.param_evolution import validate_param_change
 from api.services.prompt_store import get_prompt_store
 from api.services.redis_store import get_redis_store
+from api.services.strategy_registry import InvalidTransitionError, get_strategy_registry
 from api.services.tool_registry import get_tool_registry
 from backtest.strategies import STRATEGIES
 
@@ -471,19 +474,73 @@ class ProposalApplier(MultiStreamAgent):
             spawned = await self.spawner.spawn(config)
             spawn_status = "candidate spawned"
 
+        # 3. *Graduate* the strategy — modularize a winning shadow into a
+        #    first-class candidate: stamp its durable record graduated and
+        #    advance its lifecycle one stage (SHADOW -> CANARY). Still no live
+        #    orders; this is registry/record state the dashboard can show.
+        graduation_status = await self._graduate_strategy(strategy)
+
         result: dict[str, Any] = {
             FieldName.MESSAGE: (
-                f"challenger '{strategy}' promotion applied: {directive_status}; {spawn_status}"
+                f"challenger '{strategy}' promotion applied: {directive_status}; "
+                f"{spawn_status}; {graduation_status}"
             ),
             FieldName.PROPOSAL_TYPE: ProposalType.CHALLENGER_PROMOTION,
             FieldName.STRATEGY: strategy,
             FieldName.ADVISORY: advisory,
             FieldName.SHADOW_EDGE: edge,
+            FieldName.GRADUATED: True,
             **spawned,
         }
         if directive is not None:
             result[FieldName.VERSION] = directive[FieldName.VERSION]
         return result
+
+    async def _graduate_strategy(self, strategy: str) -> str:
+        """Mark a strategy graduated and advance its lifecycle one stage.
+
+        Two best-effort halves, each independently degradable:
+          * stamp ``graduated`` on the durable challenger record so the dashboard
+            (Learning + Challengers) shows the winner has been adopted, surviving
+            restarts — read by ``api/services/dashboard/control.py``;
+          * advance the strategy registry SHADOW -> CANARY (gated on
+            ``CHALLENGER_GRADUATE_TO_CANARY``) so a winning shadow becomes a
+            first-class canary candidate instead of staying a decorative shadow.
+
+        Returns a human-readable status for the applied-summary message. Never
+        raises — a graduation hiccup must not fail an approved promotion.
+        """
+        parts: list[str] = []
+        store = get_challenger_store()
+        if store is not None:
+            await store.mark_graduated(strategy)
+            parts.append("record graduated")
+        else:
+            parts.append("graduation record skipped — no challenger store")
+
+        if not settings.CHALLENGER_GRADUATE_TO_CANARY:
+            parts.append("lifecycle unchanged (graduate-to-canary disabled)")
+            return "; ".join(parts)
+
+        try:
+            registry = get_strategy_registry()
+            record = registry.find_by_strategy(strategy)
+            if record is None:
+                parts.append("lifecycle unchanged — strategy not in registry")
+            elif record.status == StrategyStatus.SHADOW:
+                registry.transition(record.strategy.version_id, StrategyStatus.CANARY)
+                parts.append(f"lifecycle SHADOW→CANARY (v{record.strategy.version})")
+            else:
+                parts.append(f"lifecycle unchanged — already {record.status.value}")
+        except InvalidTransitionError:
+            log_structured("warning", "challenger_graduation_transition_failed", strategy=strategy)
+            parts.append("lifecycle transition rejected")
+        except Exception:
+            log_structured(
+                "warning", "challenger_graduation_failed", strategy=strategy, exc_info=True
+            )
+            parts.append("lifecycle transition errored")
+        return "; ".join(parts)
 
     async def _bias_directive_toward(self, strategy: str, advisory: str) -> dict[str, Any] | None:
         """Set *strategy*'s promotion advisory on the durable adaptive directive.
