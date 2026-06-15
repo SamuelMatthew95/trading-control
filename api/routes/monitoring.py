@@ -1,13 +1,12 @@
 """Monitoring system endpoints for production dashboard."""
 
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
 from api.constants import FieldName
 from api.observability import log_structured
-from api.utils import get_nested
+from api.utils import get_nested, now_iso
 
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
 
@@ -110,7 +109,7 @@ async def get_monitoring_summary() -> dict[str, Any]:
             FieldName.DATA_FRESHNESS_MS: get_nested(
                 metrics, FieldName.DATA, "data_freshness_ms", default=0
             ),
-            FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
+            FieldName.LAST_UPDATE: now_iso(),
         }
         return {FieldName.SUCCESS: True, FieldName.SUMMARY: summary}
     except Exception as e:
@@ -125,7 +124,7 @@ async def monitoring_health_check() -> dict[str, Any]:
         return {
             FieldName.STATUS: "healthy",
             FieldName.MONITORING_ACTIVE: True,
-            FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
+            FieldName.LAST_UPDATE: now_iso(),
         }
     except Exception as e:
         log_structured("error", "monitoring health check failed", exc_info=True)
