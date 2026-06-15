@@ -1742,6 +1742,13 @@ EXECUTION_DECISION_THRESHOLD_MEMORY: Final[float] = 0.55
 # Risk Guardian constants — position-level and portfolio-level risk limits
 # Close position if unrealized loss exceeds this fraction of entry price
 STOP_LOSS_PCT: Final[float] = 0.05
+# Regime-aware stop-loss: a LONG held into a falling market is the dominant loss
+# source in a bearish (risk-off) macro regime, so RiskGuardian tightens the long
+# stop from STOP_LOSS_PCT to this fraction when the cached macro regime is
+# RISK_OFF — cutting losers sooner instead of letting them bleed to the wider
+# default stop. Must stay < STOP_LOSS_PCT (a tighter stop closes earlier).
+# Shorts and non-risk-off regimes keep the default STOP_LOSS_PCT.
+RISK_OFF_STOP_LOSS_PCT: Final[float] = 0.03
 # Close position if unrealized gain exceeds this fraction of entry price
 TAKE_PROFIT_PCT: Final[float] = 0.10
 # Activate kill switch if today's realized PnL < -(portfolio_value * this)
