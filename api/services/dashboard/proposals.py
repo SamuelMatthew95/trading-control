@@ -1,5 +1,4 @@
 import json
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
@@ -19,6 +18,7 @@ from api.observability import log_structured
 from api.redis_client import get_redis
 from api.runtime_state import get_runtime_store, is_db_available
 from api.services.dashboard.utils import _as_dict, _timestamp_to_iso
+from api.utils import now_iso
 
 
 def _in_memory_proposals(limit: int = 20) -> list[dict[str, Any]]:
@@ -178,7 +178,7 @@ async def list_proposals_payload() -> dict[str, Any]:
     if not is_db_available():
         return {
             FieldName.PROPOSALS: _in_memory_proposals(limit=20),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             "source": "in_memory",
         }
 
@@ -261,13 +261,13 @@ async def list_proposals_payload() -> dict[str, Any]:
                     )
         return {
             FieldName.PROPOSALS: proposals,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
     except Exception:
         log_structured("error", "proposals fetch failed", exc_info=True)
         return {
             FieldName.PROPOSALS: [],
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
 
 
