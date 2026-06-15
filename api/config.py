@@ -5,7 +5,6 @@ from __future__ import annotations
 from pydantic import (
     Field,
     PostgresDsn,
-    ValidationError,
     field_validator,
     model_validator,
 )
@@ -360,11 +359,3 @@ def get_cors_origins() -> list[str]:
     if settings.FRONTEND_URL not in origins:
         origins.append(settings.FRONTEND_URL)
     return origins
-
-
-def validate_all_settings() -> bool:
-    try:
-        Settings()
-        return True
-    except ValidationError:
-        return False
