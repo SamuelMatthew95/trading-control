@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
 from redis.asyncio import Redis
@@ -43,6 +42,7 @@ from api.services.agents.notification_payloads import (
     build_trade_notification,
 )
 from api.services.redis_store import get_redis_store as _get_redis_store
+from api.utils import now_iso
 
 # ---------------------------------------------------------------------------
 # NotificationAgent — classify and route all system events
@@ -158,7 +158,7 @@ class NotificationAgent(MultiStreamAgent):
             return
         await self.redis.setex(dedup_key, self._dedup_window_secs, "1")
 
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso_str = now_iso()
         severity = self._classify_severity(stream, data)
         notification = build_trade_notification(
             data=data,
@@ -167,7 +167,7 @@ class NotificationAgent(MultiStreamAgent):
             event_type=event_type,
             observed_msg_id=msg_id,
             severity=severity,
-            timestamp=now_iso,
+            timestamp=now_iso_str,
             schema_version=DB_SCHEMA_VERSION,
             source=SOURCE_NOTIFICATION,
         )
