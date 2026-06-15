@@ -31,6 +31,7 @@ from api.constants import (
 )
 from api.events.bus import EventBus
 from api.observability import log_structured
+from api.utils import now_iso
 
 
 class AgentSupervisor:
@@ -139,7 +140,7 @@ class AgentSupervisor:
                         FieldName.AGENT: agent_name,
                         FieldName.ERROR: error_detail,
                         FieldName.SOURCE: SOURCE_SUPERVISOR,
-                        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                        FieldName.TIMESTAMP: now_iso(),
                     },
                 )
             except Exception:
