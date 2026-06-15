@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
@@ -8,6 +7,7 @@ from api.constants import FieldName
 from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
+from api.utils import now_iso
 
 
 async def get_recent_events_payload() -> dict[str, Any]:
@@ -15,7 +15,7 @@ async def get_recent_events_payload() -> dict[str, Any]:
     if not is_db_available():
         return {
             FieldName.EVENTS: get_runtime_store().get_events(limit=10),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             "source": "in_memory",
         }
 
@@ -42,14 +42,14 @@ async def get_recent_events_payload() -> dict[str, Any]:
             ]
         return {
             FieldName.EVENTS: events,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
     except Exception:
         log_structured("warning", "recent_events_db_unavailable", exc_info=True)
         store = get_runtime_store()
         return {
             FieldName.EVENTS: store.get_events(limit=10),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             "source": "in_memory",
         }
 
@@ -62,7 +62,7 @@ async def get_event_history_payload(safe_limit: int) -> dict[str, Any]:
             FieldName.STREAM_COUNTS: [],
             FieldName.PERSISTED_EVENTS: store.get_events(limit=safe_limit),
             FieldName.PERSISTED_LOGS: [],
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             "source": "in_memory",
         }
     try:
@@ -141,7 +141,7 @@ async def get_event_history_payload(safe_limit: int) -> dict[str, Any]:
             FieldName.STREAM_COUNTS: stream_counts,
             FieldName.PERSISTED_EVENTS: persisted_events,
             FieldName.PERSISTED_LOGS: persisted_logs,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
     except Exception:
         log_structured("error", "event history failed", exc_info=True)
@@ -153,5 +153,5 @@ async def get_event_history_payload(safe_limit: int) -> dict[str, Any]:
             FieldName.PERSISTED_EVENTS: store.get_events(limit=safe_limit),
             FieldName.PERSISTED_LOGS: [],
             "error": "event_history_unavailable",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
