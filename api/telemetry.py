@@ -51,6 +51,7 @@ from api.constants import (
 )
 from api.observability import log_structured
 from api.telemetry_drift import TelemetryDriftAuditor, fetch_signoz_observed_keys
+from api.utils import bytes_to_text
 
 _ATTR_PREFIX = "trading."
 
@@ -607,7 +608,7 @@ async def _drift_audit_loop(redis: Any) -> None:
     # Hydrate the dedup set so a standing violation pages once across restarts.
     try:
         tags = await redis.smembers(REDIS_KEY_TELEMETRY_DRIFT_REPORTED)
-        _auditor.seed_reported([t.decode() if isinstance(t, bytes) else t for t in tags])
+        _auditor.seed_reported([bytes_to_text(t) for t in tags])
     except Exception:
         log_structured("warning", "telemetry_drift_reported_hydrate_failed", exc_info=True)
     while True:
