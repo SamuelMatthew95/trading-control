@@ -7,13 +7,13 @@ import time
 from collections import deque
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from threading import Lock
 from typing import Any
 
 import structlog
 
 from api.constants import FieldName
+from api.utils import now_iso
 
 request_id_ctx: ContextVar[str] = ContextVar("request_id", default="unknown")
 
@@ -65,7 +65,7 @@ class MetricsStore:
             self.recent_events.appendleft(
                 {
                     FieldName.EVENT_TYPE: event_type,
-                    FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                    FieldName.TIMESTAMP: now_iso(),
                     FieldName.REQUEST_ID: request_id_ctx.get(),
                     **data,
                 }
@@ -83,7 +83,7 @@ class MetricsStore:
             self.agent_status[name] = {
                 FieldName.NAME: name,
                 FieldName.STATUS: status,
-                FieldName.UPDATED_AT: datetime.now(timezone.utc).isoformat(),
+                FieldName.UPDATED_AT: now_iso(),
                 **data,
             }
 
