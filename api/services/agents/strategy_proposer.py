@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
 from typing import Any
 
 from api.config import settings
@@ -37,6 +36,7 @@ from api.services.agents.prompts import (
 )
 from api.services.agents.proposal_guardrails import register_proposal_creation
 from api.services.param_evolution import tunable_parameters, validate_param_change
+from api.utils import now_iso
 
 # ---------------------------------------------------------------------------
 # StrategyProposer — converts reflection hypotheses into concrete proposals
@@ -89,7 +89,7 @@ class StrategyProposer(MultiStreamAgent):
     async def process(self, stream: str, redis_id: str, data: dict[str, Any]) -> None:
         hypotheses: list[dict[str, Any]] = data.get(FieldName.HYPOTHESES) or []
         min_confidence = float(settings.HYPOTHESIS_MIN_CONFIDENCE)
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso_str = now_iso()
 
         strong = [
             h for h in hypotheses if float(h.get(FieldName.CONFIDENCE) or 0) >= min_confidence
@@ -113,7 +113,7 @@ class StrategyProposer(MultiStreamAgent):
 
         created = 0
         for hypothesis in strong:
-            proposal = self._build_proposal(hypothesis, data, now_iso)
+            proposal = self._build_proposal(hypothesis, data, now_iso_str)
 
             # Guardrail: skip a candidate that duplicates one already emitted
             # today, and stop once the daily cap is reached, so the review queue
@@ -137,7 +137,7 @@ class StrategyProposer(MultiStreamAgent):
                             },
                             default=str,
                         ),
-                        FieldName.TIMESTAMP: now_iso,
+                        FieldName.TIMESTAMP: now_iso_str,
                     },
                 )
 
@@ -168,7 +168,7 @@ class StrategyProposer(MultiStreamAgent):
                         f"(confidence={float(hypothesis.get(FieldName.CONFIDENCE) or 0):.0%}): "
                         f"{hypothesis.get(FieldName.DESCRIPTION, '')[:100]}"
                     ),
-                    FieldName.TIMESTAMP: now_iso,
+                    FieldName.TIMESTAMP: now_iso_str,
                 },
             )
             created += 1
@@ -185,7 +185,7 @@ class StrategyProposer(MultiStreamAgent):
         # Self-evolving prompt: draft an improved reasoning directive from this
         # reflection and propose it. This is the LLM suggesting its own prompt —
         # the missing link that makes the loop self-improving.
-        await self._emit_prompt_evolution_proposal(data, now_iso)
+        await self._emit_prompt_evolution_proposal(data, now_iso_str)
 
         # Write heartbeat so dashboard shows STRATEGY_PROPOSER as ACTIVE
         try:
@@ -202,7 +202,7 @@ class StrategyProposer(MultiStreamAgent):
             log_structured("warning", "strategy_proposer_heartbeat_failed", exc_info=True)
 
     async def _emit_prompt_evolution_proposal(
-        self, reflection_data: dict[str, Any], now_iso: str
+        self, reflection_data: dict[str, Any], now_iso_str: str
     ) -> None:
         """Ask the LLM to draft an improved reasoning directive from this
         reflection, and publish it as a PROMPT_EVOLUTION proposal.
@@ -254,7 +254,7 @@ class StrategyProposer(MultiStreamAgent):
             FieldName.REQUIRES_APPROVAL: not settings.PROMPT_EVOLUTION_AUTO_APPLY,
             FieldName.REFLECTION_TRACE_ID: reflection_data.get(FieldName.TRACE_ID),
             FieldName.TRACE_ID: trace_id,
-            FieldName.TIMESTAMP: now_iso,
+            FieldName.TIMESTAMP: now_iso_str,
             FieldName.CONTENT: {
                 FieldName.NODE: REASONING_NODE,
                 FieldName.TEXT: proposed,
@@ -280,7 +280,7 @@ class StrategyProposer(MultiStreamAgent):
                 FieldName.SEVERITY: Severity.INFO,
                 FieldName.NOTIFICATION_TYPE: "proposal",
                 FieldName.MESSAGE: f"Prompt-evolution proposal for {REASONING_NODE}: {rationale[:100]}",
-                FieldName.TIMESTAMP: now_iso,
+                FieldName.TIMESTAMP: now_iso_str,
             },
         )
         log_structured(
@@ -386,7 +386,7 @@ class StrategyProposer(MultiStreamAgent):
             content[FieldName.NOTE] = "Update config parameter via DB — no deploy required."
 
     def _build_proposal(
-        self, hypothesis: dict[str, Any], reflection_data: dict[str, Any], now_iso: str
+        self, hypothesis: dict[str, Any], reflection_data: dict[str, Any], now_iso_str: str
     ) -> dict[str, Any]:
         hyp_type = str(hypothesis.get(FieldName.TYPE) or "parameter").lower()
         description = str(hypothesis.get(FieldName.DESCRIPTION) or "")
@@ -398,7 +398,7 @@ class StrategyProposer(MultiStreamAgent):
             FieldName.TYPE: "proposal",
             FieldName.REQUIRES_APPROVAL: True,
             FieldName.REFLECTION_TRACE_ID: reflection_data.get(FieldName.TRACE_ID),
-            FieldName.TIMESTAMP: now_iso,
+            FieldName.TIMESTAMP: now_iso_str,
             FieldName.CONTENT: {
                 FieldName.DESCRIPTION: description,
                 FieldName.CONFIDENCE: confidence,
