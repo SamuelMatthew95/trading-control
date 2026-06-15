@@ -66,6 +66,7 @@ from api.observability import log_structured
 from api.runtime_state import is_db_available
 from api.services.circuit_breaker import BreakerInputs, CircuitBreaker
 from api.services.redis_store import get_redis_store
+from api.utils import now_iso, parse_iso_datetime
 
 
 class RiskGuardian:
@@ -418,7 +419,7 @@ class RiskGuardian:
                 threshold=loss_threshold,
             )
             try:
-                now = datetime.now(timezone.utc).isoformat()
+                now = now_iso()
                 await self.redis.set(REDIS_KEY_KILL_SWITCH, "1")
                 await self.redis.set(REDIS_KEY_KILL_SWITCH_UPDATED_AT, now)
                 await self.bus.publish(
@@ -488,20 +489,11 @@ class RiskGuardian:
     def _parse_utc_datetime(value: Any) -> datetime | None:
         """Timezone-aware UTC datetime of an ISO timestamp string, or None.
 
-        Accepts a trailing ``Z`` suffix; naive timestamps are assumed UTC.
-        Single parser for every timestamp the guardian reads (position
-        ``opened_at``, closed-trade ``filled_at``) so the two paths can
-        never drift in format handling.
+        Delegates to the shared parser so the guardian's timestamp handling
+        (position ``opened_at``, closed-trade ``filled_at``) can never drift
+        from the rest of the system.
         """
-        if not value:
-            return None
-        try:
-            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        except ValueError:
-            return None
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
+        return parse_iso_datetime(value)
 
     @staticmethod
     def _parse_utc_date(value: Any) -> date | None:
@@ -570,7 +562,7 @@ class RiskGuardian:
                 FieldName.REASONING_SCORE: 1.0,
                 FieldName.QTY: qty,
                 FieldName.PRICE: price,
-                FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                FieldName.TIMESTAMP: now_iso(),
                 FieldName.TRACE_ID: trace_id,
                 FieldName.PRIMARY_EDGE: f"risk_guardian:{reason}",
                 FieldName.RISK_FACTORS: [reason],
