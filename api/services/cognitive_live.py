@@ -24,7 +24,6 @@ live payload goes through ``FieldName``.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
 from api.constants import (
@@ -45,6 +44,7 @@ from api.services.dashboard.learning import get_ic_weights_payload
 from api.services.dashboard.prompt_evolution import get_prompt_evolution_payload
 from api.services.dashboard.proposals import list_proposals_payload
 from api.services.redis_store import get_redis_store
+from api.utils import now_iso
 
 # Map the lowercase agent ``source`` strings written onto grades/events to the
 # canonical SCREAMING_SNAKE agent-name constants the roster + health use, so
@@ -615,7 +615,7 @@ async def build_live_events(limit: int = 200) -> list[dict[str, Any]]:
                 "seq": seq,
                 "type": str(ev.get(FieldName.TYPE) or ev.get(FieldName.EVENT_TYPE) or "event"),
                 "payload": ev,
-                "timestamp": ev.get(FieldName.TIMESTAMP) or datetime.now(timezone.utc).isoformat(),
+                "timestamp": ev.get(FieldName.TIMESTAMP) or now_iso(),
             }
         )
     return out
