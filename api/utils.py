@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime, timezone
 from typing import Any
@@ -92,6 +93,59 @@ def safe_float(value: Any, default: float | None = None) -> float | None:
 def now_iso() -> str:
     """Current UTC time as a timezone-aware ISO-8601 string."""
     return datetime.now(timezone.utc).isoformat()
+
+
+def parse_iso_datetime(value: Any) -> datetime | None:
+    """Best-effort parse of an ISO-8601 string into a timezone-aware UTC datetime.
+
+    Accepts a trailing ``Z``, coerces non-str input via ``str()``, treats a
+    naive datetime as UTC, and returns ``None`` for empty/unparseable input.
+    Single source of truth for the
+    ``datetime.fromisoformat(s.replace("Z", "+00:00"))`` idiom that was
+    copy-pasted across many modules.
+    """
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def parse_iso_timestamp(value: Any) -> float | None:
+    """ISO-8601 string → Unix epoch seconds (UTC). ``None`` for unparseable input."""
+    parsed = parse_iso_datetime(value)
+    return parsed.timestamp() if parsed is not None else None
+
+
+def bytes_to_text(raw: Any, encoding: str = "utf-8") -> str:
+    """Decode bytes to ``str`` (replacing decode errors); coerce any other value via ``str()``."""
+    if isinstance(raw, bytes):
+        return raw.decode(encoding, errors="replace")
+    return str(raw)
+
+
+def safe_json_loads(raw: Any, default: Any = None) -> Any:
+    """Best-effort ``json.loads`` of a str/bytes value; ``default`` on failure.
+
+    Decodes bytes first. Returns ``default`` (``None`` by default) for ``None``
+    input or any decode/parse error (``json.JSONDecodeError`` is a ``ValueError``
+    subclass). Callers needing a dict should check ``isinstance(result, dict)``.
+    """
+    if raw is None:
+        return default
+    try:
+        return json.loads(bytes_to_text(raw))
+    except (TypeError, ValueError):
+        return default
+
+
+def clamp(value: float, lo: float = 0.0, hi: float = 1.0) -> float:
+    """Clamp ``value`` into the inclusive ``[lo, hi]`` range."""
+    return max(lo, min(hi, value))
 
 
 def parse_source(value: str | None) -> Source:
