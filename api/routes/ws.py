@@ -26,6 +26,7 @@ from api.events.bus import STREAMS
 from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available, runtime_mode
 from api.services.metrics_aggregator import MetricsAggregator
+from api.utils import now_iso
 
 router = APIRouter(tags=["ws"])
 
@@ -85,7 +86,7 @@ async def _build_db_snapshot(redis_client: Any = None) -> dict[str, Any]:
     return {
         "type": "dashboard_update",
         "data": data,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": now_iso(),
     }
 
 
@@ -137,7 +138,7 @@ async def _build_snapshot(redis_client: Any) -> dict[str, Any]:
         "type": "agent_status_update",
         FieldName.AGENTS: agents,
         "metrics": metrics,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": now_iso(),
     }
 
 
@@ -162,7 +163,7 @@ async def dashboard_ws(websocket: WebSocket) -> None:
             {
                 "type": "system",
                 "status": "connected",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": now_iso(),
             }
         )
     except Exception:
@@ -209,7 +210,7 @@ async def dashboard_ws(websocket: WebSocket) -> None:
                     {
                         "type": "system",
                         "status": "heartbeat",
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "timestamp": now_iso(),
                     }
                 )
             except WebSocketDisconnect:
@@ -221,7 +222,7 @@ async def dashboard_ws(websocket: WebSocket) -> None:
             event_name="ws_connection_error",
             msg_id="none",
             event_type="system",
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=now_iso(),
             exc_info=True,
         )
     finally:
