@@ -45,7 +45,7 @@ from api.services.dashboard.system import get_prices_payload
 from api.services.llm_metrics import llm_metrics
 from api.services.metrics_calc import closed_trade_stats
 from api.services.redis_store import get_redis_store
-from api.utils import now_iso
+from api.utils import now_iso, parse_iso_datetime
 
 MCP_STREAMS: tuple[str, ...] = (
     STREAM_MARKET_TICKS,
@@ -99,12 +99,7 @@ def _safe_limit(value: int, *, default: int, max_value: int) -> int:
 
 
 def _parse_since(since: str | None) -> datetime | None:
-    if not since:
-        return None
-    try:
-        return datetime.fromisoformat(since.replace("Z", "+00:00")).astimezone(timezone.utc)
-    except ValueError:
-        return None
+    return parse_iso_datetime(since)
 
 
 def _wrap(
