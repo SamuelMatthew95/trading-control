@@ -18,13 +18,7 @@ from typing import Any
 
 from api.constants import ALL_AGENT_NAMES, FieldName
 from api.runtime_state import get_runtime_store
-
-
-def _safe_float(value: Any) -> float | None:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+from api.utils import safe_float
 
 
 class LearningService:
@@ -38,9 +32,7 @@ class LearningService:
     def _rollup(self, agent_name: str) -> dict[str, Any]:
         runs = self._runs_for(agent_name)
         latencies = [
-            lat
-            for r in runs
-            if (lat := _safe_float(r.get(FieldName.EXECUTION_TIME_MS))) is not None
+            lat for r in runs if (lat := safe_float(r.get(FieldName.EXECUTION_TIME_MS))) is not None
         ]
         created = [c for r in runs if (c := r.get(FieldName.CREATED_AT)) is not None]
         return {
