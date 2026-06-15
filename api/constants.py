@@ -1561,6 +1561,11 @@ REDIS_CLOSED_TRADES_MAX: Final[int] = 100
 REDIS_KEY_RECENT_OUTCOMES: Final[str] = "trading:recent_outcomes"
 REDIS_RECENT_OUTCOMES_MAXLEN: Final[int] = 10
 REDIS_NOTIFICATIONS_MAX: Final[int] = 20
+# Notifications are catch-up alerts replayed to the dashboard on load/reconnect.
+# The list has no Redis TTL (it must survive restarts), so without an age bound a
+# day-old alert would resurface as if it just fired. Drop anything older than this
+# on read so the feed only ever shows genuinely recent activity.
+NOTIFICATIONS_STALE_SECONDS: Final[int] = 86_400  # 24h
 REDIS_DECISIONS_MAX: Final[int] = 50
 # Strategy/governance proposals (LPUSH, LTRIM cap) — the voteable proposal queue
 # behind the dashboard Proposals page. Proposals are published to the
@@ -1571,6 +1576,11 @@ REDIS_DECISIONS_MAX: Final[int] = 50
 # hydration replays it back into the runtime store.
 REDIS_KEY_PROPOSALS_RECENT: Final[str] = "proposals:recent"
 REDIS_PROPOSALS_MAX: Final[int] = 50
+# Like notifications, the proposal mirror has no Redis TTL so it survives
+# restarts. A week-old proposal is no longer a live, actionable governance item;
+# drop anything older than this on read so the Proposals queue never presents
+# stale rows as fresh/voteable.
+PROPOSALS_STALE_SECONDS: Final[int] = 604_800  # 7 days
 
 # Stream names
 STREAM_MARKET_TICKS: Final[str] = "market_ticks"
@@ -1643,6 +1653,14 @@ WORKER_HEARTBEAT_TTL_SECONDS: Final[int] = 120  # Background worker liveness key
 # (The buy/sell momentum delta no longer depends on this TTL — the poller keeps
 # its own in-memory prev-price anchor. See docs/troubleshooting/price-poller.md.)
 REDIS_PRICES_TTL_SECONDS: Final[int] = 150
+# A cached price older than this is treated as stale and is NOT served as a live
+# quote (the dashboard renders "--" for it instead of freezing on a dead number).
+# Must exceed the longest poll interval (STOCK_POLL_INTERVAL_SECONDS = 60s) with
+# margin so a single late poll does not blank the ticker, and stay below
+# REDIS_PRICES_TTL_SECONDS (150s) which is the hard expiry backstop. So a price
+# only drops out during a real feed outage (poller stuck / Alpaca down), not
+# normal cadence.
+PRICE_STALE_SECONDS: Final[int] = 90
 # News moves far slower than ticks; correlation is slow-moving and the bar
 # fetch is the heaviest of the three — cache both to bound Alpaca calls.
 REDIS_NEWS_SENTIMENT_TTL_SECONDS: Final[int] = 300  # 5 min
@@ -1831,16 +1849,6 @@ VALID_SYMBOLS: Final[set[str]] = {
     SYMBOL_NVDA,
     SYMBOL_MSFT,
     SYMBOL_GOOGL,
-}
-
-# Initial symbol prices for paper mode
-INITIAL_PRICES: Final[dict[str, float]] = {
-    SYMBOL_BTC_USD: 67000.0,
-    SYMBOL_ETH_USD: 3500.0,
-    SYMBOL_SOL_USD: 145.0,
-    SYMBOL_SPY: 510.0,
-    SYMBOL_AAPL: 178.0,
-    SYMBOL_NVDA: 875.0,
 }
 
 
