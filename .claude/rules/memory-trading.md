@@ -112,26 +112,24 @@ def calculate_position_size(
 
 ## Asset Universe & Symbol Mapping
 
-### Supported Assets
+### Supported Assets & Minimum Order Size
+The approved universe is `VALID_SYMBOLS` and the per-symbol order-size floor is
+`SYMBOL_MIN_SIZE` / `get_min_size()` — **both live in `api/constants.py`** (this
+was once documented here as an illustrative `SUPPORTED_SYMBOLS` dict but went
+unimplemented; the code now owns it). Always import, never re-declare:
 ```python
-# Approved trading symbols
-SUPPORTED_SYMBOLS = {
-    # Crypto
-    "BTC/USD": {"asset_class": "crypto", "min_size": 0.001},
-    "ETH/USD": {"asset_class": "crypto", "min_size": 0.01},
-    
-    # Equities (if enabled)
-    "AAPL": {"asset_class": "equity", "min_size": 1},
-    "TSLA": {"asset_class": "equity", "min_size": 1},
-}
+from api.constants import VALID_SYMBOLS, get_min_size
 
-# Symbol validation
-def is_symbol_supported(symbol: str) -> bool:
-    return symbol in SUPPORTED_SYMBOLS
-
-def get_min_size(symbol: str) -> float:
-    return SUPPORTED_SYMBOLS.get(symbol, {}).get("min_size", 0)
+if symbol not in VALID_SYMBOLS:
+    ...  # unsupported
+min_size = get_min_size(symbol)   # 0.0 for an unknown symbol → no floor enforced
 ```
+The floor is enforced in two places (see `docs/troubleshooting/execution-engine.md`):
+- **ExecutionEngine** — rejects a BUY/open below `min_size`, and rounds a SELL up
+  to a full close rather than leaving a sub-minimum remainder (`enforce_min_order_size`
+  in `api/services/execution/position_math.py`).
+- **RiskGuardian** — sweeps any existing sub-minimum holding via a `dust_below_min`
+  close, so dust can never sit frozen at a stale cost basis.
 
 ## Paper Trading Configuration
 
