@@ -1,5 +1,4 @@
 import json
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
@@ -23,6 +22,7 @@ from api.observability import log_structured
 from api.redis_client import get_redis
 from api.runtime_state import get_runtime_store, is_db_available
 from api.services.dashboard.utils import _as_dict, _timestamp_to_iso
+from api.utils import now_iso
 
 
 def _in_memory_reflections(limit: int = 20) -> list[dict[str, Any]]:
@@ -81,7 +81,7 @@ async def get_grade_history_payload(limit: int) -> dict[str, Any]:
         return {
             FieldName.GRADES: grades,
             FieldName.TOTAL: len(grades),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             "source": "in_memory",
         }
     try:
@@ -143,7 +143,7 @@ async def get_grade_history_payload(limit: int) -> dict[str, Any]:
         return {
             FieldName.GRADES: grades,
             FieldName.TOTAL: len(grades),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
     except Exception:
         log_structured("error", "grades fetch failed", exc_info=True)
@@ -155,7 +155,7 @@ async def get_grade_history_payload(limit: int) -> dict[str, Any]:
             FieldName.GRADES: grades,
             FieldName.TOTAL: len(grades),
             "error": "grades_unavailable",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
 
 
@@ -191,7 +191,7 @@ async def get_ic_weights_payload() -> dict[str, Any]:
         return {
             FieldName.CURRENT_WEIGHTS: weights,
             FieldName.HISTORY: history_result,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             "source": "redis_cache" if is_db_available() else "in_memory",
         }
     except Exception:
@@ -199,7 +199,7 @@ async def get_ic_weights_payload() -> dict[str, Any]:
         return {
             FieldName.CURRENT_WEIGHTS: {},
             FieldName.HISTORY: [],
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             "source": "in_memory",
         }
 
@@ -211,7 +211,7 @@ async def get_reflections_payload(limit: int) -> dict[str, Any]:
         return {
             FieldName.REFLECTIONS: reflections,
             FieldName.TOTAL: len(reflections),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             "source": "in_memory",
         }
 
@@ -244,7 +244,7 @@ async def get_reflections_payload(limit: int) -> dict[str, Any]:
         return {
             FieldName.REFLECTIONS: reflections,
             FieldName.TOTAL: len(reflections),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
     except Exception:
         log_structured("error", "reflections fetch failed", exc_info=True)
@@ -264,7 +264,7 @@ async def get_learning_loop_payload() -> dict[str, Any]:
         FieldName.RECENT_PROPOSALS: [],
         FieldName.LOSS_ATTRIBUTION: [],
         FieldName.CONTROL_PLANE: {},
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": now_iso(),
     }
 
     # 1. Control-plane Redis keys (best-effort — Redis must be reachable
@@ -451,7 +451,7 @@ async def get_learning_proposals_payload(limit: int) -> dict[str, Any]:
         return {
             FieldName.PROPOSALS: proposals,
             FieldName.TOTAL: len(proposals),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             "source": "in_memory",
         }
 
@@ -537,14 +537,14 @@ async def get_learning_proposals_payload(limit: int) -> dict[str, Any]:
         return {
             FieldName.PROPOSALS: proposals,
             FieldName.TOTAL: len(proposals),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
     except Exception:
         log_structured("error", "proposals fetch failed", exc_info=True)
         return {
             FieldName.PROPOSALS: [],
             FieldName.TOTAL: 0,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
 
 
@@ -565,14 +565,14 @@ async def trigger_reflection_payload(agents: list[Any]) -> dict[str, Any]:
         return {
             FieldName.STATUS: "unavailable",
             FieldName.MESSAGE: "ReflectionAgent is not running",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
     try:
         result = await agent.trigger_reflection()
     except Exception:
         log_structured("error", "manual_reflection_trigger_failed", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error") from None
-    return {**result, "timestamp": datetime.now(timezone.utc).isoformat()}
+    return {**result, "timestamp": now_iso()}
 
 
 async def update_proposal_status_payload(trace_id: str, status: str) -> dict[str, Any]:
