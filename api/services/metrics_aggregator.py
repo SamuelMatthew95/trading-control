@@ -28,7 +28,7 @@ from ..constants import (
 from ..core.models import Order, Position, TradePerformance
 from ..observability import log_structured
 from ..runtime_state import get_runtime_store
-from ..utils import safe_float
+from ..utils import now_iso, parse_iso_datetime, safe_float
 from .metrics_calc import closed_trade_stats
 from .notification_summary import compute_notification_summary
 
@@ -54,7 +54,7 @@ class MetricsAggregator:
             FieldName.WINNING_TRADES: stats.winning,
             FieldName.WIN_RATE_PERCENT: round(stats.win_rate * 100, 2),
             "status": "memory_mode",
-            FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
+            FieldName.LAST_UPDATE: now_iso(),
             "source": Source.IN_MEMORY,
         }
 
@@ -72,7 +72,7 @@ class MetricsAggregator:
         return {
             FieldName.ACTIVE_AGENTS: active_agents,
             FieldName.ACTIVE_AGENT_COUNT: len(active_agents),
-            FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
+            FieldName.LAST_UPDATE: now_iso(),
             "source": Source.IN_MEMORY,
         }
 
@@ -90,7 +90,7 @@ class MetricsAggregator:
             FieldName.ORDERS_LAST_HOUR: order_stats,
             FieldName.TOTAL_ORDERS_LAST_HOUR: total_orders,
             FieldName.FILL_RATE_PERCENT: fill_rate,
-            FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
+            FieldName.LAST_UPDATE: now_iso(),
             "source": Source.IN_MEMORY,
         }
 
@@ -102,7 +102,7 @@ class MetricsAggregator:
         # source, so this endpoint disagreed with /pnl whenever it was hit.
         return {
             **get_runtime_store().paired_pnl_payload(),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             "source": Source.IN_MEMORY,
         }
 
@@ -162,7 +162,7 @@ class MetricsAggregator:
                 FieldName.STREAMS_STATUS: {},
                 FieldName.MODE: "in_memory",
                 FieldName.DB_HEALTH: get_runtime_store().last_health,
-                FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
+                FieldName.LAST_UPDATE: now_iso(),
                 "source": Source.IN_MEMORY,
             }
 
@@ -170,7 +170,7 @@ class MetricsAggregator:
             health = {
                 FieldName.OVERALL_STATUS: "healthy",
                 FieldName.STREAMS_STATUS: {},
-                FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
+                FieldName.LAST_UPDATE: now_iso(),
             }
             # Get stream lag metrics
             lag_metrics = await self.get_stream_lag_metrics()
@@ -181,14 +181,10 @@ class MetricsAggregator:
                 timestamp_str = metrics[FieldName.TIMESTAMP]
 
                 # Parse timestamp to check staleness
-                is_stale = False
-                if timestamp_str:
-                    try:
-                        timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
-                        age_seconds = (datetime.now(timezone.utc) - timestamp).total_seconds()
-                        is_stale = age_seconds > STALE_THRESHOLD_SECONDS
-                    except (ValueError, AttributeError):
-                        is_stale = True
+                timestamp = parse_iso_datetime(timestamp_str)
+                if timestamp is not None:
+                    age_seconds = (datetime.now(timezone.utc) - timestamp).total_seconds()
+                    is_stale = age_seconds > STALE_THRESHOLD_SECONDS
                 else:
                     is_stale = True
 
@@ -223,7 +219,7 @@ class MetricsAggregator:
             return {
                 FieldName.OVERALL_STATUS: "error",
                 "error": str(e),
-                FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
+                FieldName.LAST_UPDATE: now_iso(),
             }
 
     async def get_pnl_metrics(self) -> dict[str, Any]:
@@ -271,7 +267,7 @@ class MetricsAggregator:
                 FieldName.WINNING_TRADES: winning_trades,
                 FieldName.WIN_RATE_PERCENT: win_rate,
                 "status": "healthy" if total_trades > 0 else "no_trades",
-                FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
+                FieldName.LAST_UPDATE: now_iso(),
             }
 
         except Exception as e:
@@ -289,7 +285,7 @@ class MetricsAggregator:
                 FieldName.WIN_RATE_PERCENT: 0.0,
                 "status": "table_missing",
                 "error": str(e),
-                FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
+                FieldName.LAST_UPDATE: now_iso(),
             }
 
     async def get_agent_metrics(self) -> dict[str, Any]:
@@ -349,7 +345,7 @@ class MetricsAggregator:
             return {
                 FieldName.ACTIVE_AGENTS: active_agents,
                 FieldName.ACTIVE_AGENT_COUNT: len(active_agents),
-                FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
+                FieldName.LAST_UPDATE: now_iso(),
             }
 
         except Exception as e:
@@ -358,7 +354,7 @@ class MetricsAggregator:
                 FieldName.ACTIVE_AGENTS: [],
                 FieldName.ACTIVE_AGENT_COUNT: 0,
                 "error": str(e),
-                FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
+                FieldName.LAST_UPDATE: now_iso(),
             }
 
     async def get_order_metrics(self) -> dict[str, Any]:
@@ -398,7 +394,7 @@ class MetricsAggregator:
                 FieldName.ORDERS_LAST_HOUR: order_stats,
                 FieldName.TOTAL_ORDERS_LAST_HOUR: total_orders,
                 FieldName.FILL_RATE_PERCENT: fill_rate,
-                FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
+                FieldName.LAST_UPDATE: now_iso(),
             }
 
         except Exception as e:
@@ -408,7 +404,7 @@ class MetricsAggregator:
                 FieldName.TOTAL_ORDERS_LAST_HOUR: 0,
                 FieldName.FILL_RATE_PERCENT: 0,
                 "error": str(e),
-                FieldName.LAST_UPDATE: datetime.now(timezone.utc).isoformat(),
+                FieldName.LAST_UPDATE: now_iso(),
             }
 
     async def get_dashboard_snapshot(self) -> dict[str, Any]:
@@ -428,7 +424,7 @@ class MetricsAggregator:
 
             # Combine into snapshot
             snapshot = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": now_iso(),
                 FieldName.STREAM_LAG: stream_lag,
                 FieldName.SYSTEM_HEALTH: system_health,
                 "pnl": pnl_metrics,
@@ -442,7 +438,7 @@ class MetricsAggregator:
         except Exception:
             log_structured("error", "dashboard snapshot failed", exc_info=True)
             return {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": now_iso(),
                 "error": "snapshot_failed",
                 FieldName.STREAM_LAG: {},
                 FieldName.SYSTEM_HEALTH: {FieldName.OVERALL_STATUS: "error"},
@@ -777,7 +773,7 @@ class MetricsAggregator:
                 FieldName.NOTIFICATION_SUMMARY: notification_summary,
                 FieldName.SIGNALS: [],
                 FieldName.RISK_ALERTS: [],
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": now_iso(),
             }
 
         except Exception:
@@ -815,7 +811,7 @@ class MetricsAggregator:
                 },
                 FieldName.SIGNALS: [],
                 FieldName.RISK_ALERTS: [],
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": now_iso(),
             }
 
     async def get_paired_pnl(self, redis_client=None) -> dict[str, Any]:
@@ -950,7 +946,7 @@ class MetricsAggregator:
                 FieldName.WIN_RATE_PERCENT: round(win_rate, 2),
                 FieldName.OPEN_POSITIONS: len(open_positions),
             },
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
 
     def _sanitize_snapshot(self, snapshot: dict[str, Any]) -> dict[str, Any]:
