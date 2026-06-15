@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter
@@ -15,6 +14,7 @@ from api.services.lmstudio_provider import (
     health_snapshot as lm_studio_health_snapshot,
 )
 from api.services.redis_store import get_redis_store
+from api.utils import now_iso
 
 router = APIRouter(tags=["llm"])
 
@@ -100,7 +100,7 @@ async def llm_health() -> dict[str, Any]:
         FieldName.ACTIVE_PROVIDER: active_provider,
         FieldName.MODEL: model_name,
         FieldName.MODEL_VAR: _attr if _attr else "unknown",
-        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+        FieldName.TIMESTAMP: now_iso(),
         FieldName.LAST_SUCCESS_AT: last_success_at,
         FieldName.REDIS_METRICS: redis_metrics,
         FieldName.LOCAL_INFERENCE_ENABLED: lm_snap.get(FieldName.LM_STUDIO_ENABLED, False),
