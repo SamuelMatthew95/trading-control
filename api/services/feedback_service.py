@@ -16,18 +16,14 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any
 
 from api.constants import FieldName
+from api.utils import now_iso
 
 # Status field is part of the feedback record contract but is not a FieldName
 # payload key (no FieldName.FEEDBACK_STATUS member); kept as a local constant.
 _FEEDBACK_STATUS = "feedback_status"
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _new_id() -> str:
@@ -42,7 +38,7 @@ class _Record:
     payload: dict[str, Any] = field(default_factory=dict)
     feedback_status: str = "staged"
     store_type: str = "annotation"
-    created_at: str = field(default_factory=_now_iso)
+    created_at: str = field(default_factory=now_iso)
 
     def model_dump(self) -> dict[str, Any]:
         return {
