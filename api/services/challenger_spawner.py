@@ -9,11 +9,11 @@ in exactly one place.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
 from api.constants import MAX_CONCURRENT_CHALLENGERS, FieldName
 from api.observability import log_structured
+from api.utils import now_iso
 
 
 class ChallengerSpawner:
@@ -73,7 +73,7 @@ class ChallengerSpawner:
                         FieldName.CONSUMER: existing.consumer,
                         FieldName.MAX_FILLS: existing._max_fills,
                         FieldName.STATUS: "already_running",
-                        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                        FieldName.TIMESTAMP: now_iso(),
                     }
         if len(running) >= MAX_CONCURRENT_CHALLENGERS:
             log_structured(
@@ -88,7 +88,7 @@ class ChallengerSpawner:
                 FieldName.REASON: (
                     f"{len(running)} challengers already running (cap {MAX_CONCURRENT_CHALLENGERS})"
                 ),
-                FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                FieldName.TIMESTAMP: now_iso(),
             }
 
         resolved_fills = int(max_fills or ChallengerAgent.DEFAULT_MAX_FILLS)
@@ -114,5 +114,5 @@ class ChallengerSpawner:
             FieldName.CONSUMER: challenger.consumer,
             FieldName.MAX_FILLS: resolved_fills,
             FieldName.STATUS: "spawned",
-            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+            FieldName.TIMESTAMP: now_iso(),
         }
