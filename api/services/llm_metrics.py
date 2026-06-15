@@ -7,7 +7,7 @@ import time
 from collections import deque
 from contextlib import suppress
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date
 from threading import Lock
 
 from api.constants import (
@@ -17,6 +17,7 @@ from api.constants import (
     FieldName,
     LLMCallResult,
 )
+from api.utils import now_iso
 
 # Strong refs to in-flight fire-and-forget tasks. asyncio only holds a weak
 # ref to a task, so without this set a fast-completing event loop may GC the
@@ -121,7 +122,7 @@ class LLMMetricsCollector:
         with self._lock:
             self._last_error_kind = kind
             self._last_error_message = (message or "").strip()[:240] or None
-            self._last_error_at = datetime.now(timezone.utc).isoformat()
+            self._last_error_at = now_iso()
         _async_fire_and_forget(_record_redis_outcome("error"))
 
     def snapshot(self, window_seconds: int = LLM_METRICS_WINDOW_SECONDS) -> dict:
