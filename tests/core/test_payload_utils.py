@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -10,6 +10,8 @@ from api.constants import AgentStatus, FieldName, Source
 from api.core import defaults, enums
 from api.core.payload_keys import PayloadKey
 from api.utils import (
+    bytes_to_text,
+    clamp,
     cosine_similarity,
     get_dict,
     get_nested,
@@ -17,8 +19,11 @@ from api.utils import (
     get_str,
     now_iso,
     parse_agent_status,
+    parse_iso_datetime,
+    parse_iso_timestamp,
     parse_source,
     safe_float,
+    safe_json_loads,
 )
 
 
@@ -188,6 +193,94 @@ class TestNowIso:
         # Round-trips through fromisoformat without raising.
         parsed = datetime.fromisoformat(value)
         assert parsed.tzinfo is not None  # timezone-aware (UTC)
+
+
+class TestParseIsoDatetime:
+    def test_parses_z_suffix_to_utc(self):
+        dt = parse_iso_datetime("2026-06-15T03:45:14Z")
+        assert dt == datetime(2026, 6, 15, 3, 45, 14, tzinfo=timezone.utc)
+
+    def test_parses_explicit_offset(self):
+        dt = parse_iso_datetime("2026-06-15T03:45:14+00:00")
+        assert dt.tzinfo is not None and dt.utcoffset().total_seconds() == 0
+
+    def test_naive_treated_as_utc(self):
+        dt = parse_iso_datetime("2026-06-15T03:45:14")
+        assert dt == datetime(2026, 6, 15, 3, 45, 14, tzinfo=timezone.utc)
+
+    def test_non_utc_offset_converted_to_utc(self):
+        dt = parse_iso_datetime("2026-06-15T05:45:14+02:00")
+        assert dt == datetime(2026, 6, 15, 3, 45, 14, tzinfo=timezone.utc)
+
+    def test_none_and_empty_return_none(self):
+        assert parse_iso_datetime(None) is None
+        assert parse_iso_datetime("") is None
+
+    def test_unparseable_returns_none(self):
+        assert parse_iso_datetime("not-a-date") is None
+
+    def test_roundtrips_now_iso(self):
+        assert parse_iso_datetime(now_iso()) is not None
+
+
+class TestParseIsoTimestamp:
+    def test_returns_epoch_seconds(self):
+        ts = parse_iso_timestamp("1970-01-01T00:00:00Z")
+        assert ts == 0.0
+
+    def test_none_returns_none(self):
+        assert parse_iso_timestamp(None) is None
+
+    def test_unparseable_returns_none(self):
+        assert parse_iso_timestamp("garbage") is None
+
+
+class TestBytesToText:
+    def test_decodes_bytes(self):
+        assert bytes_to_text(b"hello") == "hello"
+
+    def test_replaces_decode_errors(self):
+        # invalid utf-8 byte does not raise
+        assert isinstance(bytes_to_text(b"\xff"), str)
+
+    def test_coerces_non_bytes(self):
+        assert bytes_to_text(42) == "42"
+
+    def test_passes_through_str(self):
+        assert bytes_to_text("x") == "x"
+
+
+class TestSafeJsonLoads:
+    def test_parses_str(self):
+        assert safe_json_loads('{"a": 1}') == {"a": 1}
+
+    def test_parses_bytes(self):
+        assert safe_json_loads(b'{"a": 1}') == {"a": 1}
+
+    def test_none_returns_default(self):
+        assert safe_json_loads(None) is None
+        assert safe_json_loads(None, default={}) == {}
+
+    def test_invalid_json_returns_default(self):
+        assert safe_json_loads("{not json") is None
+        assert safe_json_loads("{not json", default={}) == {}
+
+    def test_non_dict_payload_passes_through(self):
+        assert safe_json_loads("[1, 2]") == [1, 2]
+
+
+class TestClamp:
+    def test_within_range(self):
+        assert clamp(0.5) == 0.5
+
+    def test_below_lo(self):
+        assert clamp(-1.0) == 0.0
+
+    def test_above_hi(self):
+        assert clamp(2.0) == 1.0
+
+    def test_custom_bounds(self):
+        assert clamp(15, lo=0, hi=10) == 10
 
 
 class TestCosineSimilarity:
