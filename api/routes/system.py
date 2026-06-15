@@ -21,6 +21,7 @@ from api.services.agent_log_stream import (
     agent_log_stream_response,
     memory_mode_log_stream_response,
 )
+from api.utils import now_iso
 
 from ..config import get_database_url
 from ..core.models import Order, SystemMetrics
@@ -120,7 +121,7 @@ async def get_system_status():
     if not is_db_available():
         stream_lag = await get_stream_lag()
         return {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             FieldName.MODE: "memory",
             FieldName.AGENT_PULSE: [],
             FieldName.DATABASE_HEALTH: {
@@ -204,7 +205,7 @@ async def get_system_status():
                 sanitized_lag[stream] = data
 
         return {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             FieldName.AGENT_PULSE: agent_pulse,
             FieldName.DATABASE_HEALTH: {
                 FieldName.PENDING_ORDERS_LAST_HOUR: pending_orders,
@@ -332,7 +333,7 @@ async def health_check():
 
         return {
             "status": "healthy",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             FieldName.DATABASE: "connected",
             FieldName.REDIS: "connected",
         }
@@ -340,6 +341,6 @@ async def health_check():
     except Exception as e:
         return {
             "status": "unhealthy",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             "error": str(e),
         }
