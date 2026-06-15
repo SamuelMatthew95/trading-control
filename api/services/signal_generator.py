@@ -87,6 +87,43 @@ SIGMA_MIN_SAMPLES = 20
 # microscopic noise into huge z-scores.
 SIGMA_FLOOR_PCT = 0.02
 
+# Graduated confidence ceilings (issue #324) ----------------------------------
+# The tier THRESHOLDS above decide the categorical call (signal_type / strength
+# / buy-sell-hold action). The numeric *score* is then interpolated WITHIN the
+# chosen tradeable band, from the tier's floor up toward the next tier's floor,
+# by how deep the move sits in its band — so a near-STRONG momentum move earns
+# more confidence than a borderline one. Previously every signal in a tier was
+# pinned to a flat floor (55 / 80), under-scoring genuinely strong moves; that
+# floored confidence then lost good trades at the weighted execution gate
+# (confidence carries 0.50 of the gate score) and shrank Kelly position sizes.
+# Tier boundaries are preserved EXACTLY: at a boundary the graduated score
+# equals the old flat floor, so no buy/sell/hold decision changes — only the
+# magnitude of confidence for moves above a boundary. Position size still rides
+# the hard MAX_RISK_PER_TRADE_PCT Kelly cap, so larger confidence cannot grow a
+# position past the risk limit.
+MOMENTUM_SCORE_FLOOR = 55.0
+STRONG_MOMENTUM_SCORE_FLOOR = 80.0
+STRONG_MOMENTUM_SCORE_CEIL = 95.0
+# The move (in sigma, or in percent on the warmup fallback path) at which a
+# STRONG move saturates the ceiling. MOMENTUM's ceiling is the STRONG floor, so
+# MOMENTUM interpolates across [MOMENTUM_*, STRONG_MOMENTUM_*].
+STRONG_MOMENTUM_SIGMA_CEIL = 4.0
+STRONG_MOMENTUM_PCT_CEIL = 6.0
+
+
+def _graduate_score(value: float, lo: float, hi: float, score_lo: float, score_hi: float) -> float:
+    """Linearly map ``value`` from band ``[lo, hi]`` onto ``[score_lo, score_hi]``.
+
+    PURE. ``value == lo`` returns ``score_lo`` exactly (boundary continuity);
+    ``value >= hi`` clamps to ``score_hi``. A degenerate band (``hi <= lo``)
+    returns the floor.
+    """
+    if hi <= lo:
+        return score_lo
+    frac = (value - lo) / (hi - lo)
+    frac = 0.0 if frac < 0.0 else (1.0 if frac > 1.0 else frac)
+    return score_lo + frac * (score_hi - score_lo)
+
 
 def compute_return_sigma(
     prices: Sequence[float], min_samples: int = SIGMA_MIN_SAMPLES
@@ -131,6 +168,13 @@ def classify_signal(
     above ``SIGMA_FLOOR_PCT`` the move is graded by its z-score (``|pct| /
     sigma``) against the ``*_SIGMA`` multipliers; otherwise the fixed ``*_PCT``
     thresholds are used (warmup / no volatility info).
+
+    The tier thresholds decide the categorical call; the ``score`` then
+    graduates continuously within the chosen tradeable band (see
+    :func:`_graduate_score`) so a deeper move earns proportionally more
+    confidence. Tier boundaries are exact, so the buy/sell/hold action is
+    identical to the old flat-floor scoring — only the confidence magnitude
+    above a boundary changes (issue #324).
     """
     abs_pct = abs(pct)
     direction = (
@@ -139,18 +183,47 @@ def classify_signal(
         else (MarketDirection.BEARISH if pct < 0 else MarketDirection.NEUTRAL)
     )
     if sigma is not None and sigma >= SIGMA_FLOOR_PCT:
-        # Volatility-normalized: how many sigma is this move?
+        # Volatility-normalized: how many sigma is this move? Score graduates
+        # WITHIN the tradeable band (see _graduate_score / issue #324).
         z = abs_pct / sigma
         if z >= STRONG_MOMENTUM_SIGMA:
-            signal_type, strength, score = SignalType.STRONG_MOMENTUM, SignalStrength.HIGH, 80.0
+            signal_type, strength = SignalType.STRONG_MOMENTUM, SignalStrength.HIGH
+            score = _graduate_score(
+                z,
+                STRONG_MOMENTUM_SIGMA,
+                STRONG_MOMENTUM_SIGMA_CEIL,
+                STRONG_MOMENTUM_SCORE_FLOOR,
+                STRONG_MOMENTUM_SCORE_CEIL,
+            )
         elif z >= MOMENTUM_SIGMA:
-            signal_type, strength, score = SignalType.MOMENTUM, SignalStrength.NORMAL, 55.0
+            signal_type, strength = SignalType.MOMENTUM, SignalStrength.NORMAL
+            score = _graduate_score(
+                z,
+                MOMENTUM_SIGMA,
+                STRONG_MOMENTUM_SIGMA,
+                MOMENTUM_SCORE_FLOOR,
+                STRONG_MOMENTUM_SCORE_FLOOR,
+            )
         else:
             signal_type, strength, score = SignalType.PRICE_UPDATE, SignalStrength.LOW, 30.0
     elif abs_pct >= STRONG_MOMENTUM_PCT:
-        signal_type, strength, score = SignalType.STRONG_MOMENTUM, SignalStrength.HIGH, 80.0
+        signal_type, strength = SignalType.STRONG_MOMENTUM, SignalStrength.HIGH
+        score = _graduate_score(
+            abs_pct,
+            STRONG_MOMENTUM_PCT,
+            STRONG_MOMENTUM_PCT_CEIL,
+            STRONG_MOMENTUM_SCORE_FLOOR,
+            STRONG_MOMENTUM_SCORE_CEIL,
+        )
     elif abs_pct >= MOMENTUM_PCT:
-        signal_type, strength, score = SignalType.MOMENTUM, SignalStrength.NORMAL, 55.0
+        signal_type, strength = SignalType.MOMENTUM, SignalStrength.NORMAL
+        score = _graduate_score(
+            abs_pct,
+            MOMENTUM_PCT,
+            STRONG_MOMENTUM_PCT,
+            MOMENTUM_SCORE_FLOOR,
+            STRONG_MOMENTUM_SCORE_FLOOR,
+        )
     else:
         signal_type, strength, score = SignalType.PRICE_UPDATE, SignalStrength.LOW, 30.0
 
