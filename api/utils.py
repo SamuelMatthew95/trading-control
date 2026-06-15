@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
+from datetime import datetime, timezone
 from typing import Any
 
 from api.config import settings
@@ -70,6 +71,27 @@ def get_nested(data: Mapping[str, Any] | None, *keys: str, default: Any = None) 
         if current is None:
             return default
     return current
+
+
+def safe_float(value: Any, default: float | None = None) -> float | None:
+    """Coerce ``value`` to ``float``; return ``default`` when None or non-numeric.
+
+    Single source of truth for the float-coercion idiom that was copy-pasted
+    across half a dozen modules with subtly different defaults. Pass
+    ``default=0.0`` for the "fill missing with zero" variant, or rely on the
+    ``None`` default for the "no data" variant.
+    """
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def now_iso() -> str:
+    """Current UTC time as a timezone-aware ISO-8601 string."""
+    return datetime.now(timezone.utc).isoformat()
 
 
 def parse_source(value: str | None) -> Source:
