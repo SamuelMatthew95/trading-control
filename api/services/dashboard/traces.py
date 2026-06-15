@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
@@ -9,6 +8,7 @@ from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
 from api.services.dashboard.utils import _as_dict, _timestamp_to_iso
+from api.utils import now_iso
 
 
 def _in_memory_trace_payload(trace_id: str) -> dict[str, Any]:
@@ -64,7 +64,7 @@ def _in_memory_trace_payload(trace_id: str) -> dict[str, Any]:
         FieldName.AGENT_RUNS: runs,
         FieldName.AGENT_LOGS: logs,
         FieldName.AGENT_GRADES: grades,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": now_iso(),
         "source": "in_memory",
     }
 
@@ -155,7 +155,7 @@ async def get_trace_payload(trace_id: str) -> dict[str, Any]:
             FieldName.AGENT_RUNS: runs,
             FieldName.AGENT_LOGS: logs,
             FieldName.AGENT_GRADES: grades,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
     except HTTPException:
         raise
