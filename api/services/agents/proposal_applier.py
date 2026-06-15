@@ -64,6 +64,7 @@ from api.services.param_evolution import validate_param_change
 from api.services.prompt_store import get_prompt_store
 from api.services.redis_store import get_redis_store
 from api.services.tool_registry import get_tool_registry
+from api.utils import now_iso
 from backtest.strategies import STRATEGIES
 
 
@@ -184,7 +185,7 @@ class ProposalApplier(MultiStreamAgent):
             return
 
         self._applied_count += 1
-        applied_at = datetime.now(timezone.utc).isoformat()
+        applied_at = now_iso()
 
         log_payload: dict[str, Any] = {
             FieldName.SOURCE: SOURCE_PROPOSAL_APPLIER,
@@ -660,7 +661,7 @@ class ProposalApplier(MultiStreamAgent):
                 FieldName.PROPOSED_VALUE: proposed_value,
                 FieldName.REASON: reason,
                 FieldName.TRACE_ID: trace_id,
-                FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                FieldName.TIMESTAMP: now_iso(),
             },
         )
         # Open a real config-only PR when GitOps auto-PR is configured (token in
