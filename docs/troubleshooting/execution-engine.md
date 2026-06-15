@@ -119,3 +119,15 @@ Three new `InMemoryStore` methods expose explicit lifecycle checks: `has_open_po
 **Fix:** `_check_cooling_off_gate` returns early for SELL/short sides — cooling-off now gates BUY entries only. Risk closes execute regardless of recent-outcome streaks; the unmatched-sell guard, oversell clamp, kill switch, and market clock still apply to sells.
 
 **Regression test:** `tests/agents/test_execution_engine.py::test_cooling_off_never_blocks_sell_close` (and `::test_cooling_off_blocks_buy_after_loss_streak` pinning that entries stay gated)
+
+---
+
+## Regime-aware stop-loss — longs cut tighter in a bearish (risk-off) regime (issue #326)
+
+**Symptom:** The learning loop filed a recurring `regime_adjustment` proposal — *"the current risk management strategy is insufficient, resulting in significant losses"* in a `bearish` regime. RiskGuardian's hard stop-loss was a single static `STOP_LOSS_PCT = 5%` regardless of market conditions, so a long held into a falling market bled the full 5% on every position even when the macro tape was clearly risk-off and the system already *knew* it (the regime read fed the reasoning prompt but never the risk exits).
+
+**Root cause:** `STOP_LOSS_PCT` was applied uniformly in `_check_positions`; the macro regime (`fetch_macro_regime`, BTC for crypto / SPY for equities) influenced only the decision *score* (20% weight in `decision_policy`), not the exit thresholds. Nothing tightened risk when the regime turned bearish.
+
+**Fix:** `RiskGuardian._effective_stop_loss(symbol, side)` now reads the cached macro regime and, for **LONG** positions in a `RISK_OFF` regime, tightens the hard stop from `STOP_LOSS_PCT` (5%) to `RISK_OFF_STOP_LOSS_PCT` (3%) — cutting longs sooner exactly when the tape is falling. Shorts (a risk-off regime is favourable to them) and every non-risk-off / unknown regime keep the default stop. The read goes through `market_intel.read_cached_macro_regime` — a new **cache-only** helper that never triggers an Alpaca fetch, so the 30s risk scan adds zero external calls and a cold/missing/unreadable cache fails open to the default stop (a lost regime read can never *widen* risk). Regime-tightened closes are tagged `stop_loss_risk_off(...)` in `primary_edge` so the narrower stop is observable in the trade feed.
+
+**Regression test:** `tests/agents/test_risk_guardian.py::test_long_stop_tightened_in_risk_off_regime` (and `::test_long_stop_not_tightened_in_neutral_regime`, `::test_long_stop_default_when_no_regime_cached`, `::test_short_stop_not_tightened_in_risk_off_regime`, `::test_effective_stop_loss_mapping`)
