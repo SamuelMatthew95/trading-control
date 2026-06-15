@@ -540,6 +540,39 @@ async def test_memory_mode_stale_reaper_spares_young_and_working_positions(fake_
     bus.publish.assert_not_called()
 
 
+async def test_memory_mode_flushes_sub_min_dust_position(fake_redis):
+    """A holding below the symbol's minimum tradeable size is untradeable dust —
+    the guardian flushes it (full close) regardless of PnL so it can't sit frozen
+    at a stale cost basis forever. 0.0005 BTC < SYMBOL_MIN_SIZE['BTC/USD'] (0.001)."""
+    avg_cost = 50_000.0
+    await _seed_paper_position(fake_redis, "BTC/USD", side="long", qty=0.0005, entry_price=avg_cost)
+    await _seed_price(fake_redis, "BTC/USD", avg_cost)  # 0% PnL — not stop / take-profit
+    bus = _make_bus()
+    guardian = RiskGuardian(bus, fake_redis)
+
+    await guardian._check_positions()
+
+    decisions = _decisions(bus)
+    assert len(decisions) == 1
+    assert decisions[0]["action"] == "sell"
+    assert decisions[0]["qty"] == pytest.approx(0.0005)
+    assert "dust_below_min" in decisions[0]["primary_edge"]
+
+
+async def test_memory_mode_spares_position_at_min_size(fake_redis):
+    """A holding exactly at the minimum size is tradeable, not dust — the guardian
+    must not flush it (0% PnL also keeps stop/take-profit/stale silent)."""
+    avg_cost = 50_000.0
+    await _seed_paper_position(fake_redis, "BTC/USD", side="long", qty=0.001, entry_price=avg_cost)
+    await _seed_price(fake_redis, "BTC/USD", avg_cost)
+    bus = _make_bus()
+    guardian = RiskGuardian(bus, fake_redis)
+
+    await guardian._check_positions()
+
+    bus.publish.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # Daily loss limit
 # ---------------------------------------------------------------------------
