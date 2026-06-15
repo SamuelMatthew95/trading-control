@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from typing import Any
 
 from api.constants import (
@@ -14,6 +13,7 @@ from api.constants import (
     FieldName,
 )
 from api.events.bus import STREAMS, EventBus
+from api.utils import bytes_to_text, now_iso
 
 
 class DLQManager:
@@ -35,7 +35,7 @@ class DLQManager:
             "payload": payload,
             "error": error,
             FieldName.RETRIES: retries,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
         await self.redis.hset(
             REDIS_KEY_DLQ.format(stream=stream), event_id, json.dumps(record, default=str)
@@ -55,8 +55,7 @@ class DLQManager:
         for stream in STREAMS:
             values = await self.redis.hgetall(REDIS_KEY_DLQ.format(stream=stream))
             for value in values.values():
-                raw = value.decode("utf-8") if isinstance(value, bytes) else value
-                items.append(json.loads(raw))
+                items.append(json.loads(bytes_to_text(value)))
         items.sort(key=lambda x: x.get(FieldName.TIMESTAMP, ""), reverse=True)
         return items[:limit]
 
@@ -72,8 +71,7 @@ class DLQManager:
             per_stream[stream] = count
             total += count
             for value in values.values():
-                raw = value.decode("utf-8") if isinstance(value, bytes) else value
-                event = json.loads(raw)
+                event = json.loads(bytes_to_text(value))
                 retries = int(event.get(FieldName.RETRIES, 0))
                 retry_buckets[str(retries)] = retry_buckets.get(str(retries), 0) + 1
                 last_error = event.get(FieldName.ERROR) or last_error
@@ -83,7 +81,7 @@ class DLQManager:
             FieldName.PER_STREAM: per_stream,
             FieldName.RETRY_BUCKETS: retry_buckets,
             FieldName.LAST_ERROR: last_error,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
 
     async def replay(self, event_id: str) -> bool:
@@ -91,8 +89,7 @@ class DLQManager:
             raw = await self.redis.hget(REDIS_KEY_DLQ.format(stream=stream), event_id)
             if raw is None:
                 continue
-            raw = raw.decode("utf-8") if isinstance(raw, bytes) else raw
-            record = json.loads(raw)
+            record = json.loads(bytes_to_text(raw))
             await self.bus.publish(record[FieldName.STREAM], record[FieldName.PAYLOAD])
             await self.clear(event_id)
             return True
