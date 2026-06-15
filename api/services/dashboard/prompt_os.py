@@ -15,7 +15,6 @@ so the FieldName guardrail has nothing to enforce on the output side.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel
@@ -34,6 +33,7 @@ from api.services.dashboard.learning import get_learning_proposals_payload
 from api.services.prompt_assembly import build_runtime_prompt
 from api.services.strategy_registry import get_strategy_registry
 from api.services.tool_registry import ToolMetadata, get_tool_registry
+from api.utils import now_iso
 
 # The live reasoning node always has cross-stream confluence loaded (the signal
 # carries composite_score), so confluence-gated tools are eligible.
@@ -213,7 +213,7 @@ async def get_prompt_os_payload(agents: list[Any]) -> dict[str, Any]:
             challengers=challengers,
             proposals=proposals,
             tool_count=len(get_tool_registry().all_tools()),
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=now_iso(),
         ).model_dump()
     except Exception:
         log_structured("error", "prompt_os_payload_failed", exc_info=True)
@@ -232,5 +232,5 @@ async def get_prompt_os_payload(agents: list[Any]) -> dict[str, Any]:
             challengers=[],
             proposals=[],
             tool_count=0,
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=now_iso(),
         ).model_dump()
