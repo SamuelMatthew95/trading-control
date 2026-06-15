@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 
 from api.constants import (
+    PRICE_STALE_SECONDS,
     REDIS_KEY_PRICES,
     REDIS_KEY_WORKER_HEARTBEAT,
     STREAM_DECISIONS,
@@ -19,7 +20,7 @@ from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.redis_client import get_redis
 from api.runtime_state import get_runtime_store, is_db_available, runtime_mode
-from api.services.metrics_aggregator import MetricsAggregator
+from api.services.metrics_aggregator import MetricsAggregator, filter_fresh_prices
 
 
 async def get_stream_lag_payload() -> dict[str, Any]:
@@ -147,16 +148,19 @@ async def get_prices_payload() -> dict[str, Any]:
         keys = [REDIS_KEY_PRICES.format(symbol=symbol) for symbol in symbols]
         cached_values = await redis_client.mget(keys)
 
-        prices = {}
+        present: dict[str, Any] = {}
         for symbol, cached_value in zip(symbols, cached_values, strict=False):
             if cached_value:
                 try:
-                    prices[symbol] = json.loads(cached_value)
+                    present[symbol] = json.loads(cached_value)
                 except json.JSONDecodeError:
                     log_structured("warning", "invalid price json", symbol=symbol)
-                    prices[symbol] = None
-            else:
-                prices[symbol] = None
+
+        # Drop prices too stale to be a live quote, then pad missing/stale
+        # symbols back to None so the payload keeps its fixed shape — the
+        # dashboard renders "--" for them instead of a frozen dead price.
+        fresh = filter_fresh_prices(present)
+        prices: dict[str, Any] = {symbol: fresh.get(symbol) for symbol in symbols}
 
         return {
             FieldName.PRICES: prices,
@@ -298,20 +302,24 @@ async def get_worker_health_payload(process_start_time: datetime) -> dict[str, A
         timestamps = []
         stale_symbols = []
 
-        # Check price timestamps
+        # Check price freshness. The poll cache stamps the tick epoch under
+        # ``ts`` (FieldName.TS) — NOT ``timestamp`` — so reading TIMESTAMP here
+        # silently found nothing and every price slipped through as "fresh".
+        # Read ``ts`` and compare against PRICE_STALE_SECONDS (the same bound the
+        # served payloads use) so this health view agrees with what's shown.
         for symbol, cached_value in zip(symbols, price_values, strict=False):
             if cached_value:
                 try:
                     price_data = json.loads(cached_value)
-                    timestamp_str = price_data.get(FieldName.TIMESTAMP)
-                    if timestamp_str:
-                        timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                    ts_epoch = price_data.get(FieldName.TS)
+                    if ts_epoch is not None:
+                        timestamp = datetime.fromtimestamp(float(ts_epoch), tz=timezone.utc)
                         timestamps.append(timestamp)
-
-                        # Check if price is stale (older than 90 seconds)
-                        if (now - timestamp).total_seconds() > 90:
+                        if (now - timestamp).total_seconds() > PRICE_STALE_SECONDS:
                             stale_symbols.append(symbol)
-                except (json.JSONDecodeError, ValueError):
+                    else:
+                        stale_symbols.append(symbol)
+                except (json.JSONDecodeError, ValueError, TypeError):
                     stale_symbols.append(symbol)
             else:
                 stale_symbols.append(symbol)
