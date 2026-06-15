@@ -443,6 +443,28 @@ async def _fetch_recent_closes(
     return closes.get(symbol, [])
 
 
+def _macro_benchmark(symbol: str) -> str:
+    """Asset-class benchmark whose trend defines ``symbol``'s macro regime."""
+    return _MACRO_BENCHMARK_CRYPTO if _is_crypto(symbol) else _MACRO_BENCHMARK_EQUITY
+
+
+async def read_cached_macro_regime(symbol: str, redis) -> dict[str, Any]:
+    """Cached macro regime for ``symbol``'s benchmark, or ``{}`` on miss/error.
+
+    Read-only: unlike :func:`fetch_macro_regime` this never falls through to an
+    Alpaca fetch, so a caller on a hot path (e.g. RiskGuardian's periodic scan)
+    can consult the regime without risking an external API call on a cold cache.
+    """
+    cache_key = REDIS_KEY_MACRO_REGIME.format(symbol=_macro_benchmark(symbol))
+    try:
+        cached = await redis.get(cache_key)
+        if cached:
+            return json.loads(cached)
+    except Exception:
+        log_structured("warning", "macro_regime_cache_read_failed", symbol=symbol, exc_info=True)
+    return {}
+
+
 async def fetch_macro_regime(symbol: str, redis) -> dict[str, Any]:
     """Market-wide risk posture (risk-on / risk-off / neutral), Redis-cached.
 
@@ -452,15 +474,12 @@ async def fetch_macro_regime(symbol: str, redis) -> dict[str, Any]:
     risk-on vs risk-off appropriately. Returns ``{}`` only when there is no API
     key or the benchmark bars are unavailable.
     """
-    benchmark = _MACRO_BENCHMARK_CRYPTO if _is_crypto(symbol) else _MACRO_BENCHMARK_EQUITY
-    cache_key = REDIS_KEY_MACRO_REGIME.format(symbol=benchmark)
-    try:
-        cached = await redis.get(cache_key)
-        if cached:
-            return json.loads(cached)
-    except Exception:
-        log_structured("warning", "macro_regime_cache_read_failed", symbol=benchmark, exc_info=True)
+    cached = await read_cached_macro_regime(symbol, redis)
+    if cached:
+        return cached
 
+    benchmark = _macro_benchmark(symbol)
+    cache_key = REDIS_KEY_MACRO_REGIME.format(symbol=benchmark)
     if not settings.ALPACA_API_KEY:
         return {}
     try:
