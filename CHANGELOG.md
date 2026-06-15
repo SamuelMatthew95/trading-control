@@ -1,5 +1,10 @@
 # Changelog
 
+## [2026-06-15] — Graduated signal confidence (issue #324)
+
+### Changed
+- **Signal confidence now graduates within a tier instead of pinning to a flat floor** — `classify_signal` quantized every signal into three flat tiers (LOW `0.30`, MOMENTUM `0.55`, STRONG `0.80`), so a near-STRONG move at `z = 2.4σ` scored identically to a borderline `z = 1.5σ` one. Confidence carries `0.50` of the weighted execution gate and scales the Kelly size, so this under-scored genuinely strong moves — losing good trades at the gate and sizing every momentum trade as borderline (the learning loop's recurring `regime_adjustment` proposal, issue #324). The `score` now interpolates from the tier floor toward the next tier's floor by how deep the move sits in its band (`_graduate_score`): MOMENTUM ramps `55 → 80`, STRONG ramps `80 → 95` (clamped). Tier boundaries are exact, so **no buy/sell/hold decision changes** — only the confidence magnitude above a boundary rises. LOW keeps its flat `0.30`; position size still rides the hard `MAX_RISK_PER_TRADE_PCT` Kelly cap (`docs/troubleshooting/signal-generation.md`, `tests/core/test_signal_volatility.py::TestGraduatedConfidence`)
+
 ## [2026-06-13] — Cognitive dashboard: real cognition, de-mocked API, memory-mode honesty
 
 ### Changed
