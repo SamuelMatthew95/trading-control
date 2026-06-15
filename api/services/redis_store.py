@@ -14,7 +14,6 @@ import json
 import time
 import uuid
 from datetime import date as date_cls
-from datetime import datetime, timezone
 from typing import Any
 
 from redis.asyncio import Redis
@@ -37,41 +36,22 @@ from api.constants import (
     FieldName,
 )
 from api.observability import log_structured
-from api.utils import now_iso
+from api.utils import bytes_to_text, now_iso, parse_iso_timestamp, safe_json_loads
 
 
 def _today_iso() -> str:
     return date_cls.today().isoformat()
 
 
-def _to_text(raw: Any) -> str:
-    if isinstance(raw, bytes):
-        return raw.decode("utf-8", errors="replace")
-    return str(raw)
-
-
 def _safe_loads(raw: Any) -> dict[str, Any] | None:
-    try:
-        parsed = json.loads(_to_text(raw))
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return None
+    """Decode a Redis value to a dict; ``None`` for non-dict / unparseable input."""
+    parsed = safe_json_loads(raw)
     return parsed if isinstance(parsed, dict) else None
 
 
 def _parse_iso_ts(raw: Any) -> float | None:
     """Best-effort ISO-8601 → Unix epoch seconds. ``None`` for unparseable input."""
-    if raw is None:
-        return None
-    ts_str = str(raw).strip()
-    if not ts_str:
-        return None
-    try:
-        ts_dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-    except (TypeError, ValueError):
-        return None
-    if ts_dt.tzinfo is None:
-        ts_dt = ts_dt.replace(tzinfo=timezone.utc)
-    return ts_dt.timestamp()
+    return parse_iso_timestamp(raw)
 
 
 class RedisStore:
@@ -131,7 +111,9 @@ class RedisStore:
                     live_ids.add(str(ident))
 
             read_ids_raw = await self.redis.smembers(REDIS_KEY_NOTIFICATIONS_READ)
-            stale = [_to_text(item) for item in read_ids_raw if _to_text(item) not in live_ids]
+            stale = [
+                bytes_to_text(item) for item in read_ids_raw if bytes_to_text(item) not in live_ids
+            ]
             if stale:
                 await self.redis.srem(REDIS_KEY_NOTIFICATIONS_READ, *stale)
         except Exception:
@@ -148,7 +130,7 @@ class RedisStore:
             read_ids = await self.redis.smembers(REDIS_KEY_NOTIFICATIONS_READ)
         except Exception:
             read_ids = set()
-        read_set = {_to_text(item) for item in read_ids or []}
+        read_set = {bytes_to_text(item) for item in read_ids or []}
 
         items: list[dict[str, Any]] = []
         for raw in raw_items:
@@ -167,7 +149,7 @@ class RedisStore:
         except Exception:
             log_structured("warning", "redis_store_unread_count_failed", exc_info=True)
             return 0
-        read_set = {_to_text(item) for item in read_ids or []}
+        read_set = {bytes_to_text(item) for item in read_ids or []}
         count = 0
         for raw in raw_items:
             parsed = _safe_loads(raw)
@@ -425,7 +407,9 @@ class RedisStore:
 
         # redis-py with decode_responses=True returns strings; coerce anyway
         # so this still works against a raw bytes client (e.g. in unit tests).
-        decoded: dict[str, str] = {_to_text(k): _to_text(v) for k, v in (raw or {}).items()}
+        decoded: dict[str, str] = {
+            bytes_to_text(k): bytes_to_text(v) for k, v in (raw or {}).items()
+        }
 
         def _int(key: str) -> int:
             try:
@@ -454,7 +438,7 @@ class RedisStore:
         if raw is None:
             return 0
         try:
-            return int(_to_text(raw))
+            return int(bytes_to_text(raw))
         except (TypeError, ValueError):
             return 0
 
