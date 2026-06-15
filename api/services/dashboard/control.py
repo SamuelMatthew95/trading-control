@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
@@ -13,6 +12,7 @@ from api.redis_client import get_redis
 from api.runtime_state import get_runtime_store, is_db_available
 from api.services.challenger_spawner import ChallengerSpawner
 from api.services.dashboard.state import hydrate_dashboard_state_from_redis
+from api.utils import now_iso
 
 
 async def spawn_challenger_payload(
@@ -60,7 +60,7 @@ async def list_challengers_payload(agents: list[Any]) -> dict[str, Any]:
                 for c in challengers
             ],
             FieldName.COUNT: len(challengers),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
     except Exception:
         log_structured("error", "challengers_list_failed", exc_info=True)
@@ -74,7 +74,7 @@ async def get_gitops_status_payload() -> dict[str, Any]:
     from api.services.gitops_publisher import GitOpsPublisher  # noqa: PLC0415
 
     result = await GitOpsPublisher().verify_access()
-    result[FieldName.TIMESTAMP] = datetime.now(timezone.utc).isoformat()
+    result[FieldName.TIMESTAMP] = now_iso()
     return result
 
 
@@ -86,7 +86,7 @@ async def get_kill_switch_payload() -> dict[str, Any]:
         updated_at = await redis_client.get(REDIS_KEY_KILL_SWITCH_UPDATED_AT)
         return {
             FieldName.ACTIVE: value == "1",
-            "updated_at": updated_at or datetime.now(timezone.utc).isoformat(),
+            "updated_at": updated_at or now_iso(),
         }
     except Exception:
         log_structured("error", "kill_switch_read_failed", exc_info=True)
@@ -98,19 +98,17 @@ async def toggle_kill_switch_payload(active: bool) -> dict[str, Any]:
     try:
         redis_client = await get_redis()
         await redis_client.set(REDIS_KEY_KILL_SWITCH, "1" if active else "0")
-        await redis_client.set(
-            REDIS_KEY_KILL_SWITCH_UPDATED_AT, datetime.now(timezone.utc).isoformat()
-        )
+        await redis_client.set(REDIS_KEY_KILL_SWITCH_UPDATED_AT, now_iso())
         log_structured(
             "info",
             "kill_switch_toggled",
             active=active,
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=now_iso(),
         )
         return {
             FieldName.ACTIVE: active,
             "message": f"Kill switch {'activated' if active else 'deactivated'}",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
     except Exception:
         log_structured("error", "kill switch toggle failed", active=active, exc_info=True)
