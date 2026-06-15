@@ -17,6 +17,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from api.constants import (
+    NOTIFICATIONS_STALE_SECONDS,
+    PROPOSALS_STALE_SECONDS,
     REDIS_DECISIONS_MAX,
     REDIS_KEY_DECISIONS_RECENT,
     REDIS_KEY_NOTIFICATIONS_RECENT,
@@ -24,6 +26,11 @@ from api.constants import (
     FieldName,
 )
 from api.services.redis_store import RedisStore, get_redis_store, set_redis_store
+
+
+def _iso_ago(seconds: float) -> str:
+    """ISO-8601 timestamp ``seconds`` in the past (UTC)."""
+    return (datetime.now(timezone.utc) - timedelta(seconds=seconds)).isoformat()
 
 
 @pytest.fixture
@@ -318,6 +325,62 @@ async def test_list_decisions_limit_zero_returns_empty(fake_redis) -> None:
     items = await store.list_decisions(limit=0)
     # limit=0 is coerced to 1 by max(1, ...)
     assert len(items) <= 1
+
+
+# ---------------------------------------------------------------------------
+# Staleness — old rows in TTL-less lists must not be served as current
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_notifications_drops_stale(fake_redis) -> None:
+    """A notification older than NOTIFICATIONS_STALE_SECONDS is filtered out."""
+    store = RedisStore(fake_redis)
+    await store.push_notification({"title": "fresh"})
+    await store.push_notification(
+        {"title": "ancient", FieldName.TIMESTAMP: _iso_ago(NOTIFICATIONS_STALE_SECONDS + 60)}
+    )
+    titles = {item.get("title") for item in await store.list_notifications()}
+    assert "fresh" in titles
+    assert "ancient" not in titles
+
+
+@pytest.mark.asyncio
+async def test_unread_count_ignores_stale_notifications(fake_redis) -> None:
+    """A stale notification is not served, so it must not be counted as unread
+    either — otherwise the badge shows a count the user can never clear."""
+    store = RedisStore(fake_redis)
+    await store.push_notification(
+        {"title": "ancient", FieldName.TIMESTAMP: _iso_ago(NOTIFICATIONS_STALE_SECONDS + 60)}
+    )
+    assert await store.unread_count() == 0
+    await store.push_notification({"title": "fresh"})
+    assert await store.unread_count() == 1
+
+
+@pytest.mark.asyncio
+async def test_list_notifications_keeps_missing_timestamp_fail_open(fake_redis) -> None:
+    """A row whose timestamp can't be parsed is kept (age can't be proven)."""
+    store = RedisStore(fake_redis)
+    await fake_redis.lpush(
+        REDIS_KEY_NOTIFICATIONS_RECENT,
+        json.dumps({"id": "no-ts", "title": "keep-me"}),
+    )
+    titles = {item.get("title") for item in await store.list_notifications()}
+    assert "keep-me" in titles
+
+
+@pytest.mark.asyncio
+async def test_list_proposals_drops_stale(fake_redis) -> None:
+    """A proposal older than PROPOSALS_STALE_SECONDS is no longer voteable."""
+    store = RedisStore(fake_redis)
+    await store.push_proposal({FieldName.ID: "p-fresh"})
+    await store.push_proposal(
+        {FieldName.ID: "p-ancient", FieldName.TIMESTAMP: _iso_ago(PROPOSALS_STALE_SECONDS + 3600)}
+    )
+    ids = {p.get(FieldName.ID) for p in await store.list_proposals()}
+    assert "p-fresh" in ids
+    assert "p-ancient" not in ids
 
 
 @pytest.mark.asyncio
