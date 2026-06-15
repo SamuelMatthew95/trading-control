@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import random
 import uuid
-from datetime import datetime, timezone
 from typing import Any
 
 from redis.asyncio import Redis
@@ -21,6 +20,7 @@ from api.constants import (
     PositionSide,
 )
 from api.telemetry import traced_broker_call
+from api.utils import now_iso
 
 
 class PaperBroker:
@@ -61,7 +61,7 @@ class PaperBroker:
         # opens from flat (or flips through zero), preserved across adds and
         # partial closes, cleared when flat — RiskGuardian's stale-position
         # reaper needs the true age, not the last-fill time.
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso_str = now_iso()
         prior_opened_at = current_position.get(FieldName.OPENED_AT)
         if abs(new_qty) < 1e-9:
             new_entry_price = 0.0
@@ -70,22 +70,22 @@ class PaperBroker:
         elif abs(current_qty) < 1e-9 or prior_entry <= 0:
             new_entry_price = fill_price
             new_side = PositionSide.LONG if new_qty > 0 else PositionSide.SHORT
-            new_opened_at = now_iso
+            new_opened_at = now_iso_str
         elif (current_qty > 0) == (direction > 0):
             # Adding in the same direction → weighted average cost
             new_entry_price = (prior_entry * abs(current_qty) + fill_price * qty) / abs(new_qty)
             new_side = PositionSide.LONG if new_qty > 0 else PositionSide.SHORT
-            new_opened_at = prior_opened_at or now_iso
+            new_opened_at = prior_opened_at or now_iso_str
         elif (current_qty > 0) != (new_qty > 0):
             # Order flipped direction past zero → new opening price
             new_entry_price = fill_price
             new_side = PositionSide.LONG if new_qty > 0 else PositionSide.SHORT
-            new_opened_at = now_iso
+            new_opened_at = now_iso_str
         else:
             # Reducing same-direction position (partial close) → preserve entry
             new_entry_price = prior_entry
             new_side = PositionSide.LONG if new_qty > 0 else PositionSide.SHORT
-            new_opened_at = prior_opened_at or now_iso
+            new_opened_at = prior_opened_at or now_iso_str
 
         position_payload = {
             FieldName.SYMBOL: symbol,
