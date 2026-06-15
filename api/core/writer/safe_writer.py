@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.constants import SOURCE_REFLECTION, FieldName, OrderStatus, PositionSide
 from api.observability import log_structured
 from api.schema_version import DB_SCHEMA_VERSION
+from api.utils import parse_iso_datetime
 
 from ..models import (
     AgentGrades,
@@ -113,15 +114,11 @@ class SafeWriter:
                 raise ValueError(f"idempotency_key is required for {operation}")
 
     def safe_parse_dt(self, dt_str: str | None) -> datetime | None:
-        """Safely parse ISO datetime strings."""
-        if not dt_str:
-            return None
-
-        try:
-            return datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-        except (ValueError, AttributeError):
-            log_structured("warning", "datetime parse failed", dt_str=dt_str, exc_info=True)
-            return None
+        """Safely parse ISO datetime strings (UTC-normalized); warns on failure."""
+        parsed = parse_iso_datetime(dt_str)
+        if parsed is None and dt_str:
+            log_structured("warning", "datetime parse failed", dt_str=dt_str)
+        return parsed
 
     async def _claim_message(self, session: AsyncSession, msg_id: str, stream: str) -> bool:
         """Atomically claim message with RETURNING to check success."""
