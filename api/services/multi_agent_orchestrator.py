@@ -24,6 +24,7 @@ from api.services.multi_agent_reasoning import (
     ReasoningModel,
 )
 from api.services.multi_agent_tools import DocumentRetriever, TradeTools
+from api.utils import now_iso
 
 logger = logging.getLogger(__name__)
 if not logger.handlers:
@@ -139,7 +140,7 @@ class MultiAgentOrchestrator:
     def _analyze_trade_once(
         self, asset: str, timeframe: str, portfolio_state: dict[str, Any]
     ) -> tuple[dict[str, Any], list[str], list[str]]:
-        task_id = f"{asset}:{datetime.now(timezone.utc).isoformat()}"
+        task_id = f"{asset}:{now_iso()}"
         plan = self.planner.build_plan(asset, timeframe)
         context: dict[str, Any] = {
             FieldName.ASSET: asset,
@@ -290,7 +291,7 @@ class MultiAgentOrchestrator:
         log_entry = {
             FieldName.TRACE_SUMMARY: {FieldName.GUARD_HITS: self.executor.tools.guard_hits},
             FieldName.TASK_ID: task_id,
-            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+            FieldName.TIMESTAMP: now_iso(),
             FieldName.DECISION: decision,
             FieldName.TRACE: [asdict(call) for call in self.agent_calls],
         }
