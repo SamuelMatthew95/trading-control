@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -32,6 +31,7 @@ from api.observability import log_structured
 from api.redis_client import get_redis
 from api.services.signal_generator import MOMENTUM_PCT, STRONG_MOMENTUM_PCT
 from api.services.strategy_registry import StrategyRegistry, get_strategy_registry
+from api.utils import now_iso
 from backtest.challenger import INSUFFICIENT_DATA, evaluate_from_stats
 from backtest.compare import compare_on_prices
 from backtest.data import alpaca_prices, synthetic_prices
@@ -126,7 +126,7 @@ def _compute_compare(symbol: str, bars: int) -> dict[str, Any]:
         FieldName.SOURCE: source,
         FieldName.SYMBOL: symbol,
         FieldName.BARS: len(prices),
-        FieldName.GENERATED_AT: datetime.now(timezone.utc).isoformat(),
+        FieldName.GENERATED_AT: now_iso(),
         FieldName.SUMMARY: _summary(source, active=active, total=len(stats), decision=decision),
         FieldName.STRATEGIES: strategies,
         FieldName.CANDIDATE: verdict.candidate if verdict else None,
@@ -199,7 +199,7 @@ def _compute_distribution(symbol: str, bars: int) -> dict[str, Any]:
         FieldName.SOURCE: source,
         FieldName.SYMBOL: symbol,
         FieldName.BARS: len(prices),
-        FieldName.GENERATED_AT: datetime.now(timezone.utc).isoformat(),
+        FieldName.GENERATED_AT: now_iso(),
         FieldName.TIMEFRAMES: report,
         FieldName.CACHED: False,
     }
