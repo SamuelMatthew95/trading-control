@@ -176,3 +176,29 @@ describe('Open Exposure KPI', () => {
     expect(screen.getByText('2')).toBeInTheDocument()
   })
 })
+
+describe('Net PnL KPI', () => {
+  it('includes unrealized mark-to-market of open positions', () => {
+    // Regression: Net PnL summed only realized order PnL, so a held position
+    // with real open exposure ($67-style) reported $0.00 — it never "added up"
+    // against the Open Exposure KPI beside it or the shell header's equity PnL.
+    // long 1 unit, cost 100, mark 110 → +$10.00 unrealized, no closed trades.
+    const positions = [
+      { symbol: 'BTC/USD', side: 'long', qty: 1, avg_cost: 100, current_price: 110 },
+    ] as unknown as SystemDashboardProps['positions']
+    render(<SystemDashboard {...baseProps} positions={positions} />)
+    expect(screen.getByText('+$10.00')).toBeInTheDocument()
+    // Open Exposure still reports the unsigned notional (1 × 110).
+    expect(screen.getByText('$110.00')).toBeInTheDocument()
+  })
+
+  it('adds realized and unrealized PnL together', () => {
+    // realized −$5 (closed order) + unrealized +$10 (open position) = +$5.00
+    const positions = [
+      { symbol: 'BTC/USD', side: 'long', qty: 1, avg_cost: 100, current_price: 110 },
+    ] as unknown as SystemDashboardProps['positions']
+    const orders = [{ pnl: -5, status: 'filled' }] as unknown as SystemDashboardProps['orders']
+    render(<SystemDashboard {...baseProps} positions={positions} orders={orders} />)
+    expect(screen.getByText('+$5.00')).toBeInTheDocument()
+  })
+})

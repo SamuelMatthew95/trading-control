@@ -8,6 +8,7 @@ import {
   formatTimestamp,
   formatUSD,
   isActivePosition,
+  positionLivePnl,
   positionNotional,
   signedUSD,
   toFiniteNum as toFiniteNumber,
@@ -72,9 +73,21 @@ export function SystemDashboard(props: SystemDashboardProps) {
   )
 
   const selectedDecision = decisionFeed[0] ?? null
-  const netPnl =
+  // Realized P&L from closed trades (API aggregate, else the order ledger).
+  const realizedPnl =
     props.resolvedPerformanceSummary?.total_pnl ??
     props.orders.reduce((sum, order) => sum + (toFiniteNumber(order.pnl) ?? 0), 0)
+  // Unrealized mark-to-market of every open position, valued against the live
+  // price stream (same helper the Positions table and shell header use).
+  const unrealizedPnl = props.positions.reduce(
+    (sum, position) => sum + (positionLivePnl(position, props.prices) ?? 0),
+    0,
+  )
+  // Net P&L is account-level: realized + unrealized. Summing only realized
+  // orders left a held position's exposure (e.g. $67 open) reporting $0.00 Net
+  // P&L — inconsistent with the Open Exposure KPI beside it and the shell
+  // header's equity-based P&L. Including unrealized makes the row tie out.
+  const netPnl = realizedPnl + unrealizedPnl
   const dayStartMs = startOfUtcDayMs(Date.now())
   const dailyPnl = props.orders.reduce((sum, order) => {
     const orderMs = timestampMs(order.timestamp ?? order.filled_at ?? order.created_at)

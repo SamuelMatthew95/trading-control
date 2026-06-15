@@ -1090,3 +1090,23 @@ prevent reintroduction).
 **Fix:** Added `positionNotional()` / `positionEntryPrice()` to `frontend/src/lib/formatters.ts` (built on `positionQty`/`livePriceFor`, which now also fall back to `avg_cost`/`unrealized_pnl`); `SystemDashboard.tsx` sums `positionNotional(position, props.prices)` — so exposure also marks to the live price stream — counts active positions via `isActivePosition`, and formats with unsigned `formatUSD`.
 
 **Regression test:** `src/test/components/system/SystemDashboard.test.tsx` ("counts memory-mode (qty/avg_cost) rows and renders an unsigned magnitude") and `src/test/helpers/live-pnl.test.ts` ("memory-mode position shape" suite)
+
+## Net PnL ignored open-position unrealized PnL (held exposure read $0.00)
+
+**Symptom:** `/dashboard/system` showed Net PnL `$0.00` while Open Exposure read a real figure (e.g. `$67.24`) with 1 active position — the two KPIs sat side by side and didn't add up, and Net PnL also disagreed with the shell header's equity-based P&L.
+
+**Root cause:** `SystemDashboard.tsx` computed `netPnl` from realized order P&L only (`resolvedPerformanceSummary.total_pnl ?? sum(order.pnl)`). With no closed trades yet, an open position carrying live mark-to-market P&L contributed nothing, so the held exposure reported `$0.00`. The shell header (`useTerminalAccount`) meanwhile derives P&L from equity = cash + live-marked positions, which includes unrealized — hence the divergence.
+
+**Fix:** `SystemDashboard.tsx` now sums `positionLivePnl(position, props.prices)` across open positions and adds it to realized P&L, so Net PnL is account-level (`realized + unrealized`) and ties out with Open Exposure and the header.
+
+**Regression test:** `src/test/components/system/SystemDashboard.test.tsx` ("Net PnL KPI" — "includes unrealized mark-to-market of open positions" and "adds realized and unrealized PnL together")
+
+## Cognitive Traces page overflowed horizontally on mobile (page shifted, content cut off)
+
+**Symptom:** On a phone, the Cognitive → Intelligence Explorer (Traces) tab rendered shifted and clipped — left-edge labels and right-edge tool outputs (e.g. `spread 9.0bps imbalance +0.004`) ran off-screen, and the whole page scrolled sideways.
+
+**Root cause:** Two unbreakable wide children forced the layout wider than the viewport: the trace card header rendered a full UUID `trace_id` with no truncation, and `ToolChain` rows (shared with the Command Center reasoning card) were single-line flex with long `outputs` text and no wrap, so they couldn't shrink below their content width.
+
+**Fix:** `cognitive-ui.tsx` — `ToolChain` rows are now `flex-wrap` with `min-w-0 break-words` outputs and `shrink-0` icons; the `Step` value span gained `min-w-0 break-words`. `TracesPanel.tsx` — the header button wraps (`flex-wrap`), the trace_id `truncate`s inside a `min-w-0` group, and the perception column is `min-w-0 flex-1`.
+
+**Regression test:** `src/test/components/cognitive/TracesPanel.layout.test.tsx` ("truncates the trace_id…" and "wraps long tool-output rows…")

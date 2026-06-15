@@ -32,17 +32,19 @@ export function TracesPanel({ traces }: { traces: TradeTrace[] }) {
               type="button"
               onClick={() => setOpen(isOpen ? null : trace.trace_id)}
               aria-expanded={isOpen}
-              className="flex w-full items-center justify-between gap-2 text-left"
+              className="flex w-full flex-wrap items-center justify-between gap-x-2 gap-y-1 text-left"
             >
-              <span className="flex items-center gap-2">
+              <span className="flex min-w-0 items-center gap-2">
                 {decision?.symbol && (
                   <span className="font-mono text-sm font-semibold text-foreground">
                     {decision.symbol}
                   </span>
                 )}
-                <span className="font-mono text-2xs text-muted-foreground">{trace.trace_id}</span>
+                <span className="truncate font-mono text-2xs text-muted-foreground">
+                  {trace.trace_id}
+                </span>
               </span>
-              <span className="flex items-center gap-2">
+              <span className="flex shrink-0 items-center gap-2">
                 {decision?.timestamp && (
                   <span className="text-2xs text-muted-foreground">
                     {formatTimeAgo(decision.timestamp)}
@@ -81,7 +83,7 @@ export function TracesPanel({ traces }: { traces: TradeTrace[] }) {
                 </Step>
                 <div className="flex gap-2">
                   <span className="w-28 shrink-0 text-muted-foreground">{COPY.tracePerception}</span>
-                  <div className="flex-1">
+                  <div className="min-w-0 flex-1">
                     <ToolChain decision={decision} />
                   </div>
                 </div>

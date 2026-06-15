@@ -39,7 +39,7 @@ export function Step({ name, children }: { name: string; children: ReactNode }) 
   return (
     <div className="flex gap-2">
       <span className="w-28 shrink-0 text-muted-foreground">{name}</span>
-      <span className="text-foreground/80">{children}</span>
+      <span className="min-w-0 break-words text-foreground/80">{children}</span>
     </div>
   )
 }
@@ -68,11 +68,14 @@ export function ToolChain({ decision }: { decision: DecisionPayload | null }) {
         const outputs = summarizeToolOutputs(tool.outputs)
         const failed = tool.success === false
         return (
-          <div key={i} className="flex items-center gap-2 font-mono text-2xs tabular-nums">
+          <div
+            key={i}
+            className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-2xs tabular-nums"
+          >
             {failed ? (
-              <X className="h-3 w-3 text-danger" aria-hidden />
+              <X className="h-3 w-3 shrink-0 text-danger" aria-hidden />
             ) : (
-              <Check className="h-3 w-3 text-success" aria-hidden />
+              <Check className="h-3 w-3 shrink-0 text-success" aria-hidden />
             )}
             <span className="text-foreground/80">{tool.name ?? UI_COPY.decisions.toolFallback}</span>
             {typeof tool.latency_ms === 'number' && (
@@ -81,7 +84,9 @@ export function ToolChain({ decision }: { decision: DecisionPayload | null }) {
                 {CMD.msSuffix}
               </span>
             )}
-            {outputs && <span className="text-muted-foreground">· {outputs}</span>}
+            {outputs && (
+              <span className="min-w-0 break-words text-muted-foreground">· {outputs}</span>
+            )}
           </div>
         )
       })}
