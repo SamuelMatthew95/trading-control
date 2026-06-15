@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from api.constants import AgentAction, FieldName, MacroRegime
+from api.utils import clamp
 
 
 @dataclass(frozen=True)
@@ -105,10 +106,6 @@ def _macro_sign(context: dict[str, Any]) -> float:
     return 0.0
 
 
-def _clamp(value: float, lo: float, hi: float) -> float:
-    return max(lo, min(hi, value))
-
-
 def decide_policy(
     data: dict[str, Any],
     context: dict[str, Any] | None = None,
@@ -125,11 +122,11 @@ def decide_policy(
 
     momentum, momentum_label = _direction_sign(data)
     news = context.get(FieldName.NEWS_SENTIMENT) or {}
-    sentiment = _clamp(float(news.get(FieldName.SENTIMENT) or 0.0), -1.0, 1.0)
+    sentiment = clamp(float(news.get(FieldName.SENTIMENT) or 0.0), -1.0, 1.0)
     macro = _macro_sign(context)
     book = context.get(FieldName.ORDER_BOOK) or {}
-    imbalance = _clamp(float(book.get(FieldName.IMBALANCE) or 0.0), -1.0, 1.0)
-    confidence = _clamp(float(data.get(FieldName.COMPOSITE_SCORE) or 0.0), 0.0, 1.0)
+    imbalance = clamp(float(book.get(FieldName.IMBALANCE) or 0.0), -1.0, 1.0)
+    confidence = clamp(float(data.get(FieldName.COMPOSITE_SCORE) or 0.0), 0.0, 1.0)
 
     score = round(
         params.w_momentum * momentum
@@ -165,7 +162,7 @@ def decide_policy(
         )
 
     # Size scales with conviction so weak edges trade smaller; clamped to a floor.
-    size_pct = round(_clamp(params.base_size_pct * confidence, 0.005, params.base_size_pct), 4)
+    size_pct = round(clamp(params.base_size_pct * confidence, 0.005, params.base_size_pct), 4)
 
     return {
         FieldName.ACTION: action,
