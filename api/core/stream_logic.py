@@ -4,10 +4,10 @@ Stream Processing Logic - Pure business logic for testing.
 Contains message processing logic separated from infrastructure concerns.
 """
 
-from datetime import datetime, timezone
 from typing import Any
 
 from api.constants import FieldName, OrderSide, OrderStatus
+from api.utils import now_iso
 
 from .schemas import ProcessResult
 
@@ -135,7 +135,7 @@ class MessageProcessor:
             FieldName.ORIGINAL_ID: message.get(FieldName.MESSAGE_ID, "unknown"),
             FieldName.DATA: message.get(FieldName.DATA, {}),
             FieldName.ERROR: error,
-            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+            FieldName.TIMESTAMP: now_iso(),
             FieldName.PROCESSING_ATTEMPT: 1,
         }
 
