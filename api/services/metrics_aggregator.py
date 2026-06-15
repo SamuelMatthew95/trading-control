@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..constants import (
     CRITICAL_LAG_MS,
+    PRICE_STALE_SECONDS,
     REDIS_KEY_PRICES,
     STALE_THRESHOLD_SECONDS,
     WARNING_LAG_MS,
@@ -30,6 +31,40 @@ from ..observability import log_structured
 from ..runtime_state import get_runtime_store
 from .metrics_calc import closed_trade_stats
 from .notification_summary import compute_notification_summary
+
+
+def filter_fresh_prices(prices: dict[str, Any], *, now_ts: float | None = None) -> dict[str, Any]:
+    """Return only price entries fresh enough to serve as a live quote.
+
+    The Redis price cache (``REDIS_KEY_PRICES``) stamps each tick's epoch under
+    ``ts``. An entry older than ``PRICE_STALE_SECONDS`` is dropped, so a stuck
+    poller / Alpaca outage can never present a frozen number as the live price —
+    the dashboard renders "--" for the symbol (exactly as it does for an absent
+    one) until a fresh tick arrives. The ``REDIS_PRICES_TTL_SECONDS`` cache TTL
+    is the hard backstop; this is the tighter, in-band freshness gate.
+
+    Fail-open: an entry with a missing/unparseable ``ts`` is KEPT — its age is
+    already bounded by the cache TTL, and dropping a timestampless-but-present
+    payload would blank the ticker on legacy writes. PURE — no IO.
+    """
+    if now_ts is None:
+        now_ts = datetime.now(timezone.utc).timestamp()
+    fresh: dict[str, Any] = {}
+    for symbol, payload in prices.items():
+        if not isinstance(payload, dict):
+            continue
+        raw_ts = payload.get(FieldName.TS)
+        if raw_ts is None:
+            fresh[symbol] = payload
+            continue
+        try:
+            age = now_ts - float(raw_ts)
+        except (TypeError, ValueError):
+            fresh[symbol] = payload
+            continue
+        if age <= PRICE_STALE_SECONDS:
+            fresh[symbol] = payload
+    return fresh
 
 
 class MetricsAggregator:
