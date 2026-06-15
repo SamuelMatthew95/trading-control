@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager, suppress
-from datetime import datetime, timezone
 
 import httpx
 from fastapi import FastAPI
@@ -89,6 +88,7 @@ from api.telemetry import (
     stop_drift_auditor,
     stop_gauge_poller,
 )
+from api.utils import now_iso
 from api.workers.price_poller import poll_prices
 from backtest.challenger import BASELINE_STRATEGY
 from backtest.strategies import STRATEGIES
@@ -197,7 +197,7 @@ async def _init_redis(app: FastAPI):
         event_name="redis_connected",
         msg_id="none",
         event_type="system",
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=now_iso(),
     )
     return redis_client
 
@@ -590,7 +590,7 @@ async def lifespan(app: FastAPI):
             event_name="redis_startup_barrier_passed",
             event_type="system",
             msg_id="none",
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=now_iso(),
         )
 
         start_gauge_poller(redis_client)
@@ -612,7 +612,7 @@ async def lifespan(app: FastAPI):
             event_name="websocket_started",
             msg_id="none",
             event_type="system",
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=now_iso(),
         )
 
         pipeline = EventPipeline(event_bus, broadcaster, dlq_manager, agent_state=agent_state)
@@ -692,7 +692,7 @@ async def lifespan(app: FastAPI):
             {
                 FieldName.TYPE: "system",
                 FieldName.STATUS: "running",
-                FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                FieldName.TIMESTAMP: now_iso(),
             }
         )
 
@@ -707,7 +707,7 @@ async def lifespan(app: FastAPI):
             agents=list(AGENT_NAMES),
             msg_id="none",
             event_type="system",
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=now_iso(),
             environment=settings.NODE_ENV,
             config_source=get_settings_info().get(FieldName.CONFIG_SOURCE),
             database_mode="connected" if app.state.db_available else "in_memory_fallback",
@@ -720,7 +720,7 @@ async def lifespan(app: FastAPI):
             event_name="startup_failed",
             event_type="system",
             msg_id="none",
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=now_iso(),
             exc_info=True,
         )
         raise
