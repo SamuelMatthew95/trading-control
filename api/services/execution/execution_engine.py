@@ -97,6 +97,7 @@ from api.services.market_status import get_market_status
 from api.services.redis_store import get_redis_store
 from api.services.risk_filters import is_cooling_off
 from api.services.tool_registry import get_tool_registry
+from api.utils import now_iso
 
 _STATE_NAME = AGENT_EXECUTION  # single source of truth from constants
 
@@ -278,7 +279,7 @@ class ExecutionEngine(BaseStreamConsumer):
                                 FieldName.ORDER_ID: rejection_order_id,
                                 FieldName.IDEMPOTENCY_KEY: idempotency_key,
                                 FieldName.TRACE_ID: trace_id,
-                                FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                                FieldName.TIMESTAMP: now_iso(),
                                 FieldName.SOURCE: SOURCE_EXECUTION,
                             },
                         )
@@ -733,7 +734,7 @@ class ExecutionEngine(BaseStreamConsumer):
                             FieldName.ORDER_ID: order_id,
                             FieldName.IDEMPOTENCY_KEY: idempotency_key,
                             FieldName.TRACE_ID: trace_id,
-                            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                            FieldName.TIMESTAMP: now_iso(),
                             FieldName.SOURCE: SOURCE_EXECUTION,
                         },
                     )
