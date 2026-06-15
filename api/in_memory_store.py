@@ -27,6 +27,7 @@ from api.constants import (
 )
 from api.services.metrics_calc import closed_trade_stats, win_rate_from_counts
 from api.services.notification_summary import compute_notification_summary
+from api.utils import safe_float
 
 DEFAULT_AGENTS: dict[str, dict[str, Any]] = {
     AGENT_SIGNAL: {"status": "idle"},
@@ -76,12 +77,7 @@ class InMemoryStore:
     decision_key_order: deque[str] = field(default_factory=deque)
     rejected_sells: list[dict[str, Any]] = field(default_factory=list)
 
-    @staticmethod
-    def _safe_float(value: Any) -> float | None:
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
+    _safe_float = staticmethod(safe_float)
 
     @staticmethod
     def _has_open_quantity(position: dict[str, Any]) -> bool:
