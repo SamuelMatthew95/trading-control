@@ -21,6 +21,8 @@ from redis.asyncio import Redis
 
 from api.constants import (
     AGENT_GRADE_HISTORY_MAX,
+    NOTIFICATIONS_STALE_SECONDS,
+    PROPOSALS_STALE_SECONDS,
     REDIS_CLOSED_TRADES_MAX,
     REDIS_DECISIONS_MAX,
     REDIS_KEY_AGENT_GRADE_HISTORY,
@@ -75,6 +77,23 @@ def _parse_iso_ts(raw: Any) -> float | None:
     if ts_dt.tzinfo is None:
         ts_dt = ts_dt.replace(tzinfo=timezone.utc)
     return ts_dt.timestamp()
+
+
+def _entry_is_stale(entry: dict[str, Any], max_age_seconds: int, now_ts: float) -> bool:
+    """True when the entry's timestamp is older than ``max_age_seconds``.
+
+    These lists have no Redis TTL (they must survive restarts), so without an
+    age bound an old row would replay to the dashboard as if it were current —
+    exactly the "stale thing shown as real" we filter out on read.
+
+    Fail-open: a missing or unparseable timestamp is treated as NOT stale. We
+    cannot prove its age, and ``push_*`` always stamps ``timestamp``, so this
+    only spares legacy/hand-written rows from being silently dropped.
+    """
+    ts = _parse_iso_ts(entry.get(FieldName.TIMESTAMP))
+    if ts is None:
+        return False
+    return (now_ts - ts) > max_age_seconds
 
 
 class RedisStore:
@@ -142,8 +161,13 @@ class RedisStore:
 
     async def list_notifications(self, limit: int = 50) -> list[dict[str, Any]]:
         safe_limit = max(1, min(int(limit), REDIS_NOTIFICATIONS_MAX))
+        # Read the full capped list (newest-first) so stale rows at the tail are
+        # dropped before the limit is applied — otherwise a window of old rows
+        # could crowd out fresher ones below it.
         try:
-            raw_items = await self.redis.lrange(REDIS_KEY_NOTIFICATIONS_RECENT, 0, safe_limit - 1)
+            raw_items = await self.redis.lrange(
+                REDIS_KEY_NOTIFICATIONS_RECENT, 0, REDIS_NOTIFICATIONS_MAX - 1
+            )
         except Exception:
             log_structured("warning", "redis_store_notification_list_failed", exc_info=True)
             return []
@@ -153,14 +177,19 @@ class RedisStore:
             read_ids = set()
         read_set = {_to_text(item) for item in read_ids or []}
 
+        now_ts = time.time()
         items: list[dict[str, Any]] = []
         for raw in raw_items:
             parsed = _safe_loads(raw)
             if parsed is None:
                 continue
+            if _entry_is_stale(parsed, NOTIFICATIONS_STALE_SECONDS, now_ts):
+                continue
             if str(parsed.get(FieldName.ID, "")) in read_set:
                 parsed[FieldName.READ] = True
             items.append(parsed)
+            if len(items) >= safe_limit:
+                break
         return items
 
     async def unread_count(self) -> int:
@@ -171,10 +200,16 @@ class RedisStore:
             log_structured("warning", "redis_store_unread_count_failed", exc_info=True)
             return 0
         read_set = {_to_text(item) for item in read_ids or []}
+        now_ts = time.time()
         count = 0
         for raw in raw_items:
             parsed = _safe_loads(raw)
             if parsed is None:
+                continue
+            # A stale notification is filtered from the list, so it must not be
+            # counted as unread either — otherwise the badge shows a count the
+            # user can never clear (the underlying row is no longer served).
+            if _entry_is_stale(parsed, NOTIFICATIONS_STALE_SECONDS, now_ts):
                 continue
             if parsed.get(FieldName.READ):
                 continue
@@ -353,18 +388,31 @@ class RedisStore:
         return entry
 
     async def list_proposals(self, limit: int = REDIS_PROPOSALS_MAX) -> list[dict[str, Any]]:
-        """Recent proposals, newest first."""
+        """Recent proposals, newest first — stale (too-old) proposals dropped.
+
+        Reads the full capped list so stale rows at the tail are filtered before
+        the limit is applied; a week-old proposal is no longer a live, voteable
+        governance item and must not surface as fresh.
+        """
         safe_limit = max(1, min(int(limit), REDIS_PROPOSALS_MAX))
         try:
-            raw_items = await self.redis.lrange(REDIS_KEY_PROPOSALS_RECENT, 0, safe_limit - 1)
+            raw_items = await self.redis.lrange(
+                REDIS_KEY_PROPOSALS_RECENT, 0, REDIS_PROPOSALS_MAX - 1
+            )
         except Exception:
             log_structured("warning", "redis_store_proposal_list_failed", exc_info=True)
             return []
+        now_ts = time.time()
         items: list[dict[str, Any]] = []
         for raw in raw_items:
             parsed = _safe_loads(raw)
-            if parsed is not None:
-                items.append(parsed)
+            if parsed is None:
+                continue
+            if _entry_is_stale(parsed, PROPOSALS_STALE_SECONDS, now_ts):
+                continue
+            items.append(parsed)
+            if len(items) >= safe_limit:
+                break
         return items
 
     # ------------------------------------------------------------------ #
