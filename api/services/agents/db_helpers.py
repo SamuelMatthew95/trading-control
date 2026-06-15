@@ -12,7 +12,6 @@ import asyncio
 import json
 import os
 import uuid as _uuid
-from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import text
@@ -30,6 +29,7 @@ from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
 from api.schema_version import DB_SCHEMA_VERSION
 from api.services.redis_store import get_redis_store
+from api.utils import now_iso
 
 
 async def write_agent_log(
@@ -55,8 +55,7 @@ async def write_agent_log(
                     "score_pct": payload.get(FieldName.SCORE_PCT),
                     "metrics": payload.get(FieldName.METRICS, {}),
                     FieldName.FILLS_GRADED: payload.get(FieldName.FILLS_GRADED),
-                    "timestamp": payload.get(FieldName.TIMESTAMP)
-                    or datetime.now(timezone.utc).isoformat(),
+                    "timestamp": payload.get(FieldName.TIMESTAMP) or now_iso(),
                 }
             )
         else:
@@ -91,8 +90,7 @@ async def write_agent_log(
                 "log_type": log_type,
                 "confidence": payload.get(FieldName.CONFIDENCE_SCORE)
                 or payload.get(FieldName.CONFIDENCE),
-                "timestamp": payload.get(FieldName.TIMESTAMP)
-                or datetime.now(timezone.utc).isoformat(),
+                "timestamp": payload.get(FieldName.TIMESTAMP) or now_iso(),
             }
         )
         return
@@ -147,7 +145,7 @@ async def write_grade_to_db(
                 "metrics": metrics,
                 "self_correction": self_correction or {},
                 FieldName.FILLS_GRADED: metrics.get(FieldName.FILLS_GRADED),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": now_iso(),
             }
         )
         return
@@ -610,7 +608,7 @@ async def write_agent_lifecycle_event(
         "agent_id": pool_name,
         FieldName.INSTANCE_ID: instance_id,
         FieldName.LIFECYCLE_EVENT: lifecycle_phase,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": now_iso(),
         FieldName.DETAILS: details or {},
     }
     await write_agent_log(
@@ -671,7 +669,7 @@ async def upsert_trade_lifecycle(
                     FieldName.PNL: pnl,
                     FieldName.PNL_PERCENT: pnl_percent,
                     FieldName.STATUS: normalized_status,
-                    FieldName.FILLED_AT: filled_at or datetime.now(timezone.utc).isoformat(),
+                    FieldName.FILLED_AT: filled_at or now_iso(),
                     FieldName.TRACE_ID: execution_trace_id,
                     FieldName.SESSION_ID: session_id,
                 }
@@ -693,7 +691,7 @@ async def upsert_trade_lifecycle(
                 FieldName.GRADE_SCORE: grade_score,
                 FieldName.GRADE_LABEL: grade_label,
                 FieldName.STATUS: normalized_status,
-                FieldName.FILLED_AT: filled_at or datetime.now(timezone.utc).isoformat(),
+                FieldName.FILLED_AT: filled_at or now_iso(),
                 FieldName.GRADED_AT: graded_at,
                 FieldName.REFLECTED_AT: reflected_at,
                 FieldName.SESSION_ID: session_id,
@@ -701,7 +699,7 @@ async def upsert_trade_lifecycle(
         )
         return
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso_str = now_iso()
     try:
         async with AsyncSessionFactory() as session:
             await session.execute(
@@ -764,7 +762,7 @@ async def upsert_trade_lifecycle(
                     FieldName.GRADE_SCORE: grade_score,
                     FieldName.GRADE_LABEL: grade_label,
                     FieldName.STATUS: status,
-                    FieldName.FILLED_AT: filled_at or now_iso,
+                    FieldName.FILLED_AT: filled_at or now_iso_str,
                     FieldName.GRADED_AT: graded_at,
                     FieldName.REFLECTED_AT: reflected_at,
                     FieldName.SCHEMA_VERSION: DB_SCHEMA_VERSION,
