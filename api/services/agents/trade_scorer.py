@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from api.constants import FieldName, Grade, TradeTag
+from api.utils import safe_float
 
 _EARLY_EXIT_MAX_MINUTES = 2.0
 _PATIENCE_MIN_MINUTES = 10.0
@@ -319,10 +320,10 @@ def _build_trade_context(
         side=side_norm,
         pnl=float(pnl or 0.0),
         pnl_pct=float(pnl_pct or 0.0),
-        holding_minutes=_safe_float(holding_minutes),
+        holding_minutes=safe_float(holding_minutes),
         move_pct=move_pct,
         adverse_excursion_pct=(
-            _safe_float(abs(float(pnl_pct or 0.0) - move_pct)) if move_pct is not None else None
+            safe_float(abs(float(pnl_pct or 0.0) - move_pct)) if move_pct is not None else None
         ),
     )
 
@@ -332,9 +333,9 @@ def _derive_contextual_system_tags(
 ) -> dict[str, list[str]]:
     mistakes: list[str] = []
     strengths: list[str] = []
-    latency_ms = _safe_float(trade_data.get(FieldName.LATENCY_MS))
-    slip_var = _safe_float(trade_data.get(FieldName.SLIPPAGE_VARIANCE))
-    spread_pct = _safe_float(trade_data.get(FieldName.SPREAD_PCT))
+    latency_ms = safe_float(trade_data.get(FieldName.LATENCY_MS))
+    slip_var = safe_float(trade_data.get(FieldName.SLIPPAGE_VARIANCE))
+    spread_pct = safe_float(trade_data.get(FieldName.SPREAD_PCT))
     current_regime = str(trade_data.get(FieldName.CURRENT_REGIME) or "").strip().lower()
     signal_regime = str(trade_data.get(FieldName.REGIME) or "").strip().lower()
     if latency_ms is not None and latency_ms >= _HIGH_LATENCY_MS:
@@ -703,18 +704,9 @@ def aggregate_model_performance(evaluations: list[dict[str, Any]]) -> list[dict[
     return rows
 
 
-def _safe_float(value: Any) -> float | None:
-    try:
-        if value is None:
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def _price_move_percent(*, side: str | None, entry_price: Any, exit_price: Any) -> float | None:
-    entry = _safe_float(entry_price)
-    exit_ = _safe_float(exit_price)
+    entry = safe_float(entry_price)
+    exit_ = safe_float(exit_price)
     if entry is None or exit_ is None or entry <= 0:
         return None
     raw = ((exit_ - entry) / entry) * 100.0
