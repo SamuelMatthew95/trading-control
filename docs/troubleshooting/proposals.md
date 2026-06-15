@@ -430,3 +430,19 @@ configured" instead of a link.
 **Regression tests:**
 `tests/api/test_learning_routes.py::test_trigger_reflection_runs_live_agent`,
 `::test_trigger_reflection_degrades_when_no_agent`
+
+## Stale proposals shown as fresh/voteable
+
+**Symptom:** Week-old proposals lingered in the Proposals queue and were
+presented as current, actionable governance items long after they were relevant.
+
+**Root cause:** The `proposals:recent` durable mirror has no Redis TTL (so the
+queue survives restarts), and `RedisStore.list_proposals` returned every row in
+the capped list regardless of age.
+
+**Fix:** `api/services/redis_store.py` — `list_proposals` now drops entries older
+than `PROPOSALS_STALE_SECONDS` (7 days, new constant) via `_entry_is_stale`, and
+reads the full capped list before applying the limit so stale tail rows can't
+crowd out fresher ones. Fail-open: an unparseable timestamp is kept.
+
+**Regression test:** `tests/api/test_redis_store.py::test_list_proposals_drops_stale`
