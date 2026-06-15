@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 
 from fastmcp import FastMCP
 
@@ -24,14 +23,11 @@ from api.services.dashboard.control import get_debug_state_payload
 from api.services.dashboard.pnl import get_pnl_payload
 from api.services.dashboard.trading import get_performance_trends_payload, get_trade_feed_payload
 from api.services.redis_store import get_redis_store
+from api.utils import now_iso
 
 mcp = FastMCP("trading-control", instructions="Read-only trading-control telemetry MCP server")
 _base_mcp_app = mcp.http_app(path="/")
 _CANONICAL_SOURCES = frozenset({"redis", "db", "in_memory", "mixed", "settings", "in_process"})
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _envelope(
@@ -46,7 +42,7 @@ def _envelope(
         "ok": ok,
         "degraded": degraded,
         "source": source,
-        "generated_at": _now_iso(),
+        "generated_at": now_iso(),
         "data": data,
     }
     if reason:
