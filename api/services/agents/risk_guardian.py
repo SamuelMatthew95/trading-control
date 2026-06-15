@@ -59,6 +59,7 @@ from api.constants import (
     EventType,
     FieldName,
     PositionSide,
+    get_min_size,
 )
 from api.database import AsyncSessionFactory
 from api.events.bus import EventBus
@@ -219,7 +220,15 @@ class RiskGuardian:
                 pnl_pct = (avg_cost - current_price) / avg_cost
                 close_action = AgentAction.BUY
 
-            if pnl_pct <= -STOP_LOSS_PCT:
+            # Dust sweep: a holding below the symbol's minimum tradeable size is
+            # untradeable noise — it can't be scaled and (on a live broker) can't
+            # even be sold, so it would sit frozen at a stale cost basis forever.
+            # Flush it regardless of PnL; the close SELL is a full exit, which the
+            # ExecutionEngine min-size rule always permits.
+            min_size = get_min_size(symbol)
+            if 0 < qty < min_size:
+                reason = f"dust_below_min({qty}<{min_size})"
+            elif pnl_pct <= -STOP_LOSS_PCT:
                 reason = f"stop_loss({pnl_pct:.2%})"
             elif pnl_pct >= TAKE_PROFIT_PCT:
                 reason = f"take_profit({pnl_pct:.2%})"
