@@ -13,9 +13,11 @@ from api.constants import (
     DAILY_LOSS_LIMIT_PCT,
     DEFAULT_PAPER_CASH,
     REDIS_KEY_KILL_SWITCH,
+    REDIS_KEY_MACRO_REGIME,
     REDIS_KEY_PAPER_POSITION,
     REDIS_KEY_PRICES,
     REDIS_KEY_RISK_PEAK_PNL,
+    RISK_OFF_STOP_LOSS_PCT,
     STALE_POSITION_MAX_AGE_SECONDS,
     STOP_LOSS_PCT,
     STREAM_DECISIONS,
@@ -23,6 +25,8 @@ from api.constants import (
     TAKE_PROFIT_PCT,
     TRAILING_STOP_ARM_PCT,
     TRAILING_STOP_GIVEBACK_FRAC,
+    MacroRegime,
+    PositionSide,
 )
 from api.events.bus import EventBus
 from api.services.agents.risk_guardian import RiskGuardian
@@ -71,6 +75,18 @@ def _make_position(
 
 async def _seed_price(redis, symbol: str, price: float) -> None:
     await redis.set(REDIS_KEY_PRICES.format(symbol=symbol), json.dumps({"price": price}))
+
+
+async def _seed_macro_regime(redis, symbol: str, regime: str) -> None:
+    """Seed the macro-regime cache for ``symbol``'s benchmark.
+
+    BTC/USD is its own crypto benchmark, so the cache key is keyed by the symbol
+    itself for the crypto tests below.
+    """
+    await redis.set(
+        REDIS_KEY_MACRO_REGIME.format(symbol=symbol),
+        json.dumps({"regime": regime, "return_pct": -3.5, "benchmark": symbol}),
+    )
 
 
 async def _seed_paper_position(
@@ -229,6 +245,94 @@ async def test_short_stop_loss_publishes_buy():
     decision = next(c.args[1] for c in bus.publish.call_args_list if c.args[0] == STREAM_DECISIONS)
     assert decision["action"] == "buy"
     assert "stop_loss" in decision["primary_edge"]
+
+
+# ---------------------------------------------------------------------------
+# Regime-aware stop-loss — risk-off (bearish) tightening (issue #326)
+# ---------------------------------------------------------------------------
+
+# A loss that sits strictly between the tightened (RISK_OFF) and default stops:
+# the tightened stop fires on it, the default stop does not.
+_MID_STOP_PNL = -(RISK_OFF_STOP_LOSS_PCT + STOP_LOSS_PCT) / 2
+
+
+async def test_long_stop_tightened_in_risk_off_regime(fake_redis):
+    """A long loss inside the default stop but past RISK_OFF_STOP_LOSS_PCT must
+    close when the macro regime is risk-off — annotated as a risk-off stop."""
+    assert RISK_OFF_STOP_LOSS_PCT < STOP_LOSS_PCT  # tightened stop closes earlier
+    avg_cost = 50_000.0
+    await _seed_paper_position(fake_redis, "BTC/USD", side="long", qty=0.5, entry_price=avg_cost)
+    await _seed_price(fake_redis, "BTC/USD", avg_cost * (1 + _MID_STOP_PNL))
+    await _seed_macro_regime(fake_redis, "BTC/USD", MacroRegime.RISK_OFF)
+    bus = _make_bus()
+    guardian = RiskGuardian(bus, fake_redis)
+
+    await guardian._check_positions()  # db_available is False via conftest
+
+    decisions = _decisions(bus)
+    assert len(decisions) == 1
+    assert decisions[0]["action"] == "sell"
+    assert "stop_loss_risk_off" in decisions[0]["primary_edge"]
+
+
+async def test_long_stop_not_tightened_in_neutral_regime(fake_redis):
+    """The same long loss with a neutral regime must NOT close — it sits inside
+    the default STOP_LOSS_PCT and only risk-off narrows the stop."""
+    avg_cost = 50_000.0
+    await _seed_paper_position(fake_redis, "BTC/USD", side="long", qty=0.5, entry_price=avg_cost)
+    await _seed_price(fake_redis, "BTC/USD", avg_cost * (1 + _MID_STOP_PNL))
+    await _seed_macro_regime(fake_redis, "BTC/USD", MacroRegime.NEUTRAL)
+    bus = _make_bus()
+    guardian = RiskGuardian(bus, fake_redis)
+
+    await guardian._check_positions()
+
+    bus.publish.assert_not_called()
+
+
+async def test_long_stop_default_when_no_regime_cached(fake_redis):
+    """A cold/missing regime cache must fail open to the default stop — a lost
+    regime read never widens risk and never narrows it either."""
+    avg_cost = 50_000.0
+    await _seed_paper_position(fake_redis, "BTC/USD", side="long", qty=0.5, entry_price=avg_cost)
+    await _seed_price(fake_redis, "BTC/USD", avg_cost * (1 + _MID_STOP_PNL))
+    bus = _make_bus()
+    guardian = RiskGuardian(bus, fake_redis)
+
+    await guardian._check_positions()
+
+    bus.publish.assert_not_called()
+
+
+async def test_short_stop_not_tightened_in_risk_off_regime(fake_redis):
+    """Shorts keep the default stop in risk-off (a bearish regime is favourable
+    to them) — a 4% adverse move inside the default stop must NOT close."""
+    avg_cost = 50_000.0
+    await _seed_paper_position(fake_redis, "BTC/USD", side="short", qty=-0.5, entry_price=avg_cost)
+    # Short loss = price rising; -_MID_STOP_PNL is positive → price up ~4%.
+    await _seed_price(fake_redis, "BTC/USD", avg_cost * (1 - _MID_STOP_PNL))
+    await _seed_macro_regime(fake_redis, "BTC/USD", MacroRegime.RISK_OFF)
+    bus = _make_bus()
+    guardian = RiskGuardian(bus, fake_redis)
+
+    await guardian._check_positions()
+
+    bus.publish.assert_not_called()
+
+
+async def test_effective_stop_loss_mapping(fake_redis):
+    """Unit map: long+risk_off → tightened; every other combination → default."""
+    guardian = RiskGuardian(_make_bus(), fake_redis)
+
+    # No regime cached → default for both sides.
+    assert await guardian._effective_stop_loss("BTC/USD", PositionSide.LONG) == STOP_LOSS_PCT
+    assert await guardian._effective_stop_loss("BTC/USD", PositionSide.SHORT) == STOP_LOSS_PCT
+
+    await _seed_macro_regime(fake_redis, "BTC/USD", MacroRegime.RISK_OFF)
+    assert (
+        await guardian._effective_stop_loss("BTC/USD", PositionSide.LONG) == RISK_OFF_STOP_LOSS_PCT
+    )
+    assert await guardian._effective_stop_loss("BTC/USD", PositionSide.SHORT) == STOP_LOSS_PCT
 
 
 # ---------------------------------------------------------------------------
