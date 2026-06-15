@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import text
@@ -9,6 +8,7 @@ from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
 from api.schema_version import DASHBOARD_API_VERSION, DB_SCHEMA_VERSION
 from api.services.metrics_aggregator import MetricsAggregator
+from api.utils import now_iso
 
 
 def _flow_status_memory_payload() -> dict[str, Any]:
@@ -32,7 +32,7 @@ def _flow_status_memory_payload() -> dict[str, Any]:
         FieldName.REALTIME_EVENT_COUNT: mem_runs,
         FieldName.PERSISTED_EVENT_COUNT: 0,
         FieldName.TRACE_COVERAGE: {"trace_id": None},
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": now_iso(),
         "source": "in_memory",
     }
 
@@ -52,7 +52,7 @@ async def get_order_metrics_payload() -> dict[str, Any]:
         return {
             FieldName.ORDERS: [],
             FieldName.TOTAL_ORDERS: 0,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             "source": "in_memory",
         }
 
@@ -135,7 +135,7 @@ async def get_flow_status_payload() -> dict[str, Any]:
             FieldName.REALTIME_EVENT_COUNT: counts.get(FieldName.AGENT_RUNS, 0),
             FieldName.PERSISTED_EVENT_COUNT: counts.get(FieldName.AGENT_LOGS, 0),
             FieldName.TRACE_COVERAGE: trace_coverage,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
     except Exception:
         log_structured("warning", "flow_status_db_unavailable", exc_info=True)
