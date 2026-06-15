@@ -10,6 +10,7 @@ from api.services.execution.position_math import (
     apply_signed_delta,
     compute_pnl_percent,
     compute_realized_pnl,
+    enforce_min_order_size,
     is_round_trip_close,
     reject_unmatched_sell,
 )
@@ -254,3 +255,49 @@ class TestApplySignedDelta:
         )
         # residual is ~1e-12, below 1e-9 threshold
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# enforce_min_order_size
+# ---------------------------------------------------------------------------
+
+
+class TestEnforceMinOrderSize:
+    MIN = 0.001  # mirrors SYMBOL_MIN_SIZE["BTC/USD"]
+
+    def test_buy_below_min_is_rejected(self):
+        qty, reason = enforce_min_order_size(OrderSide.BUY, 0.0001, {}, self.MIN)
+        assert reason is not None
+        assert qty == pytest.approx(0.0001)  # qty unchanged; caller rejects on reason
+
+    def test_buy_at_or_above_min_passes(self):
+        qty, reason = enforce_min_order_size(OrderSide.BUY, 0.001, {}, self.MIN)
+        assert reason is None
+        assert qty == pytest.approx(0.001)
+
+    def test_sell_leaving_sub_min_remainder_rounds_up_to_full_close(self):
+        """Selling 0.0005 of a 0.0012 lot would strand 0.0007 (< min) → sell all."""
+        prior = {FieldName.QTY: 0.0012}
+        qty, reason = enforce_min_order_size(OrderSide.SELL, 0.0005, prior, self.MIN)
+        assert reason is None
+        assert qty == pytest.approx(0.0012)  # rounded up to a full close — no dust left
+
+    def test_sell_leaving_valid_remainder_is_untouched(self):
+        """Remainder >= min stays a partial close."""
+        prior = {FieldName.QTY: 0.01}
+        qty, reason = enforce_min_order_size(OrderSide.SELL, 0.005, prior, self.MIN)
+        assert reason is None
+        assert qty == pytest.approx(0.005)
+
+    def test_full_close_of_sub_min_lot_is_allowed(self):
+        """A SELL that flattens an existing sub-min dust lot must pass (you must
+        always be able to exit)."""
+        prior = {FieldName.QTY: 0.0002}
+        qty, reason = enforce_min_order_size(OrderSide.SELL, 0.0002, prior, self.MIN)
+        assert reason is None
+        assert qty == pytest.approx(0.0002)
+
+    def test_zero_min_size_is_a_noop(self):
+        qty, reason = enforce_min_order_size(OrderSide.BUY, 0.0000001, {}, 0.0)
+        assert reason is None
+        assert qty == pytest.approx(0.0000001)
