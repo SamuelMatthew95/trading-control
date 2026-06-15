@@ -18,6 +18,7 @@ from api.observability import log_structured
 from api.redis_client import get_redis
 from api.runtime_state import get_runtime_store, is_db_available
 from api.services.metrics_aggregator import MetricsAggregator
+from api.utils import now_iso
 
 
 def _timestamp_from_agent_data(data: dict[str, Any], now: datetime) -> str | None:
@@ -48,7 +49,7 @@ def _agent_memory_payload() -> dict[str, Any]:
             for name in ALL_AGENT_NAMES
         ],
         FieldName.RUNS: store.agent_runs[-50:],
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": now_iso(),
         "source": "in_memory",
     }
 
@@ -202,7 +203,7 @@ async def get_agents_status_payload() -> dict[str, Any]:
             FieldName.PIPELINE_HEALTH: pipeline_health,
             FieldName.DEGRADED_MODE: not is_db_available(),
             **({FieldName.DEGRADED_REASON: "db_unavailable"} if not is_db_available() else {}),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
     except Exception:
         log_structured("warning", "agents_status_redis_unavailable_using_memory", exc_info=True)
@@ -224,7 +225,7 @@ async def get_agents_status_payload() -> dict[str, Any]:
             FieldName.AGENTS: agents,
             FieldName.DEGRADED_MODE: True,
             FieldName.DEGRADED_REASON: "redis_unavailable",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
             "source": "in_memory",
         }
 
@@ -276,7 +277,7 @@ async def get_agent_instances_payload() -> dict[str, Any]:
             FieldName.INSTANCES: instances,
             FieldName.ACTIVE_COUNT: len(active),
             FieldName.RETIRED_COUNT: len(retired),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
     except Exception:
         log_structured("error", "agent_instances_failed", exc_info=True)
@@ -285,5 +286,5 @@ async def get_agent_instances_payload() -> dict[str, Any]:
             FieldName.ACTIVE_COUNT: 0,
             FieldName.RETIRED_COUNT: 0,
             "error": "agent_instances_unavailable",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
