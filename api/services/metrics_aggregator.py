@@ -28,6 +28,7 @@ from ..constants import (
 from ..core.models import Order, Position, TradePerformance
 from ..observability import log_structured
 from ..runtime_state import get_runtime_store
+from ..utils import safe_float
 from .metrics_calc import closed_trade_stats
 from .notification_summary import compute_notification_summary
 
@@ -463,10 +464,8 @@ class MetricsAggregator:
             return get_runtime_store().dashboard_fallback_snapshot()
 
         def _safe_float(val: Any) -> float:
-            try:
-                return float(val) if val is not None else 0.0
-            except (TypeError, ValueError):
-                return 0.0
+            # Shared coercion helper; this snapshot fills missing values with 0.0.
+            return safe_float(val, default=0.0) or 0.0
 
         def _safe_str(val: Any) -> str | None:
             return str(val) if val is not None else None
