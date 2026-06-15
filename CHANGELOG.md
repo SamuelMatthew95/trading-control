@@ -1,5 +1,10 @@
 # Changelog
 
+## [2026-06-15] — Regime-aware stop-loss for longs in a bearish regime (issue #326)
+
+### Changed
+- **RiskGuardian now tightens the long stop-loss in a risk-off (bearish) macro regime** — the hard stop was a single static `STOP_LOSS_PCT = 5%` regardless of market conditions, so a long held into a falling market bled the full 5% on every position even though the system already read the macro regime (it fed the reasoning prompt but never the risk exits). This was the learning loop's recurring `regime_adjustment` proposal — *"risk management insufficient, significant losses"* in a bearish regime (issue #326). `RiskGuardian._effective_stop_loss(symbol, side)` now consults the cached macro regime and cuts **LONG** positions at the tighter `RISK_OFF_STOP_LOSS_PCT = 3%` when the regime is `RISK_OFF`; shorts (favoured by a bearish tape) and every non-risk-off / unknown regime keep the default 5% stop. The read goes through a new **cache-only** `market_intel.read_cached_macro_regime` helper that never triggers an Alpaca fetch, so the 30s risk scan adds zero external calls and a cold/missing cache fails open to the default stop (a lost regime read can never widen risk). Regime-tightened closes are tagged `stop_loss_risk_off(...)` in `primary_edge` (`docs/troubleshooting/execution-engine.md`, `tests/agents/test_risk_guardian.py::test_long_stop_tightened_in_risk_off_regime`)
+
 ## [2026-06-15] — Graduated signal confidence (issue #324)
 
 ### Changed
