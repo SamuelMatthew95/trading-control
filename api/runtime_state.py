@@ -49,23 +49,7 @@ def get_runtime_mode() -> str:
     return RuntimeMode.CONNECTED if _db_available else RuntimeMode.IN_MEMORY_FALLBACK
 
 
-# Legacy functions - keep them working
-def storage_backend() -> str:
-    """Legacy: use get_active_backend()"""
-    return get_active_backend()
-
-
+# Legacy alias retained for api/mcp/server.py
 def runtime_mode() -> str:
     """Legacy: use get_runtime_mode()"""
     return get_runtime_mode()
-
-
-# Remove old auto/db/memory config - no longer needed
-def get_persistence_mode() -> str:
-    """Legacy: always returns 'auto' for compatibility"""
-    return "auto"
-
-
-def set_persistence_mode(mode: str) -> None:
-    """Legacy: does nothing, persistence is now automatic"""
-    pass

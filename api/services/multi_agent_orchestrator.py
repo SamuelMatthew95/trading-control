@@ -48,46 +48,6 @@ class MultiAgentOrchestrator:
         self.agent_calls: list[AgentCall] = []
         self.trade_log: list[dict[str, Any]] = []
 
-    def call_agent(self, agent_name: str, input_data: dict[str, Any]) -> dict[str, Any]:
-        """Compatibility interface for legacy callers."""
-        prompt_key = f"{agent_name}"
-        step_map = {
-            "SIGNAL_AGENT": "signal",
-            "CONSENSUS_AGENT": "consensus",
-            "RISK_AGENT": "risk",
-            "SIZING_AGENT": "sizing",
-        }
-        step_name = step_map.get(prompt_key)
-        if not step_name:
-            return {FieldName.SUCCESS: False, FieldName.ERROR: "Unknown agent"}
-
-        start = time.time()
-        try:
-            output = self.executor.run_step(PlanStep(step_name), input_data)
-            call = AgentCall(
-                agent_name,
-                input_data,
-                output,
-                datetime.now(timezone.utc),
-                True,
-                duration_ms=int((time.time() - start) * 1000),
-            )
-            self.agent_calls.append(call)
-            return {FieldName.SUCCESS: True, FieldName.DATA: output}
-        except Exception as exc:  # noqa: BLE001
-            error_text = str(exc)
-            call = AgentCall(
-                agent_name,
-                input_data,
-                {},
-                datetime.now(timezone.utc),
-                False,
-                error=error_text,
-                duration_ms=int((time.time() - start) * 1000),
-            )
-            self.agent_calls.append(call)
-            return {FieldName.SUCCESS: False, FieldName.ERROR: str(exc)}
-
     def analyze_trade(
         self,
         asset: str,
@@ -300,19 +260,3 @@ class MultiAgentOrchestrator:
         Path("trade-log.json").write_text(
             json.dumps(self.trade_log, indent=2, default=str), encoding="utf-8"
         )
-
-    def get_trade_history(self) -> list[dict[str, Any]]:
-        return self.trade_log
-
-    def get_performance_stats(self) -> dict[str, Any]:
-        decisions = [entry[FieldName.DECISION]["DECISION"] for entry in self.trade_log]
-        total = len(decisions)
-        if total == 0:
-            return {FieldName.TOTAL_TRADES: 0}
-        return {
-            FieldName.TOTAL_TRADES: total,
-            FieldName.LONG_TRADES: decisions.count("LONG"),
-            FieldName.SHORT_TRADES: decisions.count("SHORT"),
-            FieldName.FLAT_TRADES: decisions.count("FLAT"),
-            FieldName.TRADE_RATE: (decisions.count("LONG") + decisions.count("SHORT")) / total,
-        }

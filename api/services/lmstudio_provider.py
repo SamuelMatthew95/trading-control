@@ -116,11 +116,6 @@ _BLOCKED_HOST_PORT: frozenset[str] = frozenset({"127.0.0.1:1055", "localhost:105
 _LOCALHOST_NAMES: frozenset[str] = frozenset({"localhost", "127.0.0.1"})
 
 
-def is_local_healthy() -> bool:
-    """Return True if the last health probe or call succeeded."""
-    return _health.healthy
-
-
 def should_try_local() -> bool:
     """True when LM Studio should be attempted.
 

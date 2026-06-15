@@ -301,19 +301,6 @@ class EventBus:
             log_structured("warning", "Redis acknowledge failed", stream=stream, exc_info=True)
             return 0
 
-    async def create_stream(self, stream: str) -> None:
-        """Create a stream if it doesn't exist using mkstream."""
-        try:
-            # Use xgroup_create with mkstream which creates stream if missing
-            await self.redis.xgroup_create(stream, "temp_init_group", "0", mkstream=True)
-            # Clean up the temp group
-            await self.redis.xgroup_destroy(stream, "temp_init_group")
-        except ResponseError:
-            # Stream already exists, that's fine
-            pass
-        except Exception:
-            pass
-
     async def create_consumer_group(self, stream: str, group: str, start_id: str = "0") -> None:
         """Create consumer group if it doesn't exist using mkstream.
 
@@ -629,13 +616,3 @@ async def ensure_all_streams_ready(redis_client: Redis) -> None:
             groups=[DEFAULT_GROUP, PIPELINE_GROUP],
             recovered=0,
         )
-
-
-async def create_redis_groups(redis_client: Redis) -> None:
-    """Create all Redis streams and consumer groups.
-
-    Delegates to ensure_all_streams_ready() which acts as a startup barrier:
-    creates, verifies, and recovers any missing groups before returning.
-    Consumers must not start until this completes.
-    """
-    await ensure_all_streams_ready(redis_client)
