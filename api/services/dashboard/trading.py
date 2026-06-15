@@ -16,6 +16,7 @@ from api.database import AsyncSessionFactory
 from api.observability import log_structured
 from api.redis_client import get_redis
 from api.runtime_state import get_runtime_store, is_db_available
+from api.utils import now_iso
 
 # String tokens that mean "this number is legitimately absent" rather than
 # "this number is malformed". An open position has no exit price or P&L yet, so
@@ -144,7 +145,7 @@ def _in_memory_trade_feed_payload(limit: int, session_id: str | None = None) -> 
     return {
         FieldName.TRADES: trades,
         FieldName.COUNT: len(trades),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": now_iso(),
         "source": "in_memory",
     }
 
@@ -215,7 +216,7 @@ def _performance_trends_from_runtime_store(source: str = "in_memory") -> dict[st
         FieldName.DAILY_PNL: [],
         FieldName.GRADE_TREND: [],
         FieldName.EQUITY_CURVE: list(store.equity_curve[-200:]),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": now_iso(),
         "source": source,
         FieldName.HAS_DATA: bool(orders or store.open_positions()),
     }
@@ -359,13 +360,13 @@ async def get_trade_feed_payload(limit: int, session_id: str | None = None) -> d
                 FieldName.COUNT: 0,
                 FieldName.EMPTY_REASON: empty_reason,
                 FieldName.UPSTREAM_ACTIVITY: upstream,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": now_iso(),
             }
 
         return {
             FieldName.TRADES: trades,
             FieldName.COUNT: len(trades),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
     except Exception:
         log_structured("error", "trade_feed_failed", exc_info=True)
@@ -457,7 +458,7 @@ async def get_performance_trends_payload() -> dict[str, Any]:
             "summary": summary,
             FieldName.DAILY_PNL: daily_pnl,
             FieldName.GRADE_TREND: grade_trend,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso(),
         }
     except Exception:
         log_structured("error", "performance_trends_failed", exc_info=True)
