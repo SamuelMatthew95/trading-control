@@ -31,7 +31,6 @@ import ssl
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 
 import httpx
 from sqlalchemy import text
@@ -57,6 +56,7 @@ from api.observability import log_structured
 from api.redis_client import get_redis
 from api.runtime_state import get_runtime_store, is_db_available
 from api.services.market_status import get_market_status
+from api.utils import now_iso
 
 SYMBOLS = {
     FieldName.CRYPTO: ["BTC/USD", "ETH/USD", "SOL/USD"],
@@ -516,7 +516,7 @@ async def _run_poll_cycle(
     state.last_prices.update(all_prices)
     await redis_client.set(
         REDIS_KEY_WORKER_HEARTBEAT,
-        datetime.now(timezone.utc).isoformat(),
+        now_iso(),
         ex=WORKER_HEARTBEAT_TTL_SECONDS,
     )
     log_structured(
