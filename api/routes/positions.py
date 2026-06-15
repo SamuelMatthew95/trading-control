@@ -14,7 +14,6 @@ not wired yet, so the endpoints always return real data and never 500.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter
@@ -23,6 +22,7 @@ from api.constants import DEFAULT_PAPER_CASH, REDIS_KEY_PRICES, VALID_SYMBOLS, F
 from api.main_state import get_paper_broker
 from api.observability import log_structured
 from api.runtime_state import get_runtime_store
+from api.utils import now_iso
 
 router = APIRouter(tags=["positions"])
 
@@ -58,11 +58,11 @@ async def list_positions() -> dict[str, Any]:
         FieldName.POSITIONS: positions,
         FieldName.COUNT: len(positions),
         FieldName.SOURCE: source,
-        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+        FieldName.TIMESTAMP: now_iso(),
     }
 
 
-def _account_unavailable(now_iso: str) -> dict[str, Any]:
+def _account_unavailable(now_iso_str: str) -> dict[str, Any]:
     """Honest shape when broker truth cannot be read: nulls, never fabricated $."""
     return {
         FieldName.CASH: None,
@@ -71,7 +71,7 @@ def _account_unavailable(now_iso: str) -> dict[str, Any]:
         FieldName.TOTAL_PNL: None,
         FieldName.STARTING_CASH: DEFAULT_PAPER_CASH,
         FieldName.SOURCE: "unavailable",
-        FieldName.TIMESTAMP: now_iso,
+        FieldName.TIMESTAMP: now_iso_str,
     }
 
 
@@ -85,10 +85,10 @@ async def get_account() -> dict[str, Any]:
     localStorage-capped order history, which drifted from broker truth over long
     sessions. Buying power equals cash: the paper account is cash-only (no margin).
     """
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso_str = now_iso()
     broker = get_paper_broker()
     if broker is None:
-        return _account_unavailable(now_iso)
+        return _account_unavailable(now_iso_str)
     try:
         symbols = sorted(VALID_SYMBOLS)
         cash = await broker.get_cash()
@@ -125,11 +125,11 @@ async def get_account() -> dict[str, Any]:
             FieldName.TOTAL_PNL: round(equity - DEFAULT_PAPER_CASH, 2),
             FieldName.STARTING_CASH: DEFAULT_PAPER_CASH,
             FieldName.SOURCE: "paper_broker",
-            FieldName.TIMESTAMP: now_iso,
+            FieldName.TIMESTAMP: now_iso_str,
         }
     except Exception:
         log_structured("warning", "account_broker_read_failed", exc_info=True)
-        return _account_unavailable(now_iso)
+        return _account_unavailable(now_iso_str)
 
 
 @router.get("/pnl")
@@ -142,5 +142,5 @@ async def get_pnl() -> dict[str, Any]:
         FieldName.OPEN_POSITIONS: payload[FieldName.OPEN_POSITIONS],
         FieldName.SUMMARY: payload[FieldName.SUMMARY],
         FieldName.SOURCE: source,
-        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+        FieldName.TIMESTAMP: now_iso(),
     }
