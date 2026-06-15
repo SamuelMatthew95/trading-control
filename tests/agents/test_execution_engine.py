@@ -310,20 +310,21 @@ async def test_trading_paused_drops_order_silently(engine, mock_redis, mock_brok
 
 
 async def test_low_score_gated_paper_mode(engine, mock_redis, mock_broker, monkeypatch):
-    """A 0.50-confidence signal must NOT clear the gate in paper mode.
+    """A weak-confidence signal must NOT clear the gate in paper mode.
 
-    Before the threshold unification, paper used 0.45 so this signal would
-    execute (0.50 > 0.45). After unification both modes use 0.55, so the
-    signal must be filtered out and the broker never called.
+    Paper and production share one EXECUTION_DECISION_THRESHOLD (lowered to 0.50
+    in issue #322 — the prior 0.55 gate delayed entries). A 0.40-confidence
+    signal scores 0.40*0.5 + 0.40*0.3 + 0.6*0.2 = 0.44 < 0.50, so it stays
+    filtered and the broker is never called.
     """
     monkeypatch.setattr("api.config.settings.BROKER_MODE", "paper", raising=False)
     monkeypatch.setattr("api.config.settings.ALPACA_PAPER", True, raising=False)
     mock_redis.get = AsyncMock(return_value=None)  # neither pause nor kill switch
 
     weak_order = _make_order()
-    weak_order["composite_score"] = 0.50
-    weak_order["signal_confidence"] = 0.50
-    weak_order["reasoning_score"] = 0.50
+    weak_order["composite_score"] = 0.40
+    weak_order["signal_confidence"] = 0.40
+    weak_order["reasoning_score"] = 0.40
 
     await engine.process(weak_order)
     mock_broker.place_order.assert_not_called()

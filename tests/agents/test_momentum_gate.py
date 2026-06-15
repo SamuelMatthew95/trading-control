@@ -56,9 +56,18 @@ def test_compute_final_score_momentum_executes_with_new_default(engine):
 
 
 def test_compute_final_score_momentum_would_have_failed_old_default(engine):
-    """Old historical_perf=0.5 caused MOMENTUM signals to be gated — regression proof."""
+    """Old historical_perf=0.5 scored MOMENTUM at 0.54 — below the ORIGINAL 0.55
+    gate, which is why the default was raised to 0.6 (a +0.02 lift to 0.56).
+
+    The live execution threshold was later lowered to 0.50 (issue #322:
+    too-high gate delayed entries), so this proof pins the historical arithmetic
+    that motivated the historical_perf default against the original 0.55 gate
+    rather than the now-overridden live constant.
+    """
+    original_gate = 0.55
     score = engine._compute_final_score(0.55, 0.55, historical_perf=0.5)
-    assert score < EXECUTION_DECISION_THRESHOLD
+    assert abs(score - 0.54) < 0.001
+    assert score < original_gate
 
 
 def test_compute_final_score_strong_momentum_always_executes(engine):
