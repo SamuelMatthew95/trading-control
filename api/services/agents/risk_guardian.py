@@ -46,6 +46,7 @@ from api.constants import (
     REDIS_KEY_RISK_PEAK_PNL,
     REDIS_RISK_PEAK_TTL_SECONDS,
     RISK_CHECK_INTERVAL_SECONDS,
+    RISK_OFF_STOP_LOSS_PCT,
     SOURCE_RISK_GUARDIAN,
     STALE_POSITION_MAX_AGE_SECONDS,
     STALE_POSITION_PNL_BAND_PCT,
@@ -58,6 +59,7 @@ from api.constants import (
     AgentAction,
     EventType,
     FieldName,
+    MacroRegime,
     PositionSide,
 )
 from api.database import AsyncSessionFactory
@@ -65,6 +67,7 @@ from api.events.bus import EventBus
 from api.observability import log_structured
 from api.runtime_state import is_db_available
 from api.services.circuit_breaker import BreakerInputs, CircuitBreaker
+from api.services.market_intel import read_cached_macro_regime
 from api.services.redis_store import get_redis_store
 
 
@@ -219,8 +222,13 @@ class RiskGuardian:
                 pnl_pct = (avg_cost - current_price) / avg_cost
                 close_action = AgentAction.BUY
 
-            if pnl_pct <= -STOP_LOSS_PCT:
+            stop_loss_pct = await self._effective_stop_loss(symbol, side)
+            if pnl_pct <= -stop_loss_pct:
                 reason = f"stop_loss({pnl_pct:.2%})"
+                if stop_loss_pct < STOP_LOSS_PCT:
+                    # Annotate regime-tightened closes so the narrower stop is
+                    # observable in logs / the trade feed (vs the default stop).
+                    reason = f"stop_loss_risk_off({pnl_pct:.2%}<=-{stop_loss_pct:.0%})"
             elif pnl_pct >= TAKE_PROFIT_PCT:
                 reason = f"take_profit({pnl_pct:.2%})"
             else:
@@ -245,6 +253,30 @@ class RiskGuardian:
             await self._clear_trailing_state(symbol)
             already_closed.add(symbol)
             self._cache_valid = False  # Position state changed — reload on next cycle
+
+    async def _effective_stop_loss(self, symbol: str, side: PositionSide) -> float:
+        """Hard stop-loss fraction for this position, regime-aware for longs.
+
+        A long held into a falling market is the dominant loss source in a
+        bearish (risk-off) macro regime, so RISK_OFF tightens the long stop from
+        STOP_LOSS_PCT to the narrower RISK_OFF_STOP_LOSS_PCT — cutting losers
+        sooner. Shorts (a risk-off regime is favourable to them) and every
+        non-risk-off regime keep the default stop.
+
+        Reads the macro-regime cache that ``market_intel`` already populates;
+        it never triggers a fetch, so a cold/missing/unreadable cache simply
+        yields the default stop (fail open — a lost regime read must never
+        widen risk, only the explicit RISK_OFF signal narrows it).
+        """
+        if side is not PositionSide.LONG:
+            return STOP_LOSS_PCT
+        try:
+            regime = (await read_cached_macro_regime(symbol, self.redis)).get(FieldName.REGIME)
+        except Exception:
+            return STOP_LOSS_PCT
+        if regime == MacroRegime.RISK_OFF:
+            return RISK_OFF_STOP_LOSS_PCT
+        return STOP_LOSS_PCT
 
     # ------------------------------------------------------------------
     # Position sources — Postgres when available, PaperBroker Redis otherwise
