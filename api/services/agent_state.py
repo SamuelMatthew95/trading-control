@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
 from api.constants import ALL_AGENT_NAMES, AgentStatus, FieldName
+from api.utils import now_iso
 
 # Re-export for backwards compatibility with existing importers
 AGENT_NAMES = ALL_AGENT_NAMES
@@ -22,7 +22,7 @@ class AgentStateRegistry:
                 FieldName.LAST_TASK: "none",
                 "event_count": 0,
                 "last_seen": None,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": now_iso(),
             }
             for name in AGENT_NAMES
         }
@@ -40,7 +40,7 @@ class AgentStateRegistry:
                 "last_seen": None,
             }
             self._states[name] = state
-        now = datetime.now(timezone.utc).isoformat()
+        now = now_iso()
         state[FieldName.STATUS] = AgentStatus.ACTIVE
         state[FieldName.LIFECYCLE] = "processing"
         state[FieldName.HEALTH] = "ok"
@@ -62,7 +62,7 @@ class AgentStateRegistry:
                 "last_seen": None,
             }
             self._states[name] = state
-        now = datetime.now(timezone.utc).isoformat()
+        now = now_iso()
         state[FieldName.LIFECYCLE] = lifecycle
         state[FieldName.LAST_TASK] = task
         if lifecycle in {"active", "processing"}:
@@ -96,7 +96,7 @@ class AgentStateRegistry:
             "event_count": 0,
             "last_seen": None,
         }
-        now = datetime.now(timezone.utc).isoformat()
+        now = now_iso()
         state.update(
             {
                 FieldName.NAME: name,
