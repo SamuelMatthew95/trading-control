@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 
 from api.constants import AgentStatus, FieldName, Source
@@ -13,8 +15,10 @@ from api.utils import (
     get_nested,
     get_required_str,
     get_str,
+    now_iso,
     parse_agent_status,
     parse_source,
+    safe_float,
 )
 
 
@@ -149,6 +153,41 @@ class TestCoreFacadeModules:
     def test_defaults_reexport_canonical(self):
         assert defaults.DEFAULT_TRACE_ID == "unknown-trace"
         assert defaults.UNKNOWN_VALUE == "unknown"
+
+
+class TestSafeFloat:
+    def test_coerces_numeric_string(self):
+        assert safe_float("42.5") == 42.5
+
+    def test_coerces_int(self):
+        assert safe_float(7) == 7.0
+
+    def test_passes_through_float(self):
+        assert safe_float(3.14) == 3.14
+
+    def test_none_returns_default_none(self):
+        assert safe_float(None) is None
+
+    def test_non_numeric_returns_default_none(self):
+        assert safe_float("not-a-number") is None
+
+    def test_custom_default_on_none(self):
+        assert safe_float(None, default=0.0) == 0.0
+
+    def test_custom_default_on_bad_value(self):
+        assert safe_float("oops", default=0.0) == 0.0
+
+    def test_valid_zero_is_preserved_not_defaulted(self):
+        assert safe_float(0, default=99.0) == 0.0
+
+
+class TestNowIso:
+    def test_returns_parseable_iso_string(self):
+        value = now_iso()
+        assert isinstance(value, str)
+        # Round-trips through fromisoformat without raising.
+        parsed = datetime.fromisoformat(value)
+        assert parsed.tzinfo is not None  # timezone-aware (UTC)
 
 
 class TestCosineSimilarity:
