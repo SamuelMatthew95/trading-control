@@ -69,6 +69,7 @@ from api.services.dashboard.agents import (
     get_agents_status_payload,
 )
 from api.services.redis_store import get_redis_store
+from api.utils import now_iso
 
 # Letter grades that count toward a promotion streak.
 _PROMOTION_GRADES = {"A", "A+"}
@@ -597,7 +598,7 @@ async def get_agent_performance_payload() -> dict[str, Any]:
         FieldName.AGENTS: agents,
         FieldName.PROMOTED: promoted,
         FieldName.MODE: _mode(),
-        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+        FieldName.TIMESTAMP: now_iso(),
     }
 
 
@@ -627,7 +628,7 @@ async def get_agent_detail_payload(agent_name: str) -> dict[str, Any]:
     }
     detail[FieldName.RECENT_ACTIVITY] = _recent_activity(agent_name, runs)
     detail[FieldName.MODE] = _mode()
-    detail[FieldName.TIMESTAMP] = datetime.now(timezone.utc).isoformat()
+    detail[FieldName.TIMESTAMP] = now_iso()
     return detail
 
 
@@ -675,14 +676,14 @@ async def apply_agent_promotions_payload() -> dict[str, Any]:
             FieldName.APPLIED: [],
             FieldName.ENABLED: settings.AGENT_TRUST_WEIGHTING_ENABLED,
             FieldName.ERROR: "redis_unavailable",
-            FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+            FieldName.TIMESTAMP: now_iso(),
         }
 
     return {
         FieldName.APPLIED: applied,
         FieldName.ENABLED: settings.AGENT_TRUST_WEIGHTING_ENABLED,
         FieldName.MODE: _mode(),
-        FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+        FieldName.TIMESTAMP: now_iso(),
     }
 
 
@@ -720,7 +721,7 @@ async def record_grade_snapshots() -> int:
                 FieldName.GRADE: grade,
                 FieldName.SCORE_PCT: graded[FieldName.SCORE_PCT],
                 FieldName.TIER: graded[FieldName.TIER],
-                FieldName.TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+                FieldName.TIMESTAMP: now_iso(),
             },
         )
         recorded += 1
