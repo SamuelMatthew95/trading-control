@@ -9,9 +9,11 @@ import pytest
 
 from api.config import settings
 from api.constants import (
+    RISK_OFF_SIZE_MULTIPLIER,
     TOOL_GET_IC_WEIGHTS,
     TOOL_QUERY_SIMILAR_TRADES,
     TOOL_STREAM_CONFLUENCE,
+    MacroRegime,
 )
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
@@ -111,6 +113,44 @@ def mock_redis():
 @pytest.fixture
 def agent(mock_bus, mock_dlq, mock_redis):
     return ReasoningAgent(bus=mock_bus, dlq=mock_dlq, redis_client=mock_redis)
+
+
+# ---------------------------------------------------------------------------
+# Regime-aware position sizing — risk-off (bearish) defence (issue #326)
+# ---------------------------------------------------------------------------
+
+_SIZE_SUMMARY = {"confidence": 0.8, "rr_ratio": 2.0, "size_pct": 0.05}
+
+
+async def test_kelly_size_shrinks_for_long_entry_in_risk_off(agent):
+    """A BUY entry's size is scaled by RISK_OFF_SIZE_MULTIPLIER in a risk-off
+    regime so the book never sizes up into a falling market."""
+    base = agent._compute_kelly_position_size(_SIZE_SUMMARY, {"regime": MacroRegime.NEUTRAL}, "buy")
+    risk_off = agent._compute_kelly_position_size(
+        _SIZE_SUMMARY, {"regime": MacroRegime.RISK_OFF}, "buy"
+    )
+    assert base > 0
+    assert risk_off == pytest.approx(base * RISK_OFF_SIZE_MULTIPLIER)
+
+
+async def test_kelly_size_unscaled_for_sell_in_risk_off(agent):
+    """Risk-off scaling applies to BUY entries only — a SELL/exit is unscaled."""
+    base = agent._compute_kelly_position_size(
+        _SIZE_SUMMARY, {"regime": MacroRegime.NEUTRAL}, "sell"
+    )
+    risk_off = agent._compute_kelly_position_size(
+        _SIZE_SUMMARY, {"regime": MacroRegime.RISK_OFF}, "sell"
+    )
+    assert risk_off == base
+
+
+async def test_kelly_size_backward_compatible_without_regime(agent):
+    """The legacy single-arg call (no regime / action) stays unscaled, and a
+    malformed non-dict macro payload degrades safely instead of crashing."""
+    assert agent._compute_kelly_position_size(_SIZE_SUMMARY) > 0
+    # Regression: context.get(MACRO_REGIME) can be a non-dict (mocked / absent
+    # tool result) — it must not raise and must leave the size unscaled.
+    assert agent._compute_kelly_position_size(_SIZE_SUMMARY, 0, "buy") > 0
 
 
 def _make_signal(action="buy", symbol="BTC/USD", strategy_id="strat-1"):

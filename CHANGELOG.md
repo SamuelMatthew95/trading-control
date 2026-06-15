@@ -1,5 +1,17 @@
 # Changelog
 
+## [2026-06-15] — Regime-aware risk posture in a bearish (risk-off) regime (issue #326)
+
+### Changed
+- **Risk management is now regime-aware end-to-end — entry size, stops, take-profit, and the daily-loss kill switch all tighten in a bearish (risk-off) regime** — every risk parameter was a single static constant regardless of market conditions, so the book sized up into a falling market and bled the full default stop on every position, even though the system already computed the macro regime (it fed the reasoning prompt but never reached the sizing or risk-exit paths). This was the learning loop's recurring `regime_adjustment` proposal — *"risk management insufficient, significant losses"* in a bearish regime (issue #326). A new single-source-of-truth policy module `api/services/regime_risk.py` resolves every regime-conditional parameter; consumers read the macro regime where they already have it and ask the policy for the effective value:
+  - **Entry sizing (ReasoningAgent):** a NEW long entry is scaled by `RISK_OFF_SIZE_MULTIPLIER = 0.5` in a risk-off regime — the book no longer builds large exposure into a falling market (the dominant loss source). Shorts/sells and other regimes are unscaled.
+  - **Stop-loss (RiskGuardian):** LONGs cut at the tighter `RISK_OFF_STOP_LOSS_PCT = 3%` (vs 5% default), tagged `stop_loss_risk_off(...)`.
+  - **Take-profit (RiskGuardian):** LONGs bank fragile gains at `RISK_OFF_TAKE_PROFIT_PCT = 6%` (vs 10% default) before a bearish leg gives them back, tagged `take_profit_risk_off(...)`.
+  - **Daily-loss kill switch (RiskGuardian):** the portfolio limit tightens to `RISK_OFF_DAILY_LOSS_LIMIT_PCT = 1.5%` (vs 2% default) so it trips sooner on a compounding losing day (portfolio regime proxies off the BTC benchmark).
+  - **Fail-safe:** the policy only ever *tightens* in an explicit `RISK_OFF` regime and is a no-op otherwise; shorts and non-risk-off/unknown/missing regimes always get the defaults. All regime reads go through the **cache-only** `market_intel.read_cached_macro_regime` helper (no Alpaca fetch on the hot path), so a cold/missing/malformed regime can never *widen* risk — only the explicit risk-off signal narrows it.
+
+  (`api/services/regime_risk.py`, `docs/troubleshooting/execution-engine.md`, `tests/core/test_regime_risk.py`, `tests/agents/test_risk_guardian.py`, `tests/agents/test_reasoning_agent.py::test_kelly_size_shrinks_for_long_entry_in_risk_off`)
+
 ## [2026-06-15] — Graduated signal confidence (issue #324)
 
 ### Changed

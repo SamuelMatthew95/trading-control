@@ -74,6 +74,7 @@ from api.events.dlq import DLQManager
 from api.observability import log_structured
 from api.runtime_state import get_runtime_store, is_db_available
 from api.schema_version import DB_SCHEMA_VERSION
+from api.services import regime_risk
 from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agent_state import AgentStateRegistry
 from api.services.agents.db_helpers import get_last_reflection, write_agent_log
@@ -437,7 +438,9 @@ class ReasoningAgent(BaseStreamConsumer):
                 # LLM cost of this decision (incl. self-critique). Travels with
                 # the trade so the learning loop can compute per-model net ROI.
                 FieldName.DECISION_COST_USD: cost_usd,
-                FieldName.SIZE_PCT: self._compute_kelly_position_size(summary),
+                FieldName.SIZE_PCT: self._compute_kelly_position_size(
+                    summary, context.get(FieldName.MACRO_REGIME), action
+                ),
                 FieldName.STOP_ATR_X: float(summary.get(FieldName.STOP_ATR_X) or 1.5),
                 FieldName.RR_RATIO: max(
                     float(summary.get(FieldName.RR_RATIO) or MIN_RR_RATIO), MIN_RR_RATIO
@@ -1300,11 +1303,24 @@ class ReasoningAgent(BaseStreamConsumer):
 
         return safe_decision
 
-    def _compute_kelly_position_size(self, summary: dict[str, Any]) -> float:
-        """Compute Kelly-fraction position size capped at MAX_RISK_PER_TRADE_PCT.
+    def _compute_kelly_position_size(
+        self,
+        summary: dict[str, Any],
+        macro_regime: dict[str, Any] | None = None,
+        action: str | None = None,
+    ) -> float:
+        """Compute Kelly-fraction position size capped at MAX_RISK_PER_TRADE_PCT,
+        then shrink a NEW long entry in a risk-off (bearish) macro regime.
 
         Falls back to the LLM-suggested size_pct if Kelly produces zero
         (negative-EV scenario should already be caught by the confidence gate).
+
+        The risk-off size scaling (``regime_risk.size_multiplier``) is the
+        entry-side half of the bearish-regime defence: RiskGuardian tightens the
+        exits, while sizing here stops the book building large exposure into a
+        falling market — the dominant cause of the "significant losses" the
+        learning loop flags in bearish regimes. Non-buy actions and non-risk-off
+        regimes are unscaled.
         """
         confidence = float(summary.get(FieldName.CONFIDENCE) or 0.0)
         rr_ratio = max(float(summary.get(FieldName.RR_RATIO) or MIN_RR_RATIO), MIN_RR_RATIO)
@@ -1318,10 +1334,24 @@ class ReasoningAgent(BaseStreamConsumer):
             max_risk_pct=MAX_RISK_PER_TRADE_PCT,
         )
         if kelly_size > 0:
-            return kelly_size
+            size = kelly_size
+        else:
+            llm_size = float(summary.get(FieldName.SIZE_PCT) or 0.01)
+            size = min(llm_size, MAX_RISK_PER_TRADE_PCT)
 
-        llm_size = float(summary.get(FieldName.SIZE_PCT) or 0.01)
-        return min(llm_size, MAX_RISK_PER_TRADE_PCT)
+        is_long_entry = str(action or "").lower() == AgentAction.BUY
+        multiplier = regime_risk.size_multiplier(
+            regime_risk.regime_of(macro_regime), is_long=is_long_entry
+        )
+        if multiplier < 1.0:
+            log_structured(
+                "info",
+                "reasoning_risk_off_size_scaled",
+                base_size_pct=round(size, 6),
+                scaled_size_pct=round(size * multiplier, 6),
+                multiplier=multiplier,
+            )
+        return size * multiplier
 
     def _ic_aligns(
         self, signal_direction: str, ic_weights: dict[str, float], decision: dict[str, Any]

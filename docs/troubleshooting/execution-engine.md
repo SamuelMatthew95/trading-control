@@ -119,3 +119,21 @@ Three new `InMemoryStore` methods expose explicit lifecycle checks: `has_open_po
 **Fix:** `_check_cooling_off_gate` returns early for SELL/short sides — cooling-off now gates BUY entries only. Risk closes execute regardless of recent-outcome streaks; the unmatched-sell guard, oversell clamp, kill switch, and market clock still apply to sells.
 
 **Regression test:** `tests/agents/test_execution_engine.py::test_cooling_off_never_blocks_sell_close` (and `::test_cooling_off_blocks_buy_after_loss_streak` pinning that entries stay gated)
+
+---
+
+## Regime-aware risk posture — risk tightens end-to-end in a bearish (risk-off) regime (issue #326)
+
+**Symptom:** The learning loop filed a recurring `regime_adjustment` proposal — *"the current risk management strategy is insufficient, resulting in significant losses"* in a `bearish` regime. Every risk parameter was a single static constant regardless of market conditions: the book sized new entries up into a falling market, a long bled the full `STOP_LOSS_PCT = 5%` on every position, gains round-tripped before the `TAKE_PROFIT_PCT = 10%` target, and the `DAILY_LOSS_LIMIT_PCT = 2%` kill switch only tripped after a large daily loss — all while the system already *knew* the tape was risk-off (the regime read fed the reasoning prompt but reached neither the sizing nor the risk-exit paths).
+
+**Root cause:** The macro regime (`fetch_macro_regime`, BTC for crypto / SPY for equities) influenced only the decision *score* (20% weight in `decision_policy`). Position sizing (`ReasoningAgent._compute_kelly_position_size`), the exit thresholds, and the daily-loss limit (all in `RiskGuardian`) were regime-blind — nothing tightened risk when the regime turned bearish.
+
+**Fix:** A single source-of-truth policy module `api/services/regime_risk.py` resolves every regime-conditional risk parameter (`stop_loss_pct` / `take_profit_pct` / `daily_loss_limit_pct` / `size_multiplier`), so the regime branch is defined once and consumed wherever the regime is already in hand. In a `RISK_OFF` regime:
+- **Entry size** — a new **LONG** entry is scaled by `RISK_OFF_SIZE_MULTIPLIER = 0.5` (no sizing up into weakness); shorts/sells and other regimes unscaled.
+- **Stop-loss** — **LONG**s cut at `RISK_OFF_STOP_LOSS_PCT = 3%` (vs 5%), tagged `stop_loss_risk_off(...)`.
+- **Take-profit** — **LONG**s bank at `RISK_OFF_TAKE_PROFIT_PCT = 6%` (vs 10%), tagged `take_profit_risk_off(...)`.
+- **Daily-loss kill switch** — tightens to `RISK_OFF_DAILY_LOSS_LIMIT_PCT = 1.5%` (vs 2%); the portfolio regime proxies off the BTC benchmark.
+
+`RiskGuardian._effective_exit_bounds(symbol, side)` reads the regime once per position and returns both bounds; `_effective_daily_loss_limit_pct()` does the portfolio check. Every read goes through `market_intel.read_cached_macro_regime` — a **cache-only** helper that never triggers an Alpaca fetch, so the 30s scan adds zero external calls. **Fail-safe invariant:** the policy only ever *tightens* in an explicit `RISK_OFF` regime; shorts (a bearish tape favours them) and every non-risk-off / unknown / missing / malformed regime fall back to the defaults — a lost regime read can never *widen* risk, only the explicit risk-off signal narrows it.
+
+**Regression test:** `tests/core/test_regime_risk.py` (policy + fail-safe invariants), `tests/agents/test_risk_guardian.py::test_long_stop_tightened_in_risk_off_regime` / `::test_long_take_profit_tightened_in_risk_off_regime` / `::test_daily_loss_limit_tightened_in_risk_off_regime` / `::test_effective_exit_bounds_mapping` (+ neutral/short/no-cache counterparts), `tests/agents/test_reasoning_agent.py::test_kelly_size_shrinks_for_long_entry_in_risk_off`

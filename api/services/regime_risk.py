@@ -1,0 +1,88 @@
+"""Regime-aware risk posture — one source of truth for how a bearish (risk-off)
+macro regime tightens risk across the whole system.
+
+A risk-off macro regime (the benchmark's recent daily trend is down — see
+:func:`api.services.market_intel.fetch_macro_regime`) is the dominant loss
+regime for a long book: momentum entries chase a falling market, winners
+round-trip on dead-cat bounces, and a losing day compounds. The learning loop
+flags this recurringly as a ``regime_adjustment`` proposal ("risk management
+insufficient, significant losses" in a bearish regime).
+
+Rather than scatter ``if regime == RISK_OFF`` branches across the
+ReasoningAgent's sizing, RiskGuardian's exits, and the daily-loss check, every
+regime-conditional risk parameter is resolved here. Consumers read the macro
+regime where they already have it (the reasoning context, or the RiskGuardian
+cache read) and ask this module for the effective parameter.
+
+**Fail-safe invariant:** the posture only ever TIGHTENS risk in an explicit
+risk-off regime and is a no-op for every other input. An unknown / risk-on /
+neutral / missing / stale regime always yields the DEFAULT parameter, so a lost
+regime read can never loosen risk — only the explicit RISK_OFF signal narrows it.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from api.constants import (
+    DAILY_LOSS_LIMIT_PCT,
+    RISK_OFF_DAILY_LOSS_LIMIT_PCT,
+    RISK_OFF_SIZE_MULTIPLIER,
+    RISK_OFF_STOP_LOSS_PCT,
+    RISK_OFF_TAKE_PROFIT_PCT,
+    STOP_LOSS_PCT,
+    TAKE_PROFIT_PCT,
+    FieldName,
+    MacroRegime,
+)
+
+
+def regime_of(macro: Any) -> str | None:
+    """Extract the regime string from a macro-regime payload, or ``None``.
+
+    Accepts the dict shape that ``fetch_macro_regime`` /
+    ``read_cached_macro_regime`` return (``{"regime": "risk_off", ...}``) and
+    fails safe on anything else — ``None`` / ``{}`` (no regime read yet) and any
+    malformed non-dict value all yield ``None``, so a bad payload degrades to
+    the default (un-tightened) posture instead of crashing the decision path.
+    """
+    if not isinstance(macro, dict):
+        return None
+    return macro.get(FieldName.REGIME)
+
+
+def is_risk_off(regime: str | None) -> bool:
+    """True only when the macro regime is explicitly risk-off (bearish)."""
+    return regime == MacroRegime.RISK_OFF
+
+
+def stop_loss_pct(regime: str | None, *, is_long: bool) -> float:
+    """Hard stop-loss fraction — tightened for LONGs in a risk-off regime."""
+    if is_long and is_risk_off(regime):
+        return RISK_OFF_STOP_LOSS_PCT
+    return STOP_LOSS_PCT
+
+
+def take_profit_pct(regime: str | None, *, is_long: bool) -> float:
+    """Take-profit fraction — tightened for LONGs in a risk-off regime so
+    fragile gains are banked before a bearish leg gives them back."""
+    if is_long and is_risk_off(regime):
+        return RISK_OFF_TAKE_PROFIT_PCT
+    return TAKE_PROFIT_PCT
+
+
+def daily_loss_limit_pct(regime: str | None) -> float:
+    """Portfolio daily-loss limit — tightened in a risk-off regime so the kill
+    switch trips sooner on a compounding losing day."""
+    if is_risk_off(regime):
+        return RISK_OFF_DAILY_LOSS_LIMIT_PCT
+    return DAILY_LOSS_LIMIT_PCT
+
+
+def size_multiplier(regime: str | None, *, is_long: bool) -> float:
+    """Scale for a NEW entry's position size. A long entry is shrunk in a
+    risk-off regime (don't size up into a falling market); shorts and every
+    other regime are unscaled (1.0)."""
+    if is_long and is_risk_off(regime):
+        return RISK_OFF_SIZE_MULTIPLIER
+    return 1.0

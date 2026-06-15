@@ -37,7 +37,6 @@ from typing import Any
 from sqlalchemy import text
 
 from api.constants import (
-    DAILY_LOSS_LIMIT_PCT,
     DEFAULT_PAPER_CASH,
     REDIS_KEY_KILL_SWITCH,
     REDIS_KEY_KILL_SWITCH_UPDATED_AT,
@@ -52,6 +51,7 @@ from api.constants import (
     STOP_LOSS_PCT,
     STREAM_DECISIONS,
     STREAM_RISK_ALERTS,
+    SYMBOL_BTC_USD,
     TAKE_PROFIT_PCT,
     TRAILING_STOP_ARM_PCT,
     TRAILING_STOP_GIVEBACK_FRAC,
@@ -64,7 +64,9 @@ from api.database import AsyncSessionFactory
 from api.events.bus import EventBus
 from api.observability import log_structured
 from api.runtime_state import is_db_available
+from api.services import regime_risk
 from api.services.circuit_breaker import BreakerInputs, CircuitBreaker
+from api.services.market_intel import read_cached_macro_regime
 from api.services.redis_store import get_redis_store
 
 
@@ -219,10 +221,17 @@ class RiskGuardian:
                 pnl_pct = (avg_cost - current_price) / avg_cost
                 close_action = AgentAction.BUY
 
-            if pnl_pct <= -STOP_LOSS_PCT:
+            stop_pct, tp_pct = await self._effective_exit_bounds(symbol, side)
+            if pnl_pct <= -stop_pct:
                 reason = f"stop_loss({pnl_pct:.2%})"
-            elif pnl_pct >= TAKE_PROFIT_PCT:
+                if stop_pct < STOP_LOSS_PCT:
+                    # Annotate regime-tightened closes so the narrower stop is
+                    # observable in logs / the trade feed (vs the default stop).
+                    reason = f"stop_loss_risk_off({pnl_pct:.2%}<=-{stop_pct:.0%})"
+            elif pnl_pct >= tp_pct:
                 reason = f"take_profit({pnl_pct:.2%})"
+                if tp_pct < TAKE_PROFIT_PCT:
+                    reason = f"take_profit_risk_off({pnl_pct:.2%}>={tp_pct:.0%})"
             else:
                 reason = await self._check_trailing_stop(symbol, avg_cost, pnl_pct)
                 if reason is None:
@@ -245,6 +254,48 @@ class RiskGuardian:
             await self._clear_trailing_state(symbol)
             already_closed.add(symbol)
             self._cache_valid = False  # Position state changed — reload on next cycle
+
+    async def _effective_exit_bounds(self, symbol: str, side: PositionSide) -> tuple[float, float]:
+        """Effective ``(stop_loss_pct, take_profit_pct)`` for this position.
+
+        Reads the cached macro regime ONCE and resolves both bounds through the
+        shared regime-risk policy: in a risk-off (bearish) regime a LONG's stop
+        and take-profit both tighten — cut losers sooner, and bank fragile gains
+        before a bearish leg gives them back. Shorts (a bearish tape is
+        favourable to them) and every non-risk-off regime keep the defaults.
+
+        The read goes through ``market_intel.read_cached_macro_regime`` —
+        cache-only, so the periodic scan never triggers an Alpaca fetch; a
+        cold/missing/unreadable cache fails open to the default bounds (a lost
+        regime read can never widen risk, only the explicit RISK_OFF signal
+        narrows it).
+        """
+        is_long = side is PositionSide.LONG
+        try:
+            regime = regime_risk.regime_of(await read_cached_macro_regime(symbol, self.redis))
+        except Exception:
+            regime = None
+        return (
+            regime_risk.stop_loss_pct(regime, is_long=is_long),
+            regime_risk.take_profit_pct(regime, is_long=is_long),
+        )
+
+    async def _effective_daily_loss_limit_pct(self) -> float:
+        """Daily-loss limit fraction, tightened in a risk-off regime so the kill
+        switch trips sooner on a compounding losing day.
+
+        The daily-loss check is portfolio-level, but the macro regime is
+        asset-class-wide, so the portfolio posture proxies off the crypto
+        benchmark (BTC) — the dominant asset class in this book. Cache-only read;
+        a missing/unreadable regime fails open to the default limit.
+        """
+        try:
+            regime = regime_risk.regime_of(
+                await read_cached_macro_regime(SYMBOL_BTC_USD, self.redis)
+            )
+        except Exception:
+            regime = None
+        return regime_risk.daily_loss_limit_pct(regime)
 
     # ------------------------------------------------------------------
     # Position sources — Postgres when available, PaperBroker Redis otherwise
@@ -404,12 +455,13 @@ class RiskGuardian:
     # ------------------------------------------------------------------
 
     async def _check_daily_loss(self) -> None:
-        """Activate kill switch if today's realized PnL breaches DAILY_LOSS_LIMIT_PCT."""
+        """Activate kill switch if today's realized PnL breaches the daily loss
+        limit (tightened in a risk-off regime via _effective_daily_loss_limit_pct)."""
         daily_pnl = await self._today_realized_pnl()
         if daily_pnl is None:
             return  # no readable PnL source — nothing to enforce against
 
-        loss_threshold = -(DEFAULT_PAPER_CASH * DAILY_LOSS_LIMIT_PCT)
+        loss_threshold = -(DEFAULT_PAPER_CASH * await self._effective_daily_loss_limit_pct())
         if daily_pnl < loss_threshold:
             log_structured(
                 "warning",

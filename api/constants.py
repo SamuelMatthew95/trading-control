@@ -1742,10 +1742,34 @@ EXECUTION_DECISION_THRESHOLD_MEMORY: Final[float] = 0.55
 # Risk Guardian constants — position-level and portfolio-level risk limits
 # Close position if unrealized loss exceeds this fraction of entry price
 STOP_LOSS_PCT: Final[float] = 0.05
+# Regime-aware stop-loss: a LONG held into a falling market is the dominant loss
+# source in a bearish (risk-off) macro regime, so RiskGuardian tightens the long
+# stop from STOP_LOSS_PCT to this fraction when the cached macro regime is
+# RISK_OFF — cutting losers sooner instead of letting them bleed to the wider
+# default stop. Must stay < STOP_LOSS_PCT (a tighter stop closes earlier).
+# Shorts and non-risk-off regimes keep the default STOP_LOSS_PCT.
+RISK_OFF_STOP_LOSS_PCT: Final[float] = 0.03
 # Close position if unrealized gain exceeds this fraction of entry price
 TAKE_PROFIT_PCT: Final[float] = 0.10
+# Regime-aware take-profit: in a risk-off regime a long's gains are fragile (a
+# bearish tape gives them back on the next leg down), so LONGs bank profit
+# sooner — TAKE_PROFIT_PCT tightens to this fraction. Must stay < TAKE_PROFIT_PCT.
+# Shorts (a bearish tape is favourable to them) and other regimes keep the default.
+RISK_OFF_TAKE_PROFIT_PCT: Final[float] = 0.06
 # Activate kill switch if today's realized PnL < -(portfolio_value * this)
 DAILY_LOSS_LIMIT_PCT: Final[float] = 0.02
+# Regime-aware daily-loss limit: in a risk-off regime a losing day compounds
+# faster, so the portfolio kill switch trips sooner — DAILY_LOSS_LIMIT_PCT
+# tightens to this fraction. Must stay < DAILY_LOSS_LIMIT_PCT. The portfolio
+# regime proxies off the crypto benchmark (BTC) — the dominant asset class in
+# this book; see api/services/regime_risk.py.
+RISK_OFF_DAILY_LOSS_LIMIT_PCT: Final[float] = 0.015
+# Regime-aware position sizing: a NEW long entry is shrunk by this factor in a
+# risk-off regime so the book does not size up into a falling market (the
+# dominant cause of "significant losses" the learning loop flags in bearish
+# regimes). 1.0 = no scaling; applied to BUY entries only. Shorts and other
+# regimes are unscaled.
+RISK_OFF_SIZE_MULTIPLIER: Final[float] = 0.5
 # How often (seconds) RiskGuardian scans open positions
 RISK_CHECK_INTERVAL_SECONDS: Final[int] = 30
 # Trailing-stop profit ratchet. Without it a +9% winner that reverses rides all
