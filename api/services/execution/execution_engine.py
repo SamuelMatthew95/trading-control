@@ -56,6 +56,7 @@ from api.constants import (
     OrderSide,
     OrderStatus,
     PositionSide,
+    get_min_size,
 )
 from api.database import AsyncSessionFactory
 from api.events.bus import DEFAULT_GROUP, EventBus
@@ -89,6 +90,7 @@ from api.services.execution.position_math import (
     clamp_buy_to_position_limit,
     compute_pnl_percent,
     compute_realized_pnl,
+    enforce_min_order_size,
     is_round_trip_close,
     reject_unmatched_sell,
     signed_position_qty,
@@ -336,6 +338,28 @@ class ExecutionEngine(BaseStreamConsumer):
                             trace_id=trace_id,
                         )
                         qty = capped_qty
+
+                # Min order size: never open a sub-minimum position, and never
+                # leave a sub-minimum remainder on a partial close (dust a live
+                # broker could never let us exit). Runs after the clamps so it
+                # sees the actual executable qty.
+                min_size = get_min_size(symbol)
+                adjusted_qty, min_size_reason = enforce_min_order_size(
+                    side, qty, prior_position, min_size
+                )
+                if min_size_reason is not None:
+                    log_structured(
+                        "warning",
+                        "execution_order_rejected_below_min_size",
+                        symbol=symbol,
+                        requested_qty=qty,
+                        min_size=min_size,
+                        side=side,
+                        trace_id=trace_id,
+                    )
+                    await self._write_idle_heartbeat(symbol, "blocked:below_min_size", trace_id)
+                    return
+                qty = adjusted_qty
 
                 # Compute VWAP plan after oversell clamping so the slicing plan
                 # reflects the actual executed quantity, not the requested qty.
@@ -791,6 +815,25 @@ class ExecutionEngine(BaseStreamConsumer):
                         trace_id=trace_id,
                     )
                     qty = capped_qty
+
+            # Min order size — see _process_with_db for the rationale.
+            min_size = get_min_size(symbol)
+            adjusted_qty, min_size_reason = enforce_min_order_size(
+                side, qty, prior_position, min_size
+            )
+            if min_size_reason is not None:
+                log_structured(
+                    "warning",
+                    "execution_order_rejected_below_min_size",
+                    symbol=symbol,
+                    requested_qty=qty,
+                    min_size=min_size,
+                    side=side,
+                    trace_id=trace_id,
+                )
+                await self._write_idle_heartbeat(symbol, "blocked:below_min_size", trace_id)
+                return
+            qty = adjusted_qty
 
             # Compute VWAP plan after oversell clamping so the slicing plan
             # reflects the actual executed quantity, not the requested qty.
