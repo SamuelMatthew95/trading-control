@@ -87,6 +87,35 @@ proposed → backtested → shadow → canary → live → retired
 > rest `backtested`). Wiring the StrategyProposer/challenger to register versions,
 > and calling the breaker inside the live execution loop, are the next steps.
 
+## Durable shadow track record + graduation
+
+A `ChallengerAgent` shadow-trades its strategy on every live tick, but its
+`ShadowMetrics` used to live only in process memory — so every Render cold start
+reset them to zero and a challenger could never accumulate the
+`CHALLENGER_MIN_SHADOW_TRADES` it needs to earn a promotion proposal. The loop
+*looked* dead because the evidence kept evaporating.
+
+- **Durable record** — `api/services/challenger_store.py` (`ChallengerStore`,
+  Redis hash `challenger:perf:{strategy}`, no TTL, keyed by strategy because
+  challenger ids are ephemeral). The agent persists on every realized shadow
+  round-trip and warm-starts from it on boot, reconstructing both engines from
+  the persisted per-trade PnL lists so the metrics are exactly what they were
+  before the restart. Same durability rationale as `agent_pnl_store` — Redis,
+  not InMemoryStore (wiped on restart) or Postgres (absent in this deployment).
+- **Backend decides the state** — `activity_snapshot()` emits a
+  `learning_status` (`ChallengerLearningStatus`: warming → building → eligible →
+  promotion_proposed → graduated) and a `shadow_edge` (own − baseline PnL). The
+  UI only renders these; it never re-derives the state.
+- **Graduation** — when an approved/auto promotion is applied, `ProposalApplier`
+  stamps the record `graduated` AND advances the strategy registry one stage
+  (SHADOW → CANARY, gated on `CHALLENGER_GRADUATE_TO_CANARY`) — the "modularize
+  the winner" half of the loop, on top of the prompt-directive bias + candidate
+  spawn. Still no live orders; purely registry + record state.
+- **Surfaced on the Learning page** — `/dashboard/learning` shows each rival
+  strategy's durable track record (trades, win rate, PnL, edge vs baseline) and
+  where it sits in the loop, so the learning evidence lives where the operator
+  looks for it (not only on `/dashboard/challengers`).
+
 ## Try it
 
 ```bash
