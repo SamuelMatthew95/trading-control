@@ -7,7 +7,6 @@ import uuid
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from contextlib import suppress
-from datetime import datetime, timezone
 from typing import Any
 
 from alpaca.data.live.crypto import CryptoDataStream
@@ -17,6 +16,7 @@ from api.config import settings
 from api.constants import STREAM_MARKET_TICKS, FieldName
 from api.events.bus import EventBus
 from api.observability import log_structured
+from api.utils import now_iso
 
 SUPPORTED_SYMBOLS = ("BTC/USD", "ETH/USD", "SOL/USD", "AAPL", "TSLA", "SPY")
 
@@ -55,9 +55,7 @@ class AlpacaProvider(MarketDataProvider):
                     FieldName.SYMBOL: symbol,
                     FieldName.PRICE: str(getattr(bar, "close", "0")),
                     FieldName.VOLUME: str(getattr(bar, "volume", "0")),
-                    FieldName.TIMESTAMP: str(
-                        getattr(bar, "timestamp", datetime.now(timezone.utc).isoformat())
-                    ),
+                    FieldName.TIMESTAMP: str(getattr(bar, "timestamp", now_iso())),
                     FieldName.SOURCE: "alpaca",
                     FieldName.MSG_ID: str(uuid.uuid4()),
                 }
@@ -78,9 +76,7 @@ class AlpacaProvider(MarketDataProvider):
                     FieldName.SYMBOL: symbol,
                     FieldName.PRICE: str(getattr(bar, "close", "0")),
                     FieldName.VOLUME: str(getattr(bar, "volume", "0")),
-                    FieldName.TIMESTAMP: str(
-                        getattr(bar, "timestamp", datetime.now(timezone.utc).isoformat())
-                    ),
+                    FieldName.TIMESTAMP: str(getattr(bar, "timestamp", now_iso())),
                     FieldName.SOURCE: "alpaca",
                     FieldName.MSG_ID: str(uuid.uuid4()),
                 }
