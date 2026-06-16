@@ -96,5 +96,32 @@ def test_params_are_tunable_thresholds():
     assert decide_policy(data, ctx, lenient)[FieldName.ACTION] == AgentAction.BUY
 
 
+def test_marginal_long_is_rejected_in_risk_off_regime():
+    """A long whose score clears buy_threshold but whose confidence sits between
+    the default floor and the risk-off floor must HOLD in a bearish regime — the
+    book stops chasing weak momentum into a falling market."""
+    # confidence 0.30: above default min_confidence (0.20), below RISK_OFF floor (0.35).
+    data = {FieldName.DIRECTION: "bullish", FieldName.COMPOSITE_SCORE: 0.30}
+    out = decide_policy(data, _ctx(regime=MacroRegime.RISK_OFF))
+    assert out[FieldName.ACTION] == AgentAction.HOLD
+    assert "risk-off" in out[FieldName.REASONING]
+
+
+def test_same_marginal_long_buys_outside_risk_off():
+    """The exact marginal long that is rejected in risk-off must still BUY in a
+    risk-on regime — the gate is regime-conditional, not a blanket tightening."""
+    data = {FieldName.DIRECTION: "bullish", FieldName.COMPOSITE_SCORE: 0.30}
+    out = decide_policy(data, _ctx(regime=MacroRegime.RISK_ON))
+    assert out[FieldName.ACTION] == AgentAction.BUY
+
+
+def test_strong_long_still_buys_in_risk_off_regime():
+    """The entry gate rejects only MARGINAL longs — a high-conviction long that
+    clears the risk-off floor still opens (smaller, via the sizing path)."""
+    data = {FieldName.DIRECTION: "bullish", FieldName.COMPOSITE_SCORE: 0.85}
+    out = decide_policy(data, _ctx(regime=MacroRegime.RISK_OFF))
+    assert out[FieldName.ACTION] == AgentAction.BUY
+
+
 def test_default_params_constant_is_a_policy_params():
     assert isinstance(DEFAULT_POLICY_PARAMS, PolicyParams)

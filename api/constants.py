@@ -1770,6 +1770,15 @@ RISK_OFF_DAILY_LOSS_LIMIT_PCT: Final[float] = 0.015
 # regimes). 1.0 = no scaling; applied to BUY entries only. Shorts and other
 # regimes are unscaled.
 RISK_OFF_SIZE_MULTIPLIER: Final[float] = 0.5
+# Regime-aware entry conviction floor: in a risk-off (bearish) regime a NEW long
+# entry must clear this confidence bar to open at all — marginal longs are
+# REJECTED (HOLD), not merely shrunk, so the book stops chasing weak momentum
+# into a falling market (the strategy-not-effective signal the learning loop
+# flags as a recurring regime_adjustment proposal). Applied to BUY entries only;
+# resolved as max(default_min_confidence, this) so it can only ever raise the
+# bar. Shorts and non-risk-off/unknown/missing regimes keep the default floor.
+# See api/services/regime_risk.py.
+RISK_OFF_MIN_CONFIDENCE: Final[float] = 0.35
 # How often (seconds) RiskGuardian scans open positions
 RISK_CHECK_INTERVAL_SECONDS: Final[int] = 30
 # Trailing-stop profit ratchet. Without it a +9% winner that reverses rides all

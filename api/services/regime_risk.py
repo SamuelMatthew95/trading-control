@@ -27,6 +27,7 @@ from typing import Any
 from api.constants import (
     DAILY_LOSS_LIMIT_PCT,
     RISK_OFF_DAILY_LOSS_LIMIT_PCT,
+    RISK_OFF_MIN_CONFIDENCE,
     RISK_OFF_SIZE_MULTIPLIER,
     RISK_OFF_STOP_LOSS_PCT,
     RISK_OFF_TAKE_PROFIT_PCT,
@@ -86,3 +87,19 @@ def size_multiplier(regime: str | None, *, is_long: bool) -> float:
     if is_long and is_risk_off(regime):
         return RISK_OFF_SIZE_MULTIPLIER
     return 1.0
+
+
+def min_confidence(regime: str | None, default: float, *, is_long: bool) -> float:
+    """Minimum conviction required to OPEN a new long entry.
+
+    Shrinking a long in a bearish regime still TAKES every marginal long; this
+    is the complementary entry gate that REJECTS them. In a risk-off regime a
+    new long must clear ``RISK_OFF_MIN_CONFIDENCE`` to open at all, so the book
+    stops chasing weak momentum into a falling market. Resolved as
+    ``max(default, RISK_OFF_MIN_CONFIDENCE)`` so the posture can only ever RAISE
+    the bar — never lower an already-stricter operator/control-plane floor.
+    Shorts and every non-risk-off/unknown/missing regime keep ``default``.
+    """
+    if is_long and is_risk_off(regime):
+        return max(default, RISK_OFF_MIN_CONFIDENCE)
+    return default
