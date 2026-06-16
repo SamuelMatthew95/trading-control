@@ -1738,6 +1738,19 @@ EXECUTION_DECISION_THRESHOLD: Final[float] = 0.55
 # yielding final_score≈0.36 which is below the production gate. This lets paper trades execute
 # so the trading dashboard shows real fills, positions, and equity-curve data.
 EXECUTION_DECISION_THRESHOLD_MEMORY: Final[float] = 0.55
+# Regime-aware execution gate: in a risk-off (bearish) macro regime the
+# ExecutionEngine raises the weighted-score bar a NEW long entry must clear from
+# EXECUTION_DECISION_THRESHOLD to this value. Marginal MOMENTUM longs
+# (signal≈0.55 → final≈0.56) chase a falling market and dominate the
+# over-trading / low-win-rate losses the learning loop recurrently flags as a
+# regime_adjustment proposal; lifting the gate filters them while
+# STRONG_MOMENTUM conviction (signal≈0.80 → final≈0.76) still trades. Applied to
+# BUY entries only — SELL exits keep the default gate so the book can always
+# de-risk — and resolved as max(default_threshold, this) so it can only ever
+# RAISE the bar, never lower an operator/control-plane override. Shorts and
+# non-risk-off/unknown/missing regimes keep the default. Must stay >
+# EXECUTION_DECISION_THRESHOLD. See api/services/regime_risk.py.
+RISK_OFF_EXECUTION_DECISION_THRESHOLD: Final[float] = 0.65
 
 # Risk Guardian constants — position-level and portfolio-level risk limits
 # Close position if unrealized loss exceeds this fraction of entry price

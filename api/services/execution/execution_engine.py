@@ -52,6 +52,7 @@ from api.constants import (
     TOOL_BRACKET_ORDER,
     TOOL_RISK_CAGE,
     TOOL_VWAP_EXECUTION,
+    AgentAction,
     FieldName,
     OrderSide,
     OrderStatus,
@@ -93,8 +94,10 @@ from api.services.execution.position_math import (
     reject_unmatched_sell,
     signed_position_qty,
 )
+from api.services.market_intel import read_cached_macro_regime
 from api.services.market_status import get_market_status
 from api.services.redis_store import get_redis_store
+from api.services.regime_risk import execution_threshold, regime_of
 from api.services.risk_filters import is_cooling_off
 from api.services.tool_registry import get_tool_registry
 
@@ -1177,6 +1180,16 @@ class ExecutionEngine(BaseStreamConsumer):
             if not is_db_available()
             else EXECUTION_DECISION_THRESHOLD
         )
+        # Regime-aware execution gate: in a risk-off (bearish) macro regime raise
+        # the bar a NEW long entry must clear, so marginal momentum longs chasing
+        # a falling market are filtered (the dominant over-trading / low-win-rate
+        # loss regime). Read-only cache lookup, BUY-side only — a miss/None or a
+        # non-risk-off regime degrades to the default threshold (fail-safe: can
+        # only ever raise the bar, never lower it). SELL exits keep the default
+        # gate so the book can always de-risk.
+        if side == AgentAction.BUY:
+            regime = regime_of(await read_cached_macro_regime(symbol, self.redis))
+            threshold = execution_threshold(regime, threshold, is_long=True)
         gate = check_execution_gate(side, symbol, final_score, threshold, market_open)
         if gate is not None:
             if gate.startswith("hold:"):

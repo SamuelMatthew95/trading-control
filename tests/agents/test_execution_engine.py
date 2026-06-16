@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import fakeredis.aioredis
 import pytest
 
+from api.constants import MacroRegime
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.services.execution.brokers.paper import PaperBroker
@@ -647,6 +648,72 @@ async def test_cooling_off_blocks_buy_after_loss_streak(
     await engine.process(_make_order("buy"))
 
     mock_broker.place_order.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Regime-aware execution gate (issues #330 / #331 / #332)
+# ---------------------------------------------------------------------------
+
+
+async def test_execution_gate_blocks_marginal_long_in_risk_off_regime(
+    engine, mock_redis, monkeypatch
+):
+    """A marginal MOMENTUM long that clears the default gate is REJECTED in a
+    risk-off macro regime.
+
+    signal/reasoning 0.55 → final_score ≈ 0.56: above the default execution
+    gate but below RISK_OFF_EXECUTION_DECISION_THRESHOLD (0.65). In a bearish
+    tape the engine raises the bar so the book stops chasing weak momentum into
+    a falling market — the over-trading / low-win-rate loss source the learning
+    loop recurrently flags as a regime_adjustment proposal.
+    """
+
+    async def _regime(_symbol, _redis):
+        return {"regime": MacroRegime.RISK_OFF}
+
+    monkeypatch.setattr("api.services.execution.execution_engine.read_cached_macro_regime", _regime)
+
+    gate = await engine._evaluate_pre_execution_gates(
+        "buy", "BTC/USD", 0.55, 0.55, "trace-risk-off"
+    )
+    assert gate is not None
+    assert gate.startswith("gated:score")
+
+
+async def test_execution_gate_passes_marginal_long_in_neutral_regime(
+    engine, mock_redis, monkeypatch
+):
+    """The same marginal long clears the gate in a neutral regime — the
+    tightening is risk-off-only and never blocks trades in a normal tape."""
+
+    async def _regime(_symbol, _redis):
+        return {"regime": MacroRegime.NEUTRAL}
+
+    monkeypatch.setattr("api.services.execution.execution_engine.read_cached_macro_regime", _regime)
+
+    gate = await engine._evaluate_pre_execution_gates("buy", "BTC/USD", 0.55, 0.55, "trace-neutral")
+    assert gate is None
+
+
+async def test_execution_gate_does_not_tighten_sell_exit_in_risk_off(
+    engine, mock_redis, monkeypatch
+):
+    """SELL exits keep the default gate in a risk-off regime so the book can
+    always de-risk — the regime read is skipped entirely for non-BUY actions."""
+    called = False
+
+    async def _regime(_symbol, _redis):
+        nonlocal called
+        called = True
+        return {"regime": MacroRegime.RISK_OFF}
+
+    monkeypatch.setattr("api.services.execution.execution_engine.read_cached_macro_regime", _regime)
+
+    # A SELL with a strong score must not be gated on score, and the macro-regime
+    # cache must not even be consulted (BUY-only fast path).
+    gate = await engine._evaluate_pre_execution_gates("sell", "BTC/USD", 0.80, 0.80, "trace-sell")
+    assert gate is None or not gate.startswith("gated:score")
+    assert called is False
 
 
 async def test_cooling_off_never_blocks_sell_close(
