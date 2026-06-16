@@ -1,5 +1,13 @@
 # Changelog
 
+## [2026-06-16] — Regime-aware execution gate: raise the bar for marginal longs in a bearish regime (issues #330 / #331 / #332)
+
+### Changed
+- **The ExecutionEngine now raises the weighted-score gate a new long entry must clear in a bearish (risk-off) regime — marginal momentum longs are filtered at the execution boundary** — three auto-filed `regime_adjustment` / `code_change` proposals from the learning loop converged on one symptom: in a bearish tape the book over-trades weak momentum longs (issue #331), which drags the win rate down (issue #332) and calls for a regime adjustment (issue #330). Issues #326/#328 already shrink and reject marginal longs at the *reasoning* node (sizing + the `decide_policy` confidence floor), but the LLM decision path and any decision that reaches `STREAM_DECISIONS` was still gated by a regime-blind `EXECUTION_DECISION_THRESHOLD`. A new regime-conditional parameter in the single-source-of-truth policy module, `regime_risk.execution_threshold(regime, default, *, is_long)`, raises the execution gate to `RISK_OFF_EXECUTION_DECISION_THRESHOLD = 0.65` (vs the `0.55` default) for a new long in a risk-off regime. `ExecutionEngine._evaluate_pre_execution_gates` consults the **cache-only** macro regime (no Alpaca fetch) for BUY actions and applies it: a marginal MOMENTUM long (`final_score ≈ 0.56`) that clears the default gate is now gated in a bearish tape, while STRONG_MOMENTUM conviction (`final_score ≈ 0.76`) still trades.
+  - **Fail-safe (same invariant as #326/#328):** resolved as `max(default, RISK_OFF_EXECUTION_DECISION_THRESHOLD)` so the gate can only ever *raise* the bar — never lower an operator/control-plane override (e.g. the memory-mode threshold). SELL exits keep the default gate so the book can always de-risk (the regime cache is not even consulted for non-BUY actions), and every non-risk-off / unknown / missing / malformed regime falls back to the default, so a lost regime read can never loosen the gate.
+
+  (`api/constants.py`, `api/services/regime_risk.py`, `api/services/execution/execution_engine.py`, `docs/troubleshooting/execution-engine.md`, `tests/core/test_regime_risk.py`, `tests/agents/test_execution_engine.py`)
+
 ## [2026-06-16] — Regime-aware entry gate: reject marginal longs in a bearish regime (issue #328)
 
 ### Changed
