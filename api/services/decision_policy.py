@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from api.constants import AgentAction, FieldName, MacroRegime
+from api.services import regime_risk
 
 
 @dataclass(frozen=True)
@@ -149,9 +150,25 @@ def decide_policy(
         f"confidence {confidence:.2f}",
     ]
 
+    # A risk-off (bearish) regime raises the conviction bar a NEW long must clear
+    # to open — marginal longs are rejected (HOLD), not chased into a falling
+    # market. Resolved through regime_risk so it can only ever tighten; shorts and
+    # every other regime keep params.min_confidence.
+    long_floor = regime_risk.min_confidence(
+        regime_risk.regime_of(context.get(FieldName.MACRO_REGIME)),
+        params.min_confidence,
+        is_long=True,
+    )
+
     if confidence < params.min_confidence:
         action = AgentAction.HOLD
         why = f"confidence {confidence:.2f} < {params.min_confidence:.2f} — insufficient conviction"
+    elif score >= params.buy_threshold and confidence < long_floor:
+        action = AgentAction.HOLD
+        why = (
+            f"risk-off regime: long confidence {confidence:.2f} < {long_floor:.2f} "
+            f"— marginal long rejected in a bearish market"
+        )
     elif score >= params.buy_threshold:
         action = AgentAction.BUY
         why = f"score {score:+.3f} ≥ buy_threshold {params.buy_threshold:+.2f}"
