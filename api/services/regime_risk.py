@@ -27,6 +27,7 @@ from typing import Any
 from api.constants import (
     DAILY_LOSS_LIMIT_PCT,
     RISK_OFF_DAILY_LOSS_LIMIT_PCT,
+    RISK_OFF_EXECUTION_DECISION_THRESHOLD,
     RISK_OFF_MIN_CONFIDENCE,
     RISK_OFF_SIZE_MULTIPLIER,
     RISK_OFF_STOP_LOSS_PCT,
@@ -102,4 +103,25 @@ def min_confidence(regime: str | None, default: float, *, is_long: bool) -> floa
     """
     if is_long and is_risk_off(regime):
         return max(default, RISK_OFF_MIN_CONFIDENCE)
+    return default
+
+
+def execution_threshold(regime: str | None, default: float, *, is_long: bool) -> float:
+    """Weighted-score bar a NEW long entry must clear at the ExecutionEngine gate.
+
+    ``min_confidence`` gates on the raw *signal* confidence at the reasoning
+    node; this is the downstream complement at the *execution* gate, where the
+    blended score (signal·0.5 + reasoning·0.3 + historical·0.2) is checked. In a
+    risk-off regime a new long must clear ``RISK_OFF_EXECUTION_DECISION_THRESHOLD``
+    to execute, so marginal momentum longs — the dominant over-trading /
+    low-win-rate loss source in a bearish tape — are filtered while
+    high-conviction longs still trade. Resolved as
+    ``max(default, RISK_OFF_EXECUTION_DECISION_THRESHOLD)`` so the posture can
+    only ever RAISE the bar, never lower an operator/control-plane override (e.g.
+    the memory-mode threshold). SELL exits keep ``default`` so the book can
+    always de-risk; shorts and every non-risk-off/unknown/missing regime keep
+    ``default``.
+    """
+    if is_long and is_risk_off(regime):
+        return max(default, RISK_OFF_EXECUTION_DECISION_THRESHOLD)
     return default
