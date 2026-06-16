@@ -1,5 +1,13 @@
 # Changelog
 
+## [2026-06-16] — Regime-aware entry gate: reject marginal longs in a bearish regime (issue #328)
+
+### Changed
+- **A new long entry must now clear a higher conviction bar to open at all in a bearish (risk-off) regime — marginal longs are REJECTED, not merely shrunk** — issue #326 made a risk-off regime *shrink* a new long to 0.5× size, but the book still **opened** every marginal long into the falling market, and a stream of weak-conviction half-size longs still bleeds in a sustained bearish leg. This was the learning loop's recurring `regime_adjustment` proposal — *"the negative total PnL suggests the strategy may not be effective… reduce position size or adjust strategy"* (issue #328). A new regime-conditional parameter in the single-source-of-truth policy module, `regime_risk.min_confidence(regime, default, *, is_long)`, raises the floor a new long must clear to `RISK_OFF_MIN_CONFIDENCE = 0.35` (vs the `0.20` seed) in a risk-off regime. The deterministic data-plane policy (`decision_policy.decide_policy`) consumes it: a long whose blended score clears `buy_threshold` but whose confidence is below the regime-adjusted floor now HOLDs ("marginal long rejected in a bearish market") instead of opening. This is the entry-side complement to #326's sizing — marginal longs are rejected, strong longs still open (then shrink via the sizing path).
+  - **Fail-safe (unchanged invariant):** resolved as `max(default, RISK_OFF_MIN_CONFIDENCE)` so the gate can only ever *raise* the bar — never lower an already-stricter operator/control-plane floor. Shorts (a bearish tape favours them) and every non-risk-off / unknown / missing / malformed regime keep the default floor, so a lost regime read can never loosen the gate.
+
+  (`api/constants.py`, `api/services/regime_risk.py`, `api/services/decision_policy.py`, `docs/troubleshooting/execution-engine.md`, `tests/core/test_regime_risk.py`, `tests/core/test_decision_policy.py`)
+
 ## [2026-06-15] — Regime-aware risk posture in a bearish (risk-off) regime (issue #326)
 
 ### Changed
