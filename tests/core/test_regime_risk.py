@@ -11,6 +11,7 @@ from __future__ import annotations
 from api.constants import (
     DAILY_LOSS_LIMIT_PCT,
     RISK_OFF_DAILY_LOSS_LIMIT_PCT,
+    RISK_OFF_MIN_CONFIDENCE,
     RISK_OFF_SIZE_MULTIPLIER,
     RISK_OFF_STOP_LOSS_PCT,
     RISK_OFF_TAKE_PROFIT_PCT,
@@ -78,9 +79,39 @@ def test_size_multiplier_shrinks_only_long_in_risk_off():
     assert regime_risk.size_multiplier(None, is_long=True) == 1.0
 
 
+def test_min_confidence_raises_only_for_long_in_risk_off():
+    default = 0.20
+    # Long in risk-off: bar is raised to the risk-off floor.
+    assert (
+        regime_risk.min_confidence(MacroRegime.RISK_OFF, default, is_long=True)
+        == RISK_OFF_MIN_CONFIDENCE
+    )
+    # Shorts in risk-off keep the default — a bearish tape is favourable to them.
+    assert regime_risk.min_confidence(MacroRegime.RISK_OFF, default, is_long=False) == default
+    # Long in a non-risk-off regime keeps the default.
+    assert regime_risk.min_confidence(MacroRegime.RISK_ON, default, is_long=True) == default
+    assert regime_risk.min_confidence(None, default, is_long=True) == default
+
+
+def test_min_confidence_never_lowers_a_stricter_default():
+    """The floor can only ever RAISE the bar — an operator/control-plane default
+    already above the risk-off floor must survive (max semantics)."""
+    stricter = RISK_OFF_MIN_CONFIDENCE + 0.10
+    assert regime_risk.min_confidence(MacroRegime.RISK_OFF, stricter, is_long=True) == stricter
+
+
+def test_risk_off_min_confidence_exceeds_default_seed():
+    """The risk-off floor must be strictly stricter than the seed policy floor,
+    or the entry gate is a no-op."""
+    from api.services.decision_policy import DEFAULT_POLICY_PARAMS
+
+    assert RISK_OFF_MIN_CONFIDENCE > DEFAULT_POLICY_PARAMS.min_confidence
+
+
 def test_fail_safe_unknown_regime_never_tightens():
     """A garbage/unrecognised regime string must yield defaults — never tighten."""
     assert regime_risk.stop_loss_pct("garbage", is_long=True) == STOP_LOSS_PCT
     assert regime_risk.take_profit_pct("garbage", is_long=True) == TAKE_PROFIT_PCT
     assert regime_risk.daily_loss_limit_pct("garbage") == DAILY_LOSS_LIMIT_PCT
     assert regime_risk.size_multiplier("garbage", is_long=True) == 1.0
+    assert regime_risk.min_confidence("garbage", 0.20, is_long=True) == 0.20
