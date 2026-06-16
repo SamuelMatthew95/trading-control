@@ -10,7 +10,9 @@ from __future__ import annotations
 
 from api.constants import (
     DAILY_LOSS_LIMIT_PCT,
+    EXECUTION_DECISION_THRESHOLD,
     RISK_OFF_DAILY_LOSS_LIMIT_PCT,
+    RISK_OFF_EXECUTION_DECISION_THRESHOLD,
     RISK_OFF_MIN_CONFIDENCE,
     RISK_OFF_SIZE_MULTIPLIER,
     RISK_OFF_STOP_LOSS_PCT,
@@ -30,6 +32,8 @@ def test_risk_off_constants_are_strictly_more_conservative():
     assert RISK_OFF_TAKE_PROFIT_PCT < TAKE_PROFIT_PCT
     assert RISK_OFF_DAILY_LOSS_LIMIT_PCT < DAILY_LOSS_LIMIT_PCT
     assert 0.0 < RISK_OFF_SIZE_MULTIPLIER < 1.0
+    # A tighter EXECUTION gate means a HIGHER bar — must exceed the default.
+    assert RISK_OFF_EXECUTION_DECISION_THRESHOLD > EXECUTION_DECISION_THRESHOLD
 
 
 def test_regime_of_extracts_value_and_fails_safe_on_garbage():
@@ -108,6 +112,28 @@ def test_risk_off_min_confidence_exceeds_default_seed():
     assert RISK_OFF_MIN_CONFIDENCE > DEFAULT_POLICY_PARAMS.min_confidence
 
 
+def test_execution_threshold_raises_only_for_long_in_risk_off():
+    default = EXECUTION_DECISION_THRESHOLD
+    # Long in risk-off: the gate is raised to the risk-off bar.
+    assert (
+        regime_risk.execution_threshold(MacroRegime.RISK_OFF, default, is_long=True)
+        == RISK_OFF_EXECUTION_DECISION_THRESHOLD
+    )
+    # SELL exits keep the default so the book can always de-risk.
+    assert regime_risk.execution_threshold(MacroRegime.RISK_OFF, default, is_long=False) == default
+    # A long in a non-risk-off regime keeps the default gate.
+    assert regime_risk.execution_threshold(MacroRegime.RISK_ON, default, is_long=True) == default
+    assert regime_risk.execution_threshold(MacroRegime.NEUTRAL, default, is_long=True) == default
+    assert regime_risk.execution_threshold(None, default, is_long=True) == default
+
+
+def test_execution_threshold_never_lowers_a_stricter_default():
+    """The gate can only ever RAISE the bar — a control-plane override already
+    above the risk-off bar (e.g. a hand-tuned memory-mode threshold) survives."""
+    stricter = RISK_OFF_EXECUTION_DECISION_THRESHOLD + 0.10
+    assert regime_risk.execution_threshold(MacroRegime.RISK_OFF, stricter, is_long=True) == stricter
+
+
 def test_fail_safe_unknown_regime_never_tightens():
     """A garbage/unrecognised regime string must yield defaults — never tighten."""
     assert regime_risk.stop_loss_pct("garbage", is_long=True) == STOP_LOSS_PCT
@@ -115,3 +141,7 @@ def test_fail_safe_unknown_regime_never_tightens():
     assert regime_risk.daily_loss_limit_pct("garbage") == DAILY_LOSS_LIMIT_PCT
     assert regime_risk.size_multiplier("garbage", is_long=True) == 1.0
     assert regime_risk.min_confidence("garbage", 0.20, is_long=True) == 0.20
+    assert (
+        regime_risk.execution_threshold("garbage", EXECUTION_DECISION_THRESHOLD, is_long=True)
+        == EXECUTION_DECISION_THRESHOLD
+    )
