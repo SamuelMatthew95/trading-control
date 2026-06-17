@@ -18,79 +18,17 @@ from api.events.bus import EventBus
 from api.observability import log_structured
 from api.redis_client import get_redis
 from api.runtime_state import get_runtime_store, is_db_available
-from api.services.dashboard.utils import _as_dict, _timestamp_to_iso
+from api.services.dashboard.utils import _as_dict
 
 
 def _in_memory_proposals(limit: int = 20) -> list[dict[str, Any]]:
-    """Return proposal events from the runtime store without opening a DB session."""
-    safe_limit = max(1, min(limit, 200))
-    proposals: list[dict[str, Any]] = []
-    for event in get_runtime_store().get_events(limit=200):
-        if event.get(FieldName.LOG_TYPE) != LogType.PROPOSAL:
-            continue
-        payload = _as_dict(event.get(FieldName.PAYLOAD))
-        trace_id = (
-            event.get(FieldName.TRACE_ID)
-            or payload.get(FieldName.TRACE_ID)
-            or payload.get(FieldName.REFLECTION_TRACE_ID)
-            or payload.get(FieldName.MSG_ID)
-        )
-        # Identity must be unique PER PROPOSAL. All proposals born from one
-        # reflection share the reflection trace_id, so keying rows on the trace
-        # made every sibling collapse to the same id — approving one approved
-        # them all. msg_id is unique per publish; trace is only the fallback.
-        proposal_id = str(payload.get(FieldName.MSG_ID) or trace_id or len(proposals) + 1)
-        timestamp = _timestamp_to_iso(
-            event.get(FieldName.CREATED_AT)
-            or event.get(FieldName.TIMESTAMP)
-            or payload.get(FieldName.TIMESTAMP)
-        )
-        proposals.append(
-            {
-                FieldName.ID: proposal_id,
-                "symbol": payload.get(FieldName.SYMBOL),
-                "action": payload.get(FieldName.ACTION),
-                "grade_score": payload.get(FieldName.GRADE_SCORE),
-                "bias": payload.get(FieldName.BIAS),
-                FieldName.BUYS: payload.get(FieldName.BUYS),
-                FieldName.SELLS: payload.get(FieldName.SELLS),
-                "strategy_name": payload.get(FieldName.STRATEGY_NAME),
-                "trace_id": trace_id,
-                "created_at": timestamp,
-                "source": "in_memory",
-                # Older applier audit rows carried applied=True but no status;
-                # never resurface an acted-on change as a pending decision.
-                "status": payload.get(FieldName.STATUS)
-                or (
-                    ProposalStatus.APPLIED
-                    if payload.get(FieldName.APPLIED)
-                    else OrderStatus.PENDING
-                ),
-                "proposal_type": payload.get(FieldName.PROPOSAL_TYPE, "parameter_change"),
-                "content": payload.get(FieldName.CONTENT, {}),
-                "requires_approval": payload.get(FieldName.REQUIRES_APPROVAL, True),
-                "confidence": payload.get(FieldName.CONFIDENCE),
-                "reflection_trace_id": payload.get(FieldName.REFLECTION_TRACE_ID),
-                # ProposalApplier writes these onto the log payload after it acts
-                # on a proposal. Carry them through so memory-mode consumers
-                # (get_learning_loop_payload) can distinguish applied vs pending
-                # exactly like the DB path does — otherwise everything in
-                # memory mode reads back as applied=False.
-                FieldName.APPLIED: bool(payload.get(FieldName.APPLIED, False)),
-                FieldName.APPLIED_AT: payload.get(FieldName.APPLIED_AT),
-                FieldName.APPLIED_BY: payload.get(FieldName.APPLIED_BY),
-                FieldName.MESSAGE: payload.get(FieldName.MESSAGE)
-                or _as_dict(payload.get(FieldName.CONTENT)).get(FieldName.MESSAGE),
-                # The clickable artifact link (GitHub issue/PR) the applier
-                # produced — so a proposal is a helpful link, not a dead blob.
-                FieldName.PR_URL: payload.get(FieldName.PR_URL)
-                or _as_dict(payload.get(FieldName.CONTENT)).get(FieldName.PR_URL),
-                "timestamp": timestamp,
-            }
-        )
-        if len(proposals) >= safe_limit:
-            break
-    return proposals
+    """Return proposal events from the runtime store without opening a DB session.
+
+    Delegates to ``InMemoryStore.normalized_proposals`` — the single source of
+    truth for the memory-mode proposal shape — so this endpoint, the
+    /dashboard/state snapshot, and the WebSocket snapshot can never drift.
+    """
+    return get_runtime_store().normalized_proposals(limit=limit)
 
 
 def _set_payload_status(record: dict[str, Any], status: str) -> None:
