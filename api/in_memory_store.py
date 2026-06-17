@@ -24,7 +24,10 @@ from api.constants import (
     FieldName,
     GradeType,
     LogType,
+    OrderStatus,
+    ProposalStatus,
 )
+from api.services.dashboard.utils import _as_dict, _timestamp_to_iso
 from api.services.metrics_calc import closed_trade_stats, win_rate_from_counts
 from api.services.notification_summary import compute_notification_summary
 
@@ -353,6 +356,82 @@ class InMemoryStore:
         safe_limit = max(1, min(limit, 200))
         return list(reversed(self.event_history[-safe_limit:]))
 
+    @staticmethod
+    def _normalize_proposal_event(event: dict[str, Any]) -> dict[str, Any]:
+        """Flatten one proposal event envelope into the dashboard proposal shape.
+
+        Memory mode stores each proposal as an event envelope
+        ``{log_type, trace_id, payload}``; the frontend (and the DB path in
+        ``MetricsAggregator.get_raw_snapshot``) expect the proposal fields
+        flattened to the top level. Without this, ``proposal_type`` / ``content``
+        / ``id`` / ``status`` arrive as ``undefined`` and the Proposals page
+        renders garbled, identity-less rows.
+        """
+        payload = _as_dict(event.get(FieldName.PAYLOAD))
+        trace_id = (
+            event.get(FieldName.TRACE_ID)
+            or payload.get(FieldName.TRACE_ID)
+            or payload.get(FieldName.REFLECTION_TRACE_ID)
+            or payload.get(FieldName.MSG_ID)
+        )
+        # Identity must be unique PER PROPOSAL. Siblings from one reflection share
+        # the reflection trace_id, so key on msg_id first (unique per publish);
+        # trace is only the fallback.
+        proposal_id = str(payload.get(FieldName.MSG_ID) or trace_id or "")
+        timestamp = _timestamp_to_iso(
+            event.get(FieldName.CREATED_AT)
+            or event.get(FieldName.TIMESTAMP)
+            or payload.get(FieldName.TIMESTAMP)
+        )
+        return {
+            FieldName.ID: proposal_id,
+            "symbol": payload.get(FieldName.SYMBOL),
+            "action": payload.get(FieldName.ACTION),
+            "grade_score": payload.get(FieldName.GRADE_SCORE),
+            "bias": payload.get(FieldName.BIAS),
+            FieldName.BUYS: payload.get(FieldName.BUYS),
+            FieldName.SELLS: payload.get(FieldName.SELLS),
+            "strategy_name": payload.get(FieldName.STRATEGY_NAME),
+            "trace_id": trace_id,
+            "created_at": timestamp,
+            "source": "in_memory",
+            # Older applier audit rows carried applied=True but no status; never
+            # resurface an acted-on change as a pending decision.
+            "status": payload.get(FieldName.STATUS)
+            or (ProposalStatus.APPLIED if payload.get(FieldName.APPLIED) else OrderStatus.PENDING),
+            "proposal_type": payload.get(FieldName.PROPOSAL_TYPE, "parameter_change"),
+            "content": payload.get(FieldName.CONTENT, {}),
+            "requires_approval": payload.get(FieldName.REQUIRES_APPROVAL, True),
+            "confidence": payload.get(FieldName.CONFIDENCE),
+            "reflection_trace_id": payload.get(FieldName.REFLECTION_TRACE_ID),
+            FieldName.APPLIED: bool(payload.get(FieldName.APPLIED, False)),
+            FieldName.APPLIED_AT: payload.get(FieldName.APPLIED_AT),
+            FieldName.APPLIED_BY: payload.get(FieldName.APPLIED_BY),
+            FieldName.MESSAGE: payload.get(FieldName.MESSAGE)
+            or _as_dict(payload.get(FieldName.CONTENT)).get(FieldName.MESSAGE),
+            FieldName.PR_URL: payload.get(FieldName.PR_URL)
+            or _as_dict(payload.get(FieldName.CONTENT)).get(FieldName.PR_URL),
+            "timestamp": timestamp,
+        }
+
+    def normalized_proposals(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Recent proposals, newest-first, flattened to the dashboard shape.
+
+        Single source of truth shared by ``dashboard_fallback_snapshot`` (the
+        /dashboard/state + WebSocket snapshot) and the dedicated
+        ``/dashboard/proposals`` endpoint, so every memory-mode surface agrees
+        with the DB path's proposal shape.
+        """
+        safe_limit = max(1, min(limit, 200))
+        out: list[dict[str, Any]] = []
+        for event in reversed(self.event_history[-200:]):
+            if event.get(FieldName.LOG_TYPE) != LogType.PROPOSAL:
+                continue
+            out.append(self._normalize_proposal_event(event))
+            if len(out) >= safe_limit:
+                break
+        return out
+
     def add_vector_memory(self, memory_payload: dict[str, Any]) -> dict[str, Any]:
         payload = dict(memory_payload)
         payload.setdefault(FieldName.CREATED_AT, time.time())
@@ -529,11 +608,7 @@ class InMemoryStore:
             FieldName.DAILY_CHANGE_PCT: daily_change_pct,
             FieldName.AGENT_LOGS: list(reversed(self.agent_logs[-50:])),
             FieldName.LEARNING_EVENTS: self.get_overall_grades(limit=20),
-            FieldName.PROPOSALS: [
-                e
-                for e in reversed(self.event_history[-100:])
-                if e.get(FieldName.LOG_TYPE) == LogType.PROPOSAL
-            ][:20],
+            FieldName.PROPOSALS: self.normalized_proposals(limit=20),
             FieldName.TRADE_FEED: list(reversed(self.trade_feed[-50:])),
             FieldName.SIGNALS: [],
             FieldName.RISK_ALERTS: [],
