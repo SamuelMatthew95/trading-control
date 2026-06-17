@@ -733,6 +733,41 @@ class MetricsAggregator:
             except Exception:
                 log_structured("warning", "raw_snapshot_trade_feed_failed", exc_info=True)
 
+            # Closed round-trips (exit_price set) — feeds the Trading page's
+            # Closed Trades panel. The memory path returns `closed_trades`
+            # (store.closed_trades); the DB path omitted it, so in DB mode the
+            # panel was always empty even with completed trades. Source is the
+            # same trade_lifecycle table the trade feed reads.
+            closed_trades: list[dict[str, Any]] = []
+            try:
+                ct_result = await self.session.execute(
+                    text("""
+                        SELECT
+                            symbol, side, qty, entry_price, exit_price,
+                            pnl, pnl_percent, filled_at, created_at
+                        FROM trade_lifecycle
+                        WHERE exit_price IS NOT NULL
+                        ORDER BY COALESCE(filled_at, created_at) DESC
+                        LIMIT 50
+                    """)
+                )
+                for row in ct_result:
+                    closed_trades.append(
+                        {
+                            "symbol": _safe_str(row[0]) or "",
+                            "side": _safe_str(row[1]) or OrderSide.BUY,
+                            "qty": _safe_float(row[2]) or None,
+                            "entry_price": _safe_float(row[3]) or None,
+                            "exit_price": _safe_float(row[4]) or None,
+                            "pnl": _safe_float(row[5]) or None,
+                            "pnl_percent": _safe_float(row[6]) or None,
+                            "filled_at": row[7].isoformat() if row[7] else None,
+                            "created_at": row[8].isoformat() if row[8] else None,
+                        }
+                    )
+            except Exception:
+                log_structured("warning", "raw_snapshot_closed_trades_failed", exc_info=True)
+
             # Recent notifications (last 50) — persisted by SafeWriter.write_notification
             # as event rows. The UI hydrates from this so buy/sell fills survive a page
             # reload instead of only appearing on the live WebSocket stream.
@@ -774,6 +809,7 @@ class MetricsAggregator:
                 FieldName.LEARNING_EVENTS: learning_events,
                 FieldName.PROPOSALS: proposals,
                 FieldName.TRADE_FEED: trade_feed,
+                FieldName.CLOSED_TRADES: closed_trades,
                 FieldName.NOTIFICATIONS: notifications,
                 FieldName.NOTIFICATION_SUMMARY: notification_summary,
                 FieldName.SIGNALS: [],
@@ -790,6 +826,7 @@ class MetricsAggregator:
                 FieldName.LEARNING_EVENTS: [],
                 FieldName.PROPOSALS: [],
                 FieldName.TRADE_FEED: [],
+                FieldName.CLOSED_TRADES: [],
                 FieldName.NOTIFICATIONS: [],
                 FieldName.NOTIFICATION_SUMMARY: {
                     FieldName.SUMMARY_VERSION: 1,
