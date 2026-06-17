@@ -430,3 +430,28 @@ configured" instead of a link.
 **Regression tests:**
 `tests/api/test_learning_routes.py::test_trigger_reflection_runs_live_agent`,
 `::test_trigger_reflection_degrades_when_no_agent`
+
+## Proposals page empty / garbled in memory mode (raw event envelopes)
+
+**Symptom:** With no Postgres (the deployment's reality) the Proposals page
+showed no usable proposals — rows had no type, no content, and shared/blank
+identities, even though proposals were being generated and hydrated from Redis.
+
+**Root cause:** The frontend hydrates `state.proposals` from `/dashboard/state`
+and the WebSocket snapshot, both of which (in memory mode) come from
+`InMemoryStore.dashboard_fallback_snapshot()`. That method emitted proposals as
+the **raw event envelopes** it stores them as — `{log_type, trace_id, payload}` —
+so the real fields (`proposal_type`, `content`, `id`, `status`, `confidence`)
+stayed nested under `payload`. The frontend reads them at the top level, so they
+all came back `undefined`: `id` fell to `Date.now()` (identity-less, duplicating
+each poll) and `proposal_type` defaulted to `parameter_change`. The DB path
+(`MetricsAggregator.get_raw_snapshot`) flattens proposals; the memory path did not.
+
+**Fix:** Added `InMemoryStore.normalized_proposals()` (+ `_normalize_proposal_event`)
+as the single source of truth that flattens envelopes to the DB-path shape.
+`dashboard_fallback_snapshot()` now uses it (covering both the REST `/dashboard/state`
+and the WebSocket snapshot), and `_in_memory_proposals` (the `/dashboard/proposals`
+endpoint) delegates to it so every memory-mode surface agrees
+(`api/in_memory_store.py`, `api/services/dashboard/proposals.py`).
+
+**Regression test:** `tests/core/test_memory_dashboard_reads.py::test_dashboard_snapshot_proposals_are_flattened_not_raw_envelopes`, `::test_dashboard_snapshot_and_proposals_endpoint_agree`

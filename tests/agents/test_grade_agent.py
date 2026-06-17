@@ -768,3 +768,103 @@ async def test_gated_decision_never_pollutes_entry_attribution(grade_agent):
         },
     )
     assert "ETH/USD" not in grade_agent._entry_tools
+
+
+# ---------------------------------------------------------------------------
+# Grade back-fill onto the trade feed (Learning page "Graded Trade Outcomes")
+# ---------------------------------------------------------------------------
+
+
+def _grade_payload(score_pct: float = 87.5) -> dict:
+    """Minimal agent-grade payload shape consumed by the back-fill helpers."""
+    return {
+        FieldName.SCORE_PCT: score_pct,
+        FieldName.METRICS: {FieldName.ACCURACY: 0.6, FieldName.IC: 0.12},
+    }
+
+
+@pytest.mark.asyncio
+async def test_backfill_grade_attaches_to_memory_trade_feed(grade_agent):
+    """In memory mode (no Postgres) the latest agent grade must merge onto the
+    most recent ungraded in-memory fill — otherwise the Learning page renders
+    every trade as 'NR'. Regression for the grading-page-grades fix."""
+    from api.runtime_state import get_runtime_store
+
+    store = get_runtime_store()
+    store.upsert_trade_fill(
+        {
+            FieldName.ID: "exec-1",
+            FieldName.SYMBOL: "BTC/USD",
+            FieldName.SIDE: "buy",
+            FieldName.QTY: 0.1,
+            FieldName.EXECUTION_TRACE_ID: "exec-1",
+            FieldName.STATUS: "filled",
+        }
+    )
+
+    # is_db_available() is False by default (conftest), so this routes to memory.
+    await grade_agent._backfill_grade_to_lifecycle("A", _grade_payload(), "grade-trace")
+
+    row = store.trade_feed[0]
+    assert row[FieldName.GRADE] == "A"
+    assert row[FieldName.GRADE_SCORE] == 87.5
+    assert row[FieldName.STATUS] == "graded"
+    assert row.get(FieldName.GRADED_AT)
+    assert row.get(FieldName.GRADE_LABEL)
+
+
+@pytest.mark.asyncio
+async def test_backfill_grade_targets_newest_ungraded_fill(grade_agent):
+    """Only the newest ungraded fill is graded; an already-graded row is left
+    untouched and a fresh ungraded row gets the new grade."""
+    from api.runtime_state import get_runtime_store
+
+    store = get_runtime_store()
+    store.upsert_trade_fill(
+        {
+            FieldName.ID: "old",
+            FieldName.SYMBOL: "BTC/USD",
+            FieldName.SIDE: "buy",
+            FieldName.EXECUTION_TRACE_ID: "old",
+            FieldName.STATUS: "graded",
+            FieldName.GRADE: "B",
+        }
+    )
+    store.upsert_trade_fill(
+        {
+            FieldName.ID: "new",
+            FieldName.SYMBOL: "ETH/USD",
+            FieldName.SIDE: "sell",
+            FieldName.EXECUTION_TRACE_ID: "new",
+            FieldName.STATUS: "filled",
+        }
+    )
+
+    await grade_agent._backfill_grade_to_lifecycle("A", _grade_payload(91.0), "grade-trace")
+
+    by_id = {r[FieldName.EXECUTION_TRACE_ID]: r for r in store.trade_feed}
+    assert by_id["old"][FieldName.GRADE] == "B"  # untouched
+    assert by_id["new"][FieldName.GRADE] == "A"  # freshly graded
+    assert by_id["new"][FieldName.GRADE_SCORE] == 91.0
+
+
+@pytest.mark.asyncio
+async def test_backfill_grade_noop_when_no_ungraded_fills(grade_agent):
+    """No ungraded fills → nothing to attach; the helper is a safe no-op."""
+    from api.runtime_state import get_runtime_store
+
+    store = get_runtime_store()
+    store.upsert_trade_fill(
+        {
+            FieldName.ID: "done",
+            FieldName.SYMBOL: "BTC/USD",
+            FieldName.SIDE: "buy",
+            FieldName.EXECUTION_TRACE_ID: "done",
+            FieldName.STATUS: "graded",
+            FieldName.GRADE: "C",
+        }
+    )
+
+    await grade_agent._backfill_grade_to_lifecycle("A", _grade_payload(), "grade-trace")
+
+    assert store.trade_feed[0][FieldName.GRADE] == "C"  # unchanged

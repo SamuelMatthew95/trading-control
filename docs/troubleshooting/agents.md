@@ -262,3 +262,15 @@ the DB is up, else summing today's closes from `RedisStore.list_closed_trades()`
 **Fix:** The DB query now binds the UTC calendar day, matching the memory path and the UTC timestamps agents stamp on trades (`api/services/agents/risk_guardian.py::_today_realized_pnl`). Both ISO-timestamp parse sites in the guardian were also consolidated into a single `_parse_utc_datetime` helper so format handling can't drift.
 
 **Regression test:** `tests/agents/test_risk_guardian.py::test_db_daily_pnl_query_binds_utc_date`
+
+---
+
+## Learning page "Graded Trade Outcomes" showed NR for every trade in memory mode
+
+**Symptom:** On the deployed dashboard (no Postgres) the Learning page's "Graded Trade Outcomes" table rendered every fill with grade **NR**, blank P&L, and no score — grades never appeared even though the GradeAgent was producing them.
+
+**Root cause:** `GradeAgent._backfill_grade_to_lifecycle()` attached the latest agent grade onto the most recent ungraded trade row only in DB mode — it `return`ed immediately when `is_db_available()` was `False`. The deployment runs in memory mode, where the in-memory `store.trade_feed` is the ONLY trade record, so its rows never received a `grade`/`grade_score` and the UI read each as NR.
+
+**Fix:** The back-fill now branches: memory mode merges the grade onto the newest ungraded in-memory fill via `store.upsert_trade_fill()` (keyed on `execution_trace_id`, preserving the original `created_at` so feed ordering doesn't jump), mirroring the existing DB path (`api/services/agents/grade_agent.py::_backfill_grade_to_memory`).
+
+**Regression test:** `tests/agents/test_grade_agent.py::test_backfill_grade_attaches_to_memory_trade_feed`

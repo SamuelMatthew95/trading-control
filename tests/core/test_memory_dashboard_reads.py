@@ -129,6 +129,63 @@ def test_memory_proposals_have_unique_ids_and_applied_rows_are_not_pending():
     assert audit["status"] == ProposalStatus.APPLIED
 
 
+def test_dashboard_snapshot_proposals_are_flattened_not_raw_envelopes():
+    """Regression: in memory mode dashboard_fallback_snapshot() (the
+    /dashboard/state + WebSocket snapshot the Proposals page hydrates from)
+    returned raw event envelopes — proposal_type/content/id/status lived under
+    `payload`, so the frontend rendered identity-less, garbled rows. The
+    snapshot must emit the SAME flattened shape as the DB path."""
+    from api.constants import OrderStatus
+
+    store = InMemoryStore()
+    store.add_event(
+        {
+            FieldName.LOG_TYPE: LogType.PROPOSAL,
+            FieldName.TRACE_ID: "refl-1",
+            FieldName.PAYLOAD: {
+                FieldName.MSG_ID: "msg-1",
+                FieldName.PROPOSAL_TYPE: "prompt_evolution",
+                FieldName.CONTENT: {FieldName.DESCRIPTION: "sharpen directive"},
+                FieldName.CONFIDENCE: 0.82,
+            },
+        }
+    )
+
+    rows = store.dashboard_fallback_snapshot()[FieldName.PROPOSALS]
+    assert len(rows) == 1
+    row = rows[0]
+    # Flattened to top level — not buried under `payload`.
+    assert FieldName.PAYLOAD not in row
+    assert row[FieldName.ID] == "msg-1"
+    assert row["proposal_type"] == "prompt_evolution"
+    assert row["confidence"] == 0.82
+    assert row["status"] == OrderStatus.PENDING
+
+
+def test_dashboard_snapshot_and_proposals_endpoint_agree():
+    """The /dashboard/state snapshot and the /dashboard/proposals endpoint must
+    surface identical proposal rows (both flow through normalized_proposals)."""
+    from api.services.dashboard.proposals import _in_memory_proposals
+
+    store = InMemoryStore()
+    store.add_event(
+        {
+            FieldName.LOG_TYPE: LogType.PROPOSAL,
+            FieldName.TRACE_ID: "refl-2",
+            FieldName.PAYLOAD: {
+                FieldName.MSG_ID: "msg-2",
+                FieldName.PROPOSAL_TYPE: "parameter_change",
+                FieldName.CONTENT: {FieldName.DESCRIPTION: "raise threshold"},
+            },
+        }
+    )
+    set_runtime_store(store)
+
+    snapshot_rows = store.dashboard_fallback_snapshot()[FieldName.PROPOSALS]
+    endpoint_rows = _in_memory_proposals(limit=20)
+    assert snapshot_rows == endpoint_rows
+
+
 def test_grade_history_views_exclude_signal_accuracy_rows():
     """Memory mode must apply the same grade-history filter as the DB path:
     SignalGenerator's per-signal accuracy rows share grade_history but are not
