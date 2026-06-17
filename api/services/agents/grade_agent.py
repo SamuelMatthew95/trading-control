@@ -38,7 +38,7 @@ from api.database import AsyncSessionFactory
 from api.events.bus import EventBus
 from api.events.dlq import DLQManager
 from api.observability import log_structured
-from api.runtime_state import is_db_available
+from api.runtime_state import get_runtime_store, is_db_available
 from api.services.agent_heartbeat import write_heartbeat as _write_heartbeat
 from api.services.agent_pnl_store import get_agent_pnl_store
 from api.services.agent_state import AgentStateRegistry
@@ -400,17 +400,24 @@ class GradeAgent(MultiStreamAgent):
     async def _backfill_grade_to_lifecycle(
         self, grade: str, payload: dict[str, Any], trace_id: str
     ) -> None:
-        """Back-fill grade onto the most recent unfilled trade_lifecycle row. DB mode only."""
+        """Back-fill the latest agent grade onto the most recent ungraded trade.
+
+        The Learning page's "Graded Trade Outcomes" table reads the grade from
+        the trade row itself. In DB mode that row lives in ``trade_lifecycle``;
+        in memory mode (no Postgres — the deployment's reality) the in-memory
+        trade feed is the ONLY trade record, so the grade has to be merged
+        there too. Without the memory branch every fill rendered as "NR".
+        """
+        grade_label = (
+            f"Grade {grade}: accuracy={payload[FieldName.METRICS][FieldName.ACCURACY]:.0%} "
+            f"IC={payload[FieldName.METRICS][FieldName.IC]:+.3f}"
+        )
         if not is_db_available():
+            self._backfill_grade_to_memory(grade, payload, trace_id, grade_label)
             return
         try:
-            from api.database import AsyncSessionFactory  # noqa: PLC0415
             from api.services.agents.db_helpers import upsert_trade_lifecycle  # noqa: PLC0415
 
-            grade_label = (
-                f"Grade {grade}: accuracy={payload[FieldName.METRICS][FieldName.ACCURACY]:.0%} "
-                f"IC={payload[FieldName.METRICS][FieldName.IC]:+.3f}"
-            )
             async with AsyncSessionFactory() as _sess:
                 row = await _sess.execute(
                     text("""
@@ -434,6 +441,46 @@ class GradeAgent(MultiStreamAgent):
                 )
         except Exception:
             log_structured("warning", "grade_lifecycle_update_failed", exc_info=True)
+
+    def _backfill_grade_to_memory(
+        self, grade: str, payload: dict[str, Any], trace_id: str, grade_label: str
+    ) -> None:
+        """Merge the latest grade onto the newest ungraded in-memory trade row.
+
+        Mirrors the DB back-fill: the most recent fill that has not yet been
+        graded gets this cycle's agent grade. Keyed on execution_trace_id so
+        ``upsert_trade_fill`` merges into the existing row instead of appending
+        a duplicate, and the original ``created_at`` is preserved so the feed
+        ordering does not jump when a grade lands.
+        """
+        try:
+            store = get_runtime_store()
+            target = next(
+                (
+                    row
+                    for row in reversed(store.trade_feed)
+                    if not row.get(FieldName.GRADE)
+                    and (row.get(FieldName.EXECUTION_TRACE_ID) or row.get(FieldName.ORDER_ID))
+                ),
+                None,
+            )
+            if target is None:
+                return
+            store.upsert_trade_fill(
+                {
+                    FieldName.EXECUTION_TRACE_ID: target.get(FieldName.EXECUTION_TRACE_ID),
+                    FieldName.ORDER_ID: target.get(FieldName.ORDER_ID),
+                    FieldName.CREATED_AT: target.get(FieldName.CREATED_AT),
+                    FieldName.GRADE: grade,
+                    FieldName.GRADE_SCORE: payload[FieldName.SCORE_PCT],
+                    FieldName.GRADE_LABEL: grade_label,
+                    FieldName.GRADE_TRACE_ID: trace_id,
+                    FieldName.GRADED_AT: datetime.now(timezone.utc).isoformat(),
+                    FieldName.STATUS: "graded",
+                }
+            )
+        except Exception:
+            log_structured("warning", "grade_memory_update_failed", exc_info=True)
 
     def _self_correction(self, score: float, dimension_vector: dict[str, Any]) -> dict[str, Any]:
         """Build the self-correction diagnostic, then fold this cycle into history.
