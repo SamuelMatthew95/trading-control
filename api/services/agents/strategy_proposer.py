@@ -36,7 +36,11 @@ from api.services.agents.prompts import (
     STRATEGY_PLANNING_PROMPT,
 )
 from api.services.agents.proposal_guardrails import register_proposal_creation
-from api.services.param_evolution import tunable_parameters, validate_param_change
+from api.services.param_evolution import (
+    parameter_for_hypothesis,
+    tunable_parameters,
+    validate_param_change,
+)
 
 # ---------------------------------------------------------------------------
 # StrategyProposer — converts reflection hypotheses into concrete proposals
@@ -354,7 +358,10 @@ class StrategyProposer(MultiStreamAgent):
 
     @staticmethod
     def _attach_concrete_param_change(
-        content: dict[str, Any], hypothesis: dict[str, Any], description: str
+        content: dict[str, Any],
+        hypothesis: dict[str, Any],
+        description: str,
+        default_parameter: str | None = None,
     ) -> None:
         """Promote a PARAMETER_CHANGE to a CONCRETE, bounds-valid change when the
         hypothesis names an allowlisted parameter + numeric target.
@@ -364,8 +371,13 @@ class StrategyProposer(MultiStreamAgent):
         needs ``parameter`` + ``new_value`` on the content, and the reflection
         hypothesis used to carry neither. A change that isn't allowlisted or is
         out of bounds safely degrades to the description-only review item.
+
+        ``default_parameter`` is the parameter inferred from the hypothesis's
+        semantic category (see :func:`parameter_for_hypothesis`); it is used when
+        the hypothesis did not name a parameter explicitly, so a value-bearing
+        signal_confidence / threshold hypothesis still opens a concrete PR.
         """
-        parameter = hypothesis.get(FieldName.PARAMETER)
+        parameter = hypothesis.get(FieldName.PARAMETER) or default_parameter
         proposed_value = hypothesis.get(FieldName.PROPOSED_VALUE)
         if proposed_value is None:
             proposed_value = hypothesis.get(FieldName.NEW_VALUE)
@@ -425,6 +437,23 @@ class StrategyProposer(MultiStreamAgent):
             base[FieldName.CONTENT][FieldName.NOTE] = (
                 "Spawn a parallel challenger agent with the proposed config changes. "
                 "It runs alongside the current agent; retire it via the dashboard."
+            )
+        elif (mapped_param := parameter_for_hypothesis(hyp_type)) is not None:
+            # A hypothesis that names a tunable parameter concern (e.g.
+            # "signal confidence is too low") IS a parameter-tuning request, not
+            # a code/feature request. Route it to the auto-applyable
+            # PARAMETER_CHANGE path instead of re-filing it every cycle as an
+            # un-actionable REGIME_ADJUSTMENT GitHub issue — the recurring-issue
+            # bug (#324 → #334 → …) where date-keyed dedup reopens the same
+            # generic proposal daily with no path to ever auto-resolve. When the
+            # hypothesis named no explicit parameter, stamp the mapped one so a
+            # concrete, bounds-valid value the LLM proposed still opens a real
+            # config PR; otherwise it degrades to a description-only review item
+            # (still NOT a GitHub issue).
+            base[FieldName.PROPOSAL_TYPE] = ProposalType.PARAMETER_CHANGE
+            base[FieldName.CONTENT][FieldName.IMPLEMENTATION] = "db_update"
+            self._attach_concrete_param_change(
+                base[FieldName.CONTENT], hypothesis, description, default_parameter=mapped_param
             )
         else:
             base[FieldName.PROPOSAL_TYPE] = ProposalType.REGIME_ADJUSTMENT
