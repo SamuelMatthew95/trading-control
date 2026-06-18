@@ -6,6 +6,39 @@ and the dashboard Proposal Queue (ingestion, approve/reject, empty state).
 
 ---
 
+## Same "signal confidence too low" proposal re-files a GitHub issue every day (issue #334)
+
+**Symptom:** The learning loop opened a fresh `[auto] regime_adjustment` GitHub
+issue for the *identical* generic hypothesis — "The model's signal confidence is
+too low, resulting in suboptimal trade execution" (regime `losing`) — on a
+recurring basis (issue #324, then #334, …). The earlier code fix (#324, graduated
+confidence in `signal_generator`) did not stop the recurrence because the
+proposal is produced upstream of the signal generator entirely.
+
+**Root cause:** `StrategyProposer._build_proposal` routed only the exact literal
+`type == "parameter"` hypothesis to the auto-applyable `PARAMETER_CHANGE` path.
+A `type == "signal_confidence"` hypothesis — which is really a request to tune
+`SIGNAL_CONFIDENCE_MIN_GATE`, an allowlisted auto-tunable parameter — fell into
+the `else` branch → `REGIME_ADJUSTMENT` → a GitHub issue claiming it "needs
+code." Proposal dedup is **date-keyed** (`proposal_guardrails`, resets daily),
+so the same hypothesis reopened a brand-new issue every cycle with no path to
+ever auto-resolve.
+
+**Fix:** Added `HYPOTHESIS_PARAM_MAP` + `parameter_for_hypothesis()` to
+`api/services/param_evolution.py` (the single source of truth for tunables) and
+a routing branch in `StrategyProposer._build_proposal`: a hypothesis whose
+category maps to a known tunable parameter now routes to `PARAMETER_CHANGE`
+(opening a concrete, bounds-valid config PR when the hypothesis carries a value,
+else a description-only review item) instead of a recurring `REGIME_ADJUSTMENT`
+GitHub issue. Genuinely strategic categories (`regime`, vague `risk_management`)
+stay unmapped, so real design proposals still reach a human.
+
+**Regression test:**
+`tests/agents/test_strategy_proposer.py::test_signal_confidence_hypothesis_routes_to_parameter_change`,
+`tests/core/test_param_evolution.py::test_signal_confidence_hypothesis_maps_to_gate`
+
+---
+
 ## Proposal queue duplicated rows, showed everything as "pending", and approve/reject 404'd
 
 **Symptom:** On the Proposals page, the same proposal piled up as new rows on

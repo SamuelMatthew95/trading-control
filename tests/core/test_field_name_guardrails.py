@@ -221,6 +221,7 @@ SQL_BIND_HEAVY_FILES: frozenset[str] = frozenset(
         "api/core/writer/safe_writer.py",
         "api/database.py",
         "api/services/gitops_publisher.py",  # GitHub REST API contract dict keys
+        "api/services/param_evolution.py",  # HYPOTHESIS_PARAM_MAP keys are hypothesis-category identifiers, not payload fields
         "api/events/dlq.py",
         "api/health.py",
         "api/in_memory_store.py",
