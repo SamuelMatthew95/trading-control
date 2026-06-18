@@ -52,6 +52,49 @@ PARAM_BOUNDS: dict[str, tuple[float, float]] = {
 
 _NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
+# Maps a reflection hypothesis's semantic category (its ``type``) onto the
+# auto-tunable parameter that category governs. A hypothesis that names one of
+# these concerns — e.g. "signal confidence is too low" — IS a parameter-tuning
+# request, NOT a request for new code. Routing it to the auto-applyable
+# PARAMETER_CHANGE path (instead of the REGIME_ADJUSTMENT human-design issue)
+# is what stops the learning loop re-filing the same generic proposal as a fresh
+# GitHub issue every day (the recurring-issue bug: #324 → #334 → …). Proposal
+# dedup is date-keyed and resets daily, so a mis-routed parameter hypothesis
+# reopens an issue every cycle with no path to ever auto-resolve.
+#
+# Only concrete, single-parameter concepts belong here. Genuinely broad strategy
+# concerns ("regime", vague "risk_management") stay OUT so they still route to
+# the human-design REGIME_ADJUSTMENT issue. Every value MUST be a key in
+# PARAM_BOUNDS (asserted by test_param_evolution).
+HYPOTHESIS_PARAM_MAP: dict[str, str] = {
+    "signal_confidence": "SIGNAL_CONFIDENCE_MIN_GATE",
+    "confidence": "SIGNAL_CONFIDENCE_MIN_GATE",
+    "confidence_gate": "SIGNAL_CONFIDENCE_MIN_GATE",
+    "execution_threshold": "EXECUTION_DECISION_THRESHOLD",
+    "execution_decision_threshold": "EXECUTION_DECISION_THRESHOLD",
+    "decision_threshold": "EXECUTION_DECISION_THRESHOLD",
+    "stop_loss": "STOP_LOSS_PCT",
+    "take_profit": "TAKE_PROFIT_PCT",
+    "risk_per_trade": "MAX_RISK_PER_TRADE_PCT",
+    "position_size": "MAX_RISK_PER_TRADE_PCT",
+    "position_sizing": "MAX_RISK_PER_TRADE_PCT",
+    "kelly": "KELLY_FRACTION_SCALE",
+    "trailing_stop": "TRAILING_STOP_ARM_PCT",
+}
+
+
+def parameter_for_hypothesis(hypothesis_type: str | None) -> str | None:
+    """Return the auto-tunable parameter a hypothesis category governs, or None.
+
+    Pure. ``None`` for an unknown / empty / genuinely-strategic category, which
+    keeps those on the human-design REGIME_ADJUSTMENT path. Used by the
+    StrategyProposer to classify a parameter-shaped hypothesis as a
+    PARAMETER_CHANGE rather than a recurring REGIME_ADJUSTMENT GitHub issue.
+    """
+    if not hypothesis_type:
+        return None
+    return HYPOTHESIS_PARAM_MAP.get(hypothesis_type.strip().lower())
+
 
 def validate_param_change(parameter: str, proposed_value: object) -> str | None:
     """Return an error string if this change is not safe to apply, else None.
