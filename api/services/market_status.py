@@ -96,6 +96,26 @@ def _observed(holiday: date) -> date:
     return holiday
 
 
+def _parse_hhmm(value: str | None) -> time | None:
+    """Parse a 24-hour ``"HH:MM"`` string into a :class:`datetime.time`.
+
+    Returns ``None`` for empty / malformed input so a typo in operator config is
+    treated as "no window" rather than raising on the hot path.
+    """
+    if not value:
+        return None
+    parts = str(value).strip().split(":")
+    if len(parts) != 2:
+        return None
+    try:
+        hour, minute = int(parts[0]), int(parts[1])
+    except ValueError:
+        return None
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return time(hour, minute)
+
+
 @lru_cache(maxsize=16)
 def market_holidays(year: int) -> frozenset[date]:
     """Full-day NYSE/NASDAQ closures for ``year`` as observed dates."""
@@ -185,6 +205,27 @@ class MarketStatusService:
         if "/" in (symbol or ""):  # crypto pairs are written BASE/QUOTE
             return True
         return self.is_open(now)
+
+    def is_within_window(self, start_hhmm: str, end_hhmm: str, now: datetime | None = None) -> bool:
+        """True iff the current ET wall-clock time falls within ``[start, end)``.
+
+        Bounds are 24-hour ``"HH:MM"`` strings interpreted in Eastern Time. A
+        window whose start is later than its end wraps past midnight (e.g.
+        ``"23:00"``–``"02:00"``). A malformed bound or ``start == end`` means "no
+        window" → ``False``. Pass a timezone-aware ``now`` for deterministic
+        tests; omit it to use the live clock. This is a pure wall-clock check —
+        independent of session / holiday state — so it composes with (does not
+        replace) :meth:`is_symbol_open`.
+        """
+        start = _parse_hhmm(start_hhmm)
+        end = _parse_hhmm(end_hhmm)
+        if start is None or end is None or start == end:
+            return False
+        now_et = (now.astimezone(_ET) if now is not None else datetime.now(_ET)).time()
+        if start < end:
+            return start <= now_et < end
+        # Wrap past midnight: inside if at/after start OR before end.
+        return now_et >= start or now_et < end
 
 
 _service: MarketStatusService | None = None
