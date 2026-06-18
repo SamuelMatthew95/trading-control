@@ -7,7 +7,12 @@ their safe ranges, enforced identically at propose-, surface-, and apply-time.
 from __future__ import annotations
 
 from api import constants as _constants
-from api.services.param_evolution import PARAM_BOUNDS, validate_param_change
+from api.services.param_evolution import (
+    HYPOTHESIS_PARAM_MAP,
+    PARAM_BOUNDS,
+    parameter_for_hypothesis,
+    validate_param_change,
+)
 
 
 def test_validate_rejects_unknown_parameter():
@@ -60,3 +65,30 @@ def test_default_values_are_within_their_own_bounds():
     for name, (lo, hi) in PARAM_BOUNDS.items():
         val = float(getattr(_constants, name))
         assert lo <= val <= hi, f"default {name}={val} outside its bound [{lo}, {hi}]"
+
+
+# ---------------------------------------------------------------------------
+# Hypothesis → parameter mapping (issue #334 — stop the recurring proposal)
+# ---------------------------------------------------------------------------
+
+
+def test_every_mapped_parameter_is_auto_tunable():
+    """Every parameter a hypothesis can map to MUST be in PARAM_BOUNDS, or the
+    StrategyProposer would route a hypothesis to a parameter the loop can't
+    actually tune — re-creating the dead-end the mapping exists to fix."""
+    for hyp_type, param in HYPOTHESIS_PARAM_MAP.items():
+        assert param in PARAM_BOUNDS, f"{hyp_type!r} maps to {param}, not in PARAM_BOUNDS"
+
+
+def test_signal_confidence_hypothesis_maps_to_gate():
+    """The exact category from issue #334 resolves to the confidence gate."""
+    assert parameter_for_hypothesis("signal_confidence") == "SIGNAL_CONFIDENCE_MIN_GATE"
+    # Case / whitespace insensitive — LLM output is not normalized upstream.
+    assert parameter_for_hypothesis("  Signal_Confidence  ") == "SIGNAL_CONFIDENCE_MIN_GATE"
+
+
+def test_genuinely_strategic_categories_stay_unmapped():
+    """Broad strategy concerns must return None so they still route to the
+    human-design REGIME_ADJUSTMENT issue, not the parameter queue."""
+    for category in ("regime", "risk_management", "new_strategy", "", None):
+        assert parameter_for_hypothesis(category) is None
