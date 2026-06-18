@@ -406,3 +406,13 @@ so an absent/slow local-inference host can no longer delay boot by 10s or
 interfere with startup at all.
 
 **Regression test:** `tests/core/test_startup_streams_barrier.py`
+
+## Closed Trades panel empty in DB mode (missing from /dashboard/state)
+
+**Symptom:** In DB mode the Trading page's Closed Trades panel showed "no closed trades" even when completed round-trips existed. Memory mode showed them correctly, so the bug was DB-mode-only.
+
+**Root cause:** `MetricsAggregator.get_raw_snapshot()` (the DB source for both REST `/dashboard/state` and the WebSocket `dashboard_update`) never returned a `closed_trades` key. The memory path (`InMemoryStore.dashboard_fallback_snapshot()`) always did, so the two modes disagreed. The frontend hydrates `closedTrades` only from `data.closed_trades`, so in DB mode the panel had no source.
+
+**Fix:** `get_raw_snapshot()` now queries closed round-trips from `trade_lifecycle WHERE exit_price IS NOT NULL` (the same table the trade feed reads) and returns them under `FieldName.CLOSED_TRADES`, matching the memory-path shape (`api/services/metrics_aggregator.py`).
+
+**Regression test:** `tests/core/test_data_fetch_guardrails.py::TestRawSnapshotDataSources::test_closed_trades_come_from_trade_lifecycle_round_trips` (and `closed_trades` added to `test_raw_snapshot_returns_required_keys`)

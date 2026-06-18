@@ -137,6 +137,7 @@ class TestRawSnapshotDataSources:
                 [grade_row],  # agent_grades  <-- the row we care about
                 [],  # proposals
                 [],  # trade_lifecycle
+                [],  # trade_lifecycle closed trades
             ]
         )
 
@@ -180,6 +181,7 @@ class TestRawSnapshotDataSources:
                 [],  # agent_grades
                 [proposal_row],  # proposals from agent_logs WHERE log_type='proposal'
                 [],  # trade_lifecycle
+                [],  # trade_lifecycle closed trades
             ]
         )
 
@@ -234,6 +236,7 @@ class TestRawSnapshotDataSources:
                 [],  # agent_grades
                 # proposals: skipped (no log_type column) — no queue slot consumed
                 [trade_row],  # trade_lifecycle  <-- the row we care about
+                [],  # trade_lifecycle closed trades
             ]
         )
 
@@ -250,6 +253,50 @@ class TestRawSnapshotDataSources:
         assert t["grade"] == "A"
         assert t["execution_trace_id"] == "exec-trace"
         assert t["signal_trace_id"] == "sig-trace"
+
+    @pytest.mark.asyncio
+    async def test_closed_trades_come_from_trade_lifecycle_round_trips(self) -> None:
+        """Closed round-trips (exit_price set) must hydrate as closed_trades.
+
+        Regression: the DB path omitted closed_trades entirely, so in DB mode the
+        Trading page's Closed Trades panel was always empty even with completed
+        trades. The memory path always returned them — this restores parity.
+        """
+        ts = datetime(2025, 1, 5, 0, 0, 0, tzinfo=timezone.utc)
+        # Shape matches the closed_trades SELECT: symbol, side, qty, entry_price,
+        # exit_price, pnl, pnl_percent, filled_at, created_at.
+        closed_row = ["ETH/USD", "sell", 0.5, 2500.0, 2400.0, -50.0, -2.0, ts, ts]
+
+        session = _FakeSession(
+            [
+                [],  # orders
+                [],  # positions
+                [
+                    _Row(column_name="id", udt_name="uuid"),
+                    _Row(column_name="created_at", udt_name="timestamptz"),
+                ],  # column introspection
+                [],  # agent_logs
+                [],  # agent_grades
+                # proposals: skipped (no log_type column) — no queue slot consumed
+                [],  # trade_lifecycle (trade_feed)
+                [closed_row],  # trade_lifecycle closed trades  <-- the row we care about
+            ]
+        )
+
+        agg = MetricsAggregator(session)
+        result = await agg.get_raw_snapshot()
+
+        assert "closed_trades" in result
+        assert len(result["closed_trades"]) == 1
+        c = result["closed_trades"][0]
+        assert c["symbol"] == "ETH/USD"
+        assert c["side"] == "sell"
+        assert c["qty"] == 0.5
+        assert c["entry_price"] == 2500.0
+        assert c["exit_price"] == 2400.0
+        assert c["pnl"] == -50.0
+        assert c["pnl_percent"] == -2.0
+        assert c["filled_at"] == ts.isoformat()
 
     @pytest.mark.asyncio
     async def test_notifications_come_from_events_table(self) -> None:
@@ -287,6 +334,7 @@ class TestRawSnapshotDataSources:
                 [],  # agent_grades
                 # proposals: skipped (no log_type column) — no queue slot consumed
                 [],  # trade_lifecycle
+                [],  # trade_lifecycle closed trades
                 [notif_row],  # notifications  <-- the row we care about
             ]
         )
@@ -331,6 +379,7 @@ class TestRawSnapshotDataSources:
             "learning_events",
             "proposals",
             "trade_feed",
+            "closed_trades",
             "notifications",
             "signals",
             "risk_alerts",
