@@ -155,6 +155,88 @@ async def test_publishes_regime_adjustment_proposal(strategy_proposer, mock_bus)
 
 
 # ---------------------------------------------------------------------------
+# Parameter-shaped hypotheses must NOT recur as REGIME_ADJUSTMENT issues
+# (regression for issue #334 — the same generic "signal confidence too low"
+# proposal re-filed a fresh GitHub issue every day because a `signal_confidence`
+# hypothesis was mis-routed to REGIME_ADJUSTMENT instead of the auto-applyable
+# PARAMETER_CHANGE path. See api/services/param_evolution.HYPOTHESIS_PARAM_MAP.)
+# ---------------------------------------------------------------------------
+
+
+async def test_signal_confidence_hypothesis_routes_to_parameter_change(strategy_proposer, mock_bus):
+    """A 'signal_confidence' hypothesis is a parameter-tuning request, not a
+    code/feature one — it must route to parameter_change, never the recurring
+    regime_adjustment GitHub issue (issue #334)."""
+    reflection_data = {
+        "trace_id": "trace-334",
+        "hypotheses": [
+            {
+                "description": "The model's signal confidence is too low, "
+                "resulting in suboptimal trade execution.",
+                "confidence": 0.8,
+                "type": "signal_confidence",
+            },
+        ],
+    }
+    await strategy_proposer.process("reflection_outputs", "id-1", reflection_data)
+
+    proposals_calls = [c for c in mock_bus.publish.call_args_list if c[0][0] == "proposals"]
+    assert len(proposals_calls) == 1
+    proposal = proposals_calls[0][0][1]
+    assert proposal["proposal_type"] == "parameter_change"
+    assert proposal["content"]["implementation"] == "db_update"
+    # No GitHub issue path: parameter_change never publishes to github_prs.
+    github_calls = [c for c in mock_bus.publish.call_args_list if c[0][0] == "github_prs"]
+    assert len(github_calls) == 0
+
+
+async def test_signal_confidence_with_value_emits_concrete_param_change(
+    strategy_proposer, mock_bus
+):
+    """When the hypothesis carries an in-bounds value, the mapped parameter is
+    stamped concretely so the applier can open a real config PR."""
+    reflection_data = {
+        "trace_id": "trace-334b",
+        "hypotheses": [
+            {
+                "description": "signal confidence floor too low",
+                "confidence": 0.85,
+                "type": "signal_confidence",
+                "proposed_value": 0.55,
+            },
+        ],
+    }
+    await strategy_proposer.process("reflection_outputs", "id-1", reflection_data)
+
+    proposal = [c for c in mock_bus.publish.call_args_list if c[0][0] == "proposals"][0][0][1]
+    content = proposal["content"]
+    assert proposal["proposal_type"] == "parameter_change"
+    assert content["parameter"] == "SIGNAL_CONFIDENCE_MIN_GATE"
+    assert content["new_value"] == 0.55
+
+
+async def test_regime_hypothesis_still_files_human_issue(strategy_proposer, mock_bus):
+    """A genuinely strategic 'regime' hypothesis (not a tunable parameter) must
+    still route to regime_adjustment so it reaches a human — the routing fix
+    must not swallow real design proposals."""
+    reflection_data = {
+        "trace_id": "trace-regime2",
+        "regime_edge": {"current_regime": "losing"},
+        "hypotheses": [
+            {
+                "description": "rotate to a mean-reversion strategy",
+                "confidence": 0.8,
+                "type": "regime",
+            },
+        ],
+    }
+    await strategy_proposer.process("reflection_outputs", "id-1", reflection_data)
+
+    proposal = [c for c in mock_bus.publish.call_args_list if c[0][0] == "proposals"][0][0][1]
+    assert proposal["proposal_type"] == "regime_adjustment"
+
+
+# ---------------------------------------------------------------------------
 # Notification per proposal
 # ---------------------------------------------------------------------------
 
