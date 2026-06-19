@@ -412,3 +412,79 @@ def test_tunable_parameters_helper_exposes_current_and_bounds():
         assert set(meta) == {"current", "min", "max"}
         assert isinstance(meta["current"], float)
         assert meta["min"] <= meta["max"]
+
+
+# ---------------------------------------------------------------------------
+# Claude-Code-ready briefs + honest evidence tiering (issue #341 fix)
+# ---------------------------------------------------------------------------
+
+
+async def test_design_proposal_carries_brief_and_evidence(strategy_proposer, mock_bus):
+    """A design/issue proposal (regime/code/new_agent) carries a full brief +
+    evidence block on its content so the GitHub issue is actionable."""
+    reflection_data = {
+        "trace_id": "trace-brief",
+        "trades_analyzed": 30,
+        "win_rate": 0.45,
+        "regime_edge": {"current_regime": "risk_off"},
+        "hypotheses": [
+            {
+                "description": "rotate to a mean-reversion strategy in risk-off",
+                "confidence": 0.85,
+                "type": "regime",
+            },
+        ],
+    }
+    await strategy_proposer.process("reflection_outputs", "id-1", reflection_data)
+
+    proposal = [c for c in mock_bus.publish.call_args_list if c[0][0] == "proposals"][0][0][1]
+    content = proposal["content"]
+    assert "brief" in content
+    assert "evidence" in content
+    assert content["evidence"]["sample_size"] == 30
+    assert "Ready-to-paste Claude Code prompt" in content["brief"]
+
+
+async def test_preliminary_design_proposal_brief_is_a_watch_item(strategy_proposer, mock_bus):
+    """A regime/model proposal off a tiny sample (the #341 shape) is framed as a
+    WATCH ITEM in the brief, not a confident go-ahead — it is still surfaced, never
+    blocked, but honestly tiered."""
+    reflection_data = {
+        "trace_id": "trace-prelim",
+        "trades_analyzed": 1,
+        "regime_edge": {"current_regime": "risk_off"},
+        "hypotheses": [
+            {
+                "description": "disable the model in the risk-off regime",
+                "confidence": 0.8,
+                "type": "regime",
+            },
+        ],
+    }
+    await strategy_proposer.process("reflection_outputs", "id-1", reflection_data)
+
+    proposal = [c for c in mock_bus.publish.call_args_list if c[0][0] == "proposals"][0][0][1]
+    brief = proposal["content"]["brief"]
+    assert "WATCH ITEM" in brief
+    assert "Preliminary" in brief
+
+
+async def test_parameter_proposal_stays_lean_without_a_brief(strategy_proposer, mock_bus):
+    """Parameter proposals route to a config PR / control plane, not a GitHub issue,
+    so they stay lean — no brief is attached (and the dedup fingerprint stays stable)."""
+    reflection_data = {
+        "trace_id": "trace-param-lean",
+        "trades_analyzed": 30,
+        "hypotheses": [
+            {
+                "description": "increase the signal threshold",
+                "confidence": 0.8,
+                "type": "parameter",
+            },
+        ],
+    }
+    await strategy_proposer.process("reflection_outputs", "id-1", reflection_data)
+
+    proposal = [c for c in mock_bus.publish.call_args_list if c[0][0] == "proposals"][0][0][1]
+    assert proposal["proposal_type"] == "parameter_change"
+    assert "brief" not in proposal["content"]
