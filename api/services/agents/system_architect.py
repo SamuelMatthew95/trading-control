@@ -46,7 +46,10 @@ from api.observability import log_structured
 from api.runtime_state import get_runtime_store
 from api.services.agents.db_helpers import persist_proposal
 from api.services.agents.proposal_guardrails import register_proposal_creation
-from api.services.agents.trade_scorer import aggregate_model_performance
+from api.services.agents.trade_scorer import (
+    aggregate_model_performance,
+    compute_mistake_clusters,
+)
 from api.services.proposal_brief import build_implementation_brief
 
 # Don't flag a model on fewer than this many trades — that is the issue #341
@@ -60,6 +63,11 @@ _MIN_MODEL_TRADES = 3
 _UNDERPERFORMANCE_MIN_GRADES = 5
 _UNDERPERFORMANCE_WINDOW = 8
 _UNDERPERFORMANCE_SCORE_THRESHOLD = 0.55  # mean grade score (0-1) below this
+# Self-extension: a recurring mistake cluster this frequent and costly, with no
+# dedicated automated response, is worth proposing new automation for (a new
+# observer / proposal type). Below these it is ordinary trade variance.
+_SELF_EXTENSION_MIN_COUNT = 3
+_SELF_EXTENSION_MIN_FREQUENCY = 0.3
 
 
 class SystemArchitect:
@@ -127,7 +135,11 @@ class SystemArchitect:
 
     def _gather_observations(self) -> list[tuple[dict[str, Any], str]]:
         observations: list[tuple[dict[str, Any], str]] = []
-        for builder in (self._model_governance_observation, self._underperformance_observation):
+        for builder in (
+            self._model_governance_observation,
+            self._underperformance_observation,
+            self._self_extension_observation,
+        ):
             result = builder()
             if result is not None:
                 observations.append(result)
@@ -200,6 +212,53 @@ class SystemArchitect:
             ProposalType.CODE_CHANGE, description, content, evidence, category="strategy regime fit"
         )
         return proposal, "structural_underperformance"
+
+    def _self_extension_observation(self) -> tuple[dict[str, Any], str] | None:
+        """Self-extension — the loop proposing to grow its OWN proposal taxonomy.
+
+        When the system repeatedly makes the SAME costly mistake with no dedicated
+        automated response, propose ADDING that automation (a new observer, or
+        rarely a new proposal type) so the loop catches the pattern on its own
+        going forward. This is "a proposal type we didn't think of", grounded in
+        real recurring mistakes — never a vacuous 'improve yourself' issue."""
+        clusters = compute_mistake_clusters(self._recent_evaluations())
+        costly = [
+            cluster
+            for cluster in clusters
+            if _int(cluster.get(FieldName.COUNT)) >= _SELF_EXTENSION_MIN_COUNT
+            and _float(cluster.get(FieldName.FREQUENCY)) >= _SELF_EXTENSION_MIN_FREQUENCY
+            and _float(cluster.get(FieldName.IMPACT)) < 0
+        ]
+        if not costly:
+            return None
+        worst = costly[0]  # clusters arrive sorted by |impact| descending
+        mistake = str(worst.get(FieldName.TYPE) or "unknown")
+        frequency = _float(worst.get(FieldName.FREQUENCY))
+        impact = _float(worst.get(FieldName.IMPACT))
+        count = _int(worst.get(FieldName.COUNT))
+        description = (
+            f"The system repeatedly makes the same mistake — '{mistake}' — in {frequency:.0%} of "
+            f"recent trades ({count} times, avg impact {impact:.4f}), yet has no DEDICATED "
+            "automated detector that recognises this pattern and proposes a fix on its own. Add a "
+            "new SystemArchitect observer (a self-extension) so the loop catches and acts on this "
+            "class of mistake automatically — extending the proposal taxonomy with a check it did "
+            "not have before."
+        )
+        evidence = {FieldName.SAMPLE_SIZE: count}
+        content = {
+            FieldName.DESCRIPTION: description,
+            FieldName.REASON: (
+                f"recurring mistake '{mistake}' — frequency {frequency:.0%}, avg impact {impact:.4f}"
+            ),
+        }
+        proposal = self._make_proposal(
+            ProposalType.CODE_CHANGE,
+            description,
+            content,
+            evidence,
+            category="self-extension new observer",
+        )
+        return proposal, f"self_extension:{mistake}"
 
     # ------------------------------------------------------------------
     # State sources + proposal assembly
