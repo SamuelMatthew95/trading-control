@@ -59,6 +59,9 @@ _THEME_PROMPT = "prompt"
 _THEME_NEW_AGENT = "new_agent"
 _THEME_EXECUTION = "execution"
 _THEME_PARAMETER = "parameter"
+# The system proposing an extension to ITSELF — a new automated detector /
+# proposal type for a recurring pattern it currently has no dedicated response to.
+_THEME_SELF_EXTENSION = "self_extension"
 _THEME_DEFAULT = "default"
 
 # Keyword tuples (NOT dict keys / membership literals — kept guardrail-clean).
@@ -74,6 +77,13 @@ _EXECUTION_WORDS = (
     "stop-loss",
     "take-profit",
     "entry gate",
+)
+_SELF_EXTENSION_WORDS = (
+    "self-extension",
+    "new observer",
+    "new detector",
+    "proposal taxonomy",
+    "automate the response",
 )
 
 _AFFECTED_AREA: dict[str, list[str]] = {
@@ -110,6 +120,12 @@ _AFFECTED_AREA: dict[str, list[str]] = {
         "api/services/param_evolution.py — PARAM_BOUNDS allowlist + validation",
         "api/constants.py — the tunable constant itself",
     ],
+    _THEME_SELF_EXTENSION: [
+        "api/services/agents/system_architect.py — add a new `_*_observation` method to the pass",
+        "api/services/proposal_brief.py — add the new theme's affected-area + mechanism menus",
+        "api/constants.py::ProposalType + api/services/agents/proposal_applier.py — only if a "
+        "genuinely new proposal TYPE (with its own handler) is warranted",
+    ],
 }
 _DEFAULT_AFFECTED_AREA: list[str] = [
     "api/services/agents/ — the agent fleet (start from the producer named in the trace)",
@@ -137,6 +153,13 @@ _MECHANISM_OPTIONS: dict[str, list[str]] = {
         "Spawn it as a SHADOW challenger first (no live orders) and promote only on evidence.",
         "Add it as a config-only variant of an existing strategy if one fits.",
         "If it needs new code, scope the smallest strategy module that backtests cleanly.",
+    ],
+    _THEME_SELF_EXTENSION: [
+        "Add a deterministic `_*_observation` method to SystemArchitect that detects this "
+        "pattern and emits an evidence-tiered, briefed proposal (the cheapest, safest option).",
+        "Add a new ProposalType + ProposalApplier handler only if the response is a distinct "
+        "control-plane / routing action the existing types cannot express.",
+        "Encode it as a reflection rule / recommendation if it is per-trade rather than systemic.",
     ],
 }
 _DEFAULT_MECHANISMS: list[str] = [
@@ -301,6 +324,11 @@ def _detect_theme(
         if part
     ).lower()
 
+    # The system proposing to extend its OWN automation comes first — it can
+    # mention a model/regime as the example pattern, but the change is to the
+    # proposal pipeline, not the model.
+    if _has_any(text, _SELF_EXTENSION_WORDS):
+        return _THEME_SELF_EXTENSION
     # A named LLM model (optionally alongside a regime — the #341 case) is a
     # model-governance proposal: surface the disable / down-weight / fallback
     # mechanism menu, not a generic regime tweak.
