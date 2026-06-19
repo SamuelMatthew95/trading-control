@@ -96,6 +96,20 @@ def test_brief_is_claude_code_ready():
     assert "Ready to implement" in brief
 
 
+def test_self_extension_brief_points_at_the_architect():
+    """A self-extension proposal (the system proposing a new automated check) must
+    point Claude Code at SystemArchitect and offer the add-an-observer mechanism."""
+    brief = build_implementation_brief(
+        proposal_type="code_change",
+        summary="Automate the response to a recurring late_entry mistake",
+        content={FieldName.DESCRIPTION: "Add a new SystemArchitect observer for late_entry"},
+        evidence={FieldName.SAMPLE_SIZE: 8},
+        category="self-extension new observer",
+    )
+    assert "system_architect.py" in brief
+    assert "_*_observation" in brief or "observer" in brief.lower()
+
+
 def test_brief_is_robust_to_empty_inputs():
     brief = build_implementation_brief(
         proposal_type="regime_adjustment",
