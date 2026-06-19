@@ -19,6 +19,19 @@ describe('coerceProposalContent', () => {
     expect(text).not.toContain('[object Object]')
   })
 
+  it('prefers a design proposal description over dumping its large brief markdown', () => {
+    const content = {
+      description: 'Govern the underperforming model in the risk-off regime',
+      hypothesis_type: 'regime',
+      brief: '## Proposal: ...\nlots of markdown\n'.repeat(50),
+      evidence: { sample_size: 1 },
+    }
+    const text = coerceProposalContent(content)
+    expect(text).toBe('Govern the underperforming model in the risk-off regime')
+    expect(text).not.toContain('## Proposal')
+    expect(text).not.toContain('{')
+  })
+
   it('falls back to a strategy summary when the object has no reason', () => {
     expect(coerceProposalContent({ strategy: 'breakout' })).toBe('Challenger: breakout')
   })
