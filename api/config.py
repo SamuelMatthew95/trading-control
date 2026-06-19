@@ -129,6 +129,20 @@ class Settings(BaseSettings):
     # orders. Set False to keep promotions to a prompt-directive bias only.
     CHALLENGER_GRADUATE_TO_CANARY: bool = True
 
+    # No-trade time window (proposal #339 — "avoid trading in the morning").
+    # When enabled, NEW long entries (BUY) are blocked while the current
+    # Eastern-Time wall clock falls within [START, END) — e.g. the volatile
+    # first 30 minutes after the 09:30 ET open. Exits (SELL) are NEVER gated, so
+    # stop-loss / take-profit / trailing closes can always de-risk during the
+    # window (same long-only-exit safety stance as the cooling-off gate).
+    # Off by default so live behavior is unchanged until an operator opts in.
+    # Bounds are 24-hour "HH:MM" in America/New_York; a window whose START is
+    # later than its END wraps past midnight. START == END (or malformed) =
+    # no window.
+    NO_TRADE_WINDOW_ENABLED: bool = False
+    NO_TRADE_WINDOW_START_ET: str = "09:30"
+    NO_TRADE_WINDOW_END_ET: str = "10:00"
+
     # Grade system
     GRADE_LOOKBACK_N: int = 20
     GRADE_WEIGHT_ACCURACY: float = 0.35

@@ -92,3 +92,12 @@ def test_genuinely_strategic_categories_stay_unmapped():
     human-design REGIME_ADJUSTMENT issue, not the parameter queue."""
     for category in ("regime", "risk_management", "new_strategy", "", None):
         assert parameter_for_hypothesis(category) is None
+
+
+def test_near_miss_confidence_aliases_route_to_gate():
+    """Defensive aliases for the #334 confidence concern resolve to the gate so a
+    slightly-different LLM category label can't reopen the recurring issue."""
+    for alias in ("low_confidence", "signal_confidence_too_low"):
+        assert parameter_for_hypothesis(alias) == "SIGNAL_CONFIDENCE_MIN_GATE"
+    for alias in ("execution_threshold_too_low", "decision_threshold_too_low"):
+        assert parameter_for_hypothesis(alias) == "EXECUTION_DECISION_THRESHOLD"

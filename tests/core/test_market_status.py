@@ -151,6 +151,57 @@ def test_stock_symbol_follows_session(svc):
 
 
 # ---------------------------------------------------------------------------
+# No-trade time window (proposal #339 — "avoid trading in the morning")
+# ---------------------------------------------------------------------------
+
+
+def test_window_inside_returns_true(svc):
+    # 09:45 ET is inside the 09:30-10:00 morning window.
+    assert svc.is_within_window("09:30", "10:00", _et(2025, 6, 10, 9, 45)) is True
+
+
+def test_window_start_is_inclusive(svc):
+    assert svc.is_within_window("09:30", "10:00", _et(2025, 6, 10, 9, 30)) is True
+
+
+def test_window_end_is_exclusive(svc):
+    # 10:00 sharp is outside [09:30, 10:00).
+    assert svc.is_within_window("09:30", "10:00", _et(2025, 6, 10, 10, 0)) is False
+
+
+def test_window_before_start_is_outside(svc):
+    assert svc.is_within_window("09:30", "10:00", _et(2025, 6, 10, 9, 0)) is False
+
+
+def test_window_after_end_is_outside(svc):
+    assert svc.is_within_window("09:30", "10:00", _et(2025, 6, 10, 11, 0)) is False
+
+
+def test_window_is_evaluated_in_eastern_time(svc):
+    # 13:45 UTC == 09:45 ET in summer (EDT, UTC-4) — must be inside the window.
+    utc_now = datetime(2025, 6, 10, 13, 45, tzinfo=ZoneInfo("UTC"))
+    assert svc.is_within_window("09:30", "10:00", utc_now) is True
+
+
+def test_window_wraps_past_midnight(svc):
+    # A 23:00-02:00 window spans midnight: 23:30 and 01:00 are inside, 12:00 is not.
+    assert svc.is_within_window("23:00", "02:00", _et(2025, 6, 10, 23, 30)) is True
+    assert svc.is_within_window("23:00", "02:00", _et(2025, 6, 10, 1, 0)) is True
+    assert svc.is_within_window("23:00", "02:00", _et(2025, 6, 10, 12, 0)) is False
+
+
+def test_window_equal_bounds_is_no_window(svc):
+    assert svc.is_within_window("09:30", "09:30", _et(2025, 6, 10, 9, 30)) is False
+
+
+def test_window_malformed_bound_is_no_window(svc):
+    now = _et(2025, 6, 10, 9, 45)
+    assert svc.is_within_window("not-a-time", "10:00", now) is False
+    assert svc.is_within_window("09:30", "", now) is False
+    assert svc.is_within_window("25:00", "10:00", now) is False  # out-of-range hour
+
+
+# ---------------------------------------------------------------------------
 # Singleton + cache
 # ---------------------------------------------------------------------------
 

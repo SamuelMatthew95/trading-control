@@ -349,6 +349,66 @@ async def test_engine_gate_all_clear_returns_none(engine):
     assert reason is None
 
 
+# ---------------------------------------------------------------------------
+# No-trade window gate (proposal #339 — "avoid trading in the morning")
+# ---------------------------------------------------------------------------
+
+
+class _WindowStub:
+    """Market-status stub forcing a deterministic is_within_window verdict."""
+
+    def __init__(self, in_window: bool) -> None:
+        self._in_window = in_window
+
+    def is_within_window(self, *_a, **_k) -> bool:
+        return self._in_window
+
+    def is_symbol_open(self, *_a, **_k) -> bool:
+        return True  # keep the market-clock gate clear so we isolate the window
+
+
+@pytest.mark.asyncio
+async def test_no_trade_window_blocks_buy_when_enabled_and_inside(engine, monkeypatch):
+    from api.services.execution import execution_engine as ee  # noqa: PLC0415
+
+    monkeypatch.setattr(ee.settings, "NO_TRADE_WINDOW_ENABLED", True)
+    monkeypatch.setattr(ee, "get_market_status", lambda: _WindowStub(True))
+    reason = await engine._check_pre_execution_gates("buy", "BTC/USD", 0.8, 0.8, "t1")
+    assert reason == "blocked:no_trade_window"
+
+
+@pytest.mark.asyncio
+async def test_no_trade_window_never_gates_sell_exits(engine, monkeypatch):
+    # Exits must stay open inside the window so the book can always de-risk.
+    from api.services.execution import execution_engine as ee  # noqa: PLC0415
+
+    monkeypatch.setattr(ee.settings, "NO_TRADE_WINDOW_ENABLED", True)
+    monkeypatch.setattr(ee, "get_market_status", lambda: _WindowStub(True))
+    reason = await engine._check_pre_execution_gates("sell", "BTC/USD", 0.8, 0.8, "t1")
+    assert reason != "blocked:no_trade_window"
+
+
+@pytest.mark.asyncio
+async def test_no_trade_window_disabled_allows_buy(engine, monkeypatch):
+    from api.services.execution import execution_engine as ee  # noqa: PLC0415
+
+    # Even "inside" the window, the disabled flag must not block.
+    monkeypatch.setattr(ee.settings, "NO_TRADE_WINDOW_ENABLED", False)
+    monkeypatch.setattr(ee, "get_market_status", lambda: _WindowStub(True))
+    reason = await engine._check_pre_execution_gates("buy", "BTC/USD", 0.8, 0.8, "t1")
+    assert reason is None
+
+
+@pytest.mark.asyncio
+async def test_no_trade_window_outside_window_allows_buy(engine, monkeypatch):
+    from api.services.execution import execution_engine as ee  # noqa: PLC0415
+
+    monkeypatch.setattr(ee.settings, "NO_TRADE_WINDOW_ENABLED", True)
+    monkeypatch.setattr(ee, "get_market_status", lambda: _WindowStub(False))
+    reason = await engine._check_pre_execution_gates("buy", "BTC/USD", 0.8, 0.8, "t1")
+    assert reason is None
+
+
 # ============================================================================
 # Execution-phase tool telemetry — risk cage / VWAP / bracket go live in the
 # tool registry so the governance panel stops showing them as permanent priors.

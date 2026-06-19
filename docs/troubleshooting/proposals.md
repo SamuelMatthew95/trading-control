@@ -6,6 +6,44 @@ and the dashboard Proposal Queue (ingestion, approve/reject, empty state).
 
 ---
 
+## Auto-proposals #334 / #338 / #339 — implementing the learning-loop's "code_change" issues
+
+**Context:** The learning loop files vague `code_change` / `regime_adjustment`
+GitHub issues for "a human to design." Three were actioned together. Each was
+implemented as a **bounded, default-neutral** lever (no live behavior change
+until an operator/control-plane opts in) rather than a literal reading of the
+machine-written text.
+
+- **#334 "signal confidence too low" (regime_adjustment).** Already largely
+  resolved by the `HYPOTHESIS_PARAM_MAP` routing fix (PR #337, see the entry
+  below). Hardened against recurrence: added near-miss category aliases
+  (`low_confidence`, `signal_confidence_too_low`, `execution_threshold_too_low`,
+  `decision_threshold_too_low`) so an un-normalized LLM label still auto-routes
+  to `PARAMETER_CHANGE` instead of reopening the issue.
+  *Regression:* `tests/core/test_param_evolution.py::test_near_miss_confidence_aliases_route_to_gate`,
+  `tests/agents/test_strategy_proposer.py::test_near_miss_confidence_alias_routes_to_parameter_change`.
+
+- **#338 "consider buying instead of selling" (code_change).** A literal sell→buy
+  inversion would defeat momentum and the risk hierarchy, so it is NOT done.
+  Implemented instead as `PolicyParams.directional_bias` (default `0.0`): an
+  additive tilt on the deterministic policy's blended score, clamped to
+  `[-1, 1]`, surfaced in `risk_factors`. It cannot bypass the confidence floor.
+  Control-plane tunable via `set_policy_params`.
+  *Regression:* `tests/core/test_decision_policy.py` (`test_positive_directional_bias_tilts_flat_signal_to_buy`,
+  `test_directional_bias_cannot_force_a_trade_below_min_confidence`, …).
+
+- **#339 "avoid trading in the morning" (code_change).** Added a configurable
+  no-trade time-window gate (`NO_TRADE_WINDOW_ENABLED` / `_START_ET` / `_END_ET`,
+  off by default). When on, NEW long entries (BUY) are blocked while the ET wall
+  clock is inside `[start, end)`; **exits (SELL) are never gated** so the book
+  can always de-risk (same long-only-exit stance as the cooling-off gate). The
+  pure window check is `MarketStatusService.is_within_window` (ET, wrap-aware);
+  the gate fires in `ExecutionEngine._check_pre_execution_gates`.
+  *Regression:* `tests/core/test_market_status.py` (window cases),
+  `tests/agents/test_execution_engine_helpers.py` (`test_no_trade_window_*`).
+
+---
+
 ## Same "signal confidence too low" proposal re-files a GitHub issue every day (issue #334)
 
 **Symptom:** The learning loop opened a fresh `[auto] regime_adjustment` GitHub

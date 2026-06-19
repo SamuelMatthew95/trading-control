@@ -215,6 +215,29 @@ async def test_signal_confidence_with_value_emits_concrete_param_change(
     assert content["new_value"] == 0.55
 
 
+async def test_near_miss_confidence_alias_routes_to_parameter_change(strategy_proposer, mock_bus):
+    """A near-miss confidence category ('low_confidence') the LLM might emit must
+    also reach PARAMETER_CHANGE, not reopen the recurring REGIME_ADJUSTMENT issue
+    (issue #334 hardening — the loop is not normalized upstream)."""
+    reflection_data = {
+        "trace_id": "trace-334-alias",
+        "regime_edge": {"current_regime": "losing"},
+        "hypotheses": [
+            {
+                "description": "signal confidence is too low for good execution",
+                "confidence": 0.8,
+                "type": "low_confidence",
+            },
+        ],
+    }
+    await strategy_proposer.process("reflection_outputs", "id-1", reflection_data)
+
+    proposal = [c for c in mock_bus.publish.call_args_list if c[0][0] == "proposals"][0][0][1]
+    assert proposal["proposal_type"] == "parameter_change"
+    github_calls = [c for c in mock_bus.publish.call_args_list if c[0][0] == "github_prs"]
+    assert len(github_calls) == 0
+
+
 async def test_regime_hypothesis_still_files_human_issue(strategy_proposer, mock_bus):
     """A genuinely strategic 'regime' hypothesis (not a tunable parameter) must
     still route to regime_adjustment so it reaches a human — the routing fix

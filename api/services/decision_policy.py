@@ -52,6 +52,13 @@ class PolicyParams:
     base_size_pct: float = 0.02  # position size as a fraction of portfolio
     stop_atr_x: float = 1.5  # ATR-multiple stop distance
     rr_ratio: float = 2.0  # reward:risk target
+    # Additive tilt applied to the blended score, clamped into [-1, 1]: >0 leans
+    # the cut toward BUY, <0 toward SELL. Default 0.0 = neutral (no behavior
+    # change). This is the safe, bounded expression of proposal #338 ("consider
+    # buying instead of selling") — a directional LEAN the control plane can dial
+    # in, NOT a literal inversion of the signal's own direction (which would
+    # defeat momentum and the risk hierarchy). Tuned via set_policy_params.
+    directional_bias: float = 0.0
 
 
 # The seed params the data plane runs until the control plane evolves them.
@@ -132,13 +139,15 @@ def decide_policy(
     imbalance = _clamp(float(book.get(FieldName.IMBALANCE) or 0.0), -1.0, 1.0)
     confidence = _clamp(float(data.get(FieldName.COMPOSITE_SCORE) or 0.0), 0.0, 1.0)
 
-    score = round(
+    blended = (
         params.w_momentum * momentum
         + params.w_sentiment * sentiment
         + params.w_macro * macro
-        + params.w_imbalance * imbalance,
-        4,
+        + params.w_imbalance * imbalance
     )
+    # Apply the directional lean (default 0.0 = no-op) and clamp back into the
+    # feature range so a large bias can never push the score outside [-1, 1].
+    score = round(_clamp(blended + params.directional_bias, -1.0, 1.0), 4)
 
     # Every contributing term is surfaced so the decision is auditable, not opaque.
     risk_factors = [
@@ -149,6 +158,8 @@ def decide_policy(
         f"score {score:+.3f}",
         f"confidence {confidence:.2f}",
     ]
+    if params.directional_bias:
+        risk_factors.append(f"directional_bias {params.directional_bias:+.2f}")
 
     # A risk-off (bearish) regime raises the conviction bar a NEW long must clear
     # to open — marginal longs are rejected (HOLD), not chased into a falling

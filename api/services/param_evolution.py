@@ -70,9 +70,19 @@ HYPOTHESIS_PARAM_MAP: dict[str, str] = {
     "signal_confidence": "SIGNAL_CONFIDENCE_MIN_GATE",
     "confidence": "SIGNAL_CONFIDENCE_MIN_GATE",
     "confidence_gate": "SIGNAL_CONFIDENCE_MIN_GATE",
+    # Defensive aliases for the same confidence concern — the reflection LLM is
+    # not normalized upstream, so a near-miss category label ("low_confidence",
+    # "signal_confidence_too_low") must still auto-route to PARAMETER_CHANGE
+    # rather than slip through to a recurring REGIME_ADJUSTMENT GitHub issue
+    # (the #324 → #334 recurrence: issue #334's hypothesis was literally
+    # "signal confidence is too low").
+    "low_confidence": "SIGNAL_CONFIDENCE_MIN_GATE",
+    "signal_confidence_too_low": "SIGNAL_CONFIDENCE_MIN_GATE",
     "execution_threshold": "EXECUTION_DECISION_THRESHOLD",
     "execution_decision_threshold": "EXECUTION_DECISION_THRESHOLD",
     "decision_threshold": "EXECUTION_DECISION_THRESHOLD",
+    "execution_threshold_too_low": "EXECUTION_DECISION_THRESHOLD",
+    "decision_threshold_too_low": "EXECUTION_DECISION_THRESHOLD",
     "stop_loss": "STOP_LOSS_PCT",
     "take_profit": "TAKE_PROFIT_PCT",
     "risk_per_trade": "MAX_RISK_PER_TRADE_PCT",

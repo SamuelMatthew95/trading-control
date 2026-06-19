@@ -123,5 +123,58 @@ def test_strong_long_still_buys_in_risk_off_regime():
     assert out[FieldName.ACTION] == AgentAction.BUY
 
 
+# ---------------------------------------------------------------------------
+# Directional bias (proposal #338 — "consider buying instead of selling")
+# ---------------------------------------------------------------------------
+
+
+def test_default_directional_bias_is_neutral_and_omits_factor():
+    """The seed params carry bias 0.0 — the score is unchanged and no bias line
+    is surfaced, so live behavior is identical until the lean is dialed in."""
+    data = {FieldName.DIRECTION: "bullish", FieldName.COMPOSITE_SCORE: 0.75}
+    ctx = _ctx(sentiment=0.2, regime=MacroRegime.RISK_ON, imbalance=0.1)
+    assert PolicyParams().directional_bias == 0.0
+    out = decide_policy(data, ctx)
+    assert all("directional_bias" not in f for f in out[FieldName.RISK_FACTORS])
+
+
+def test_positive_directional_bias_tilts_flat_signal_to_buy():
+    """A flat signal (score 0.0) HOLDs by default; a positive lean pushes it past
+    the buy threshold. Confidence is sufficient, so only the bias changes the cut."""
+    data = {FieldName.COMPOSITE_SCORE: 0.5}  # flat momentum, conviction above floor
+    ctx = _ctx()
+    neutral = decide_policy(data, ctx, PolicyParams())
+    biased = decide_policy(data, ctx, PolicyParams(directional_bias=0.2))
+    assert neutral[FieldName.ACTION] == AgentAction.HOLD
+    assert biased[FieldName.ACTION] == AgentAction.BUY
+    assert any("directional_bias +0.20" in f for f in biased[FieldName.RISK_FACTORS])
+
+
+def test_negative_directional_bias_tilts_flat_signal_to_sell():
+    data = {FieldName.COMPOSITE_SCORE: 0.5}
+    biased = decide_policy(data, _ctx(), PolicyParams(directional_bias=-0.2))
+    assert biased[FieldName.ACTION] == AgentAction.SELL
+
+
+def test_directional_bias_is_clamped_into_feature_range():
+    """An oversized bias can never push the reported score outside [-1, 1]."""
+    data = {FieldName.DIRECTION: "bullish", FieldName.COMPOSITE_SCORE: 0.9}
+    out = decide_policy(
+        data, _ctx(sentiment=1.0, imbalance=1.0), PolicyParams(directional_bias=5.0)
+    )
+    score_factor = next(f for f in out[FieldName.RISK_FACTORS] if f.startswith("score "))
+    assert float(score_factor.split()[1]) <= 1.0
+    assert out[FieldName.ACTION] == AgentAction.BUY
+
+
+def test_directional_bias_cannot_force_a_trade_below_min_confidence():
+    """The bias only tilts the score cut — it must not bypass the conviction
+    floor, so a low-confidence signal still HOLDs no matter how large the lean."""
+    data = {FieldName.COMPOSITE_SCORE: 0.05}  # below min_confidence (0.20)
+    out = decide_policy(data, _ctx(), PolicyParams(directional_bias=0.9))
+    assert out[FieldName.ACTION] == AgentAction.HOLD
+    assert "insufficient conviction" in out[FieldName.REASONING]
+
+
 def test_default_params_constant_is_a_policy_params():
     assert isinstance(DEFAULT_POLICY_PARAMS, PolicyParams)

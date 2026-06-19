@@ -1227,6 +1227,29 @@ class ExecutionEngine(BaseStreamConsumer):
                 await self._write_idle_heartbeat(symbol, "blocked:market_closed", trace_id)
             return gate
 
+        # No-trade window gate: operators can block NEW long entries during a
+        # configured ET wall-clock window — e.g. the volatile first 30 min after
+        # the open (proposal #339 "avoid trading in the morning"). BUY-side only:
+        # exits (SELL) stay open so stop-loss / take-profit / trailing closes can
+        # always de-risk inside the window. Off by default (NO_TRADE_WINDOW_ENABLED).
+        if (
+            settings.NO_TRADE_WINDOW_ENABLED
+            and side == AgentAction.BUY
+            and get_market_status().is_within_window(
+                settings.NO_TRADE_WINDOW_START_ET, settings.NO_TRADE_WINDOW_END_ET
+            )
+        ):
+            window = f"{settings.NO_TRADE_WINDOW_START_ET}-{settings.NO_TRADE_WINDOW_END_ET} ET"
+            log_structured(
+                "info",
+                "execution_blocked_no_trade_window",
+                symbol=symbol,
+                window=window,
+                trace_id=trace_id,
+            )
+            await self._write_idle_heartbeat(symbol, "blocked:no_trade_window", trace_id)
+            return "blocked:no_trade_window"
+
         # In-flight gate: block new orders while another order is being processed.
         # Prevents rapid signals from stacking before the fill + PnL are recorded.
         if side not in NO_ORDER_ACTIONS:
