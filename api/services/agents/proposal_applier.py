@@ -64,6 +64,7 @@ from api.services.challenger_store import get_challenger_store
 from api.services.gitops_publisher import GitOpsPublisher
 from api.services.param_evolution import validate_param_change
 from api.services.prompt_store import get_prompt_store
+from api.services.proposal_brief import build_implementation_brief
 from api.services.redis_store import get_redis_store
 from api.services.strategy_registry import InvalidTransitionError, get_strategy_registry
 from api.services.tool_registry import get_tool_registry
@@ -358,13 +359,28 @@ class ProposalApplier(MultiStreamAgent):
             content.get(FieldName.DESCRIPTION) or content.get(FieldName.REASON) or ""
         ).strip()
         title = f"[auto] {proposal_type}: {description[:80] or 'learning-loop proposal'}"
+        # The issue body IS a complete, Claude-Code-ready implementation brief.
+        # Producers (StrategyProposer) attach one; for any proposal without a
+        # pre-built brief (architect pass, older payloads) build one here from the
+        # content + evidence so a feature issue is never a thin description again.
+        brief = content.get(FieldName.BRIEF)
+        if not brief:
+            brief = build_implementation_brief(
+                proposal_type=proposal_type,
+                summary=description,
+                content=content,
+                evidence=content.get(FieldName.EVIDENCE) or {},
+            )
+        # Drop the (large) brief markdown from the raw-content appendix to avoid
+        # duplicating it; keep the structured evidence for traceability.
+        raw_content = {k: v for k, v in content.items() if k != FieldName.BRIEF}
         body = (
-            f"Automated **{proposal_type}** proposal from the learning loop — this "
-            f"needs code (a new tool, prompt, agent, or feature), so it is filed as an "
-            f"issue rather than edited automatically.\n\n"
-            f"- **description**: {description or 'n/a'}\n"
-            f"- **trace_id**: `{trace_id}`\n\n"
-            f"```json\n{json.dumps(content, indent=2, default=str)[:2000]}\n```"
+            f"{brief}\n\n---\n"
+            f"- **trace_id**: `{trace_id}`\n"
+            f"- **source**: learning loop (auto-proposal)\n\n"
+            f"<details><summary>raw proposal content</summary>\n\n"
+            f"```json\n{json.dumps(raw_content, indent=2, default=str)[:2000]}\n```\n"
+            f"</details>"
         )
         result = await GitOpsPublisher().open_feature_issue(
             title, body, labels=["auto-proposal", proposal_type]
