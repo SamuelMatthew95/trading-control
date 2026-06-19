@@ -168,6 +168,16 @@ class Settings(BaseSettings):
     # that day. Set to 0 to disable the cap. Keeps the review queue from being
     # flooded with repeats when reflection runs frequently.
     MAX_PROPOSALS_PER_DAY: int = 20
+    # Periodic System Architect pass — a deterministic (no-LLM) backstop that
+    # reviews accumulated system state (per-model net ROI, the recent grade
+    # trajectory) and emits a SMALL number of evidence-tiered, fully-briefed
+    # strategic proposals the per-trade reflection loop misses. It is NOT a stream
+    # consumer (no always-on Redis connection — respects the Redis pool-sizing
+    # invariant); a startup background loop calls it on this interval. It shares
+    # the same creation guardrails (daily cap + dedup) so it never spams the
+    # queue. SYSTEM_ARCHITECT_INTERVAL_SECONDS=0 (or _ENABLED=False) disables it.
+    SYSTEM_ARCHITECT_ENABLED: bool = True
+    SYSTEM_ARCHITECT_INTERVAL_SECONDS: int = 3_600
 
     # GitOps auto-PR — when a PARAMETER_CHANGE proposal is applied, open a real
     # PR that edits a CONFIG file (never raw code), version-controlled + human-
