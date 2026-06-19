@@ -55,6 +55,7 @@ from api.services.agents.pipeline_agents import (
 from api.services.agents.proposal_applier import ProposalApplier
 from api.services.agents.reasoning_agent import ReasoningAgent
 from api.services.agents.risk_guardian import RiskGuardian
+from api.services.agents.system_architect import SystemArchitect
 from api.services.challenger_spawner import ChallengerSpawner
 from api.services.challenger_store import ChallengerStore, set_challenger_store
 from api.services.dashboard.agent_performance import agent_grade_snapshot_loop
@@ -405,6 +406,26 @@ async def _periodic_reflection_loop(agent: ReflectionAgent) -> None:
         await asyncio.sleep(interval)
 
 
+async def _system_architect_loop(architect: SystemArchitect) -> None:
+    """Periodically run the deterministic System Architect synthesis pass.
+
+    Not a stream consumer — it holds no Redis connection between passes, so it
+    adds no always-on demand to the shared pool. ``run_once`` self-gates on the
+    enabled flag + the proposal-creation guardrails and never raises. An interval
+    of 0 (or SYSTEM_ARCHITECT_ENABLED=False) disables the loop entirely."""
+    interval = max(int(settings.SYSTEM_ARCHITECT_INTERVAL_SECONDS), 0)
+    if interval <= 0 or not settings.SYSTEM_ARCHITECT_ENABLED:
+        return
+    # Brief initial delay so the first pass runs after the fleet + buffers warm.
+    await asyncio.sleep(min(interval, 120))
+    while True:
+        try:
+            await architect.run_once()
+        except Exception:
+            log_structured("warning", "system_architect_loop_failed", exc_info=True)
+        await asyncio.sleep(interval)
+
+
 def _build_agents(event_bus, dlq_manager, redis_client, agent_state, paper_broker) -> list:
     """Construct the full agent fleet (order matters only for logging)."""
     grade_agent = GradeAgent(event_bus, dlq_manager, agent_state=agent_state)
@@ -529,6 +550,7 @@ async def _shutdown(app: FastAPI, pipeline: EventPipeline | None, broadcaster) -
         "agent_grade_snapshot_task",
         "lmstudio_probe_task",
         "periodic_reflection_task",
+        "system_architect_task",
     ):
         task = getattr(app.state, task_name, None)
         if task is not None:
@@ -669,6 +691,18 @@ async def lifespan(app: FastAPI):
             app.state.periodic_reflection_task = asyncio.create_task(
                 _periodic_reflection_loop(_reflection_agent)
             )
+
+        # System Architect: a deterministic periodic pass that synthesises
+        # high-level strategic proposals from accumulated state (per-model net ROI,
+        # the grade trajectory) — the macro view the per-trade reflection loop
+        # misses. Reads the live GradeAgent's buffers; not a stream consumer, so it
+        # adds no always-on Redis demand.
+        _grade_agent = next((a for a in agents if isinstance(a, GradeAgent)), None)
+        architect = SystemArchitect(event_bus, redis_client, grade_agent=_grade_agent)
+        app.state.system_architect = architect
+        app.state.system_architect_task = asyncio.create_task(
+            _system_architect_loop(architect), name="system-architect"
+        )
 
         # Wire the shared service registry (api.main_state) so the analyze /
         # feedback / performance / positions / pnl routes operate on the same
