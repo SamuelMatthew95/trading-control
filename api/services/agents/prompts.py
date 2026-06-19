@@ -51,6 +51,13 @@ REFLECTION_SYSTEM_PROMPT = (
     "'parameter' (one of those exact names), 'current_value', and 'proposed_value' (a number "
     "strictly within [min, max]). A concrete, in-bounds value is what becomes a real config "
     "change — vague parameter hypotheses cannot be applied. "
+    "EVIDENCE DISCIPLINE: weight each hypothesis's confidence by HOW MANY trades "
+    "support it. With only a handful of trades, keep confidence low and prefer a "
+    "reversible 'parameter' tweak or recommend monitoring — do NOT propose disabling "
+    "or removing a model, tool, or agent off one or two trades; that is noise, not a "
+    "signal, and a reviewer will reject it. When you do propose a structural change, "
+    "add an 'affected_area' string (a short phrase naming what should change) so it "
+    "can be implemented. "
     "Return ONLY the JSON object, no markdown fences."
 )
 
