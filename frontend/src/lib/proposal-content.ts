@@ -13,8 +13,13 @@ export function coerceProposalContent(raw: unknown): string {
   if (typeof raw === 'string') return raw
   if (typeof raw === 'object') {
     const obj = raw as Record<string, unknown>
-    const reason = obj.reason
-    if (typeof reason === 'string' && reason.trim()) return reason
+    // Prefer a human-readable summary field over a JSON dump. `reason` rides on
+    // challenger/grade proposals; `description` on design/issue proposals — which
+    // ALSO carry a large `brief` markdown that must never be rendered as a blob.
+    for (const key of ['reason', 'description'] as const) {
+      const value = obj[key]
+      if (typeof value === 'string' && value.trim()) return value
+    }
     const strategy = obj.strategy
     if (typeof strategy === 'string' && strategy.trim()) return `Challenger: ${strategy}`
     try {
