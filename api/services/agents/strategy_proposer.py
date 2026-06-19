@@ -41,6 +41,17 @@ from api.services.param_evolution import (
     tunable_parameters,
     validate_param_change,
 )
+from api.services.proposal_brief import (
+    build_implementation_brief,
+    evidence_from_reflection,
+)
+
+# Proposal types that need human/Claude design — they are filed as a GitHub
+# issue, so each carries a full Claude-Code-ready implementation brief. (Parameter
+# and prompt proposals route to a config PR / the prompt store and don't.)
+_BRIEF_PROPOSAL_TYPES = frozenset(
+    {ProposalType.CODE_CHANGE, ProposalType.REGIME_ADJUSTMENT, ProposalType.NEW_AGENT}
+)
 
 # ---------------------------------------------------------------------------
 # StrategyProposer — converts reflection hypotheses into concrete proposals
@@ -124,6 +135,10 @@ class StrategyProposer(MultiStreamAgent):
             # is not flooded with repeats across reflection cycles.
             if not await register_proposal_creation(guardrail_redis, proposal):
                 continue
+
+            # Enrich AFTER the dedup check so the volatile brief/evidence text
+            # never enters the dedup fingerprint (which keys on type+content).
+            self._attach_brief(proposal, data)
 
             if proposal[FieldName.PROPOSAL_TYPE] == ProposalType.CODE_CHANGE:
                 await self.bus.publish(
@@ -396,6 +411,33 @@ class StrategyProposer(MultiStreamAgent):
             )
         else:
             content[FieldName.NOTE] = "Update config parameter via DB — no deploy required."
+
+    def _attach_brief(self, proposal: dict[str, Any], reflection_data: dict[str, Any]) -> None:
+        """Attach a Claude-Code-ready implementation brief + evidence block to a
+        design/issue proposal so the GitHub issue it becomes is actionable.
+
+        The brief tiers the evidence honestly (preliminary / emerging / solid) and
+        frames a thin-sample proposal as a watch item rather than a confident
+        "go change this" — the #341 fix. Only the issue-bound types get a brief;
+        parameter/prompt proposals route elsewhere. Best-effort: a brief failure
+        must never block the proposal itself."""
+        if proposal.get(FieldName.PROPOSAL_TYPE) not in _BRIEF_PROPOSAL_TYPES:
+            return
+        content = proposal.get(FieldName.CONTENT)
+        if not isinstance(content, dict):
+            return
+        try:
+            evidence = evidence_from_reflection(reflection_data)
+            content[FieldName.EVIDENCE] = evidence
+            content[FieldName.BRIEF] = build_implementation_brief(
+                proposal_type=str(proposal.get(FieldName.PROPOSAL_TYPE) or ""),
+                summary=str(content.get(FieldName.DESCRIPTION) or ""),
+                content=content,
+                evidence=evidence,
+                category=str(content.get(FieldName.HYPOTHESIS_TYPE) or ""),
+            )
+        except Exception:
+            log_structured("warning", "proposal_brief_build_failed", exc_info=True)
 
     def _build_proposal(
         self, hypothesis: dict[str, Any], reflection_data: dict[str, Any], now_iso: str
