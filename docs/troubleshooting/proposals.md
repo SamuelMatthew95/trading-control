@@ -56,11 +56,17 @@ are bullshit, not helpful links".
   wired in `api/startup.py` as a background loop — NOT a stream consumer, so it
   adds no always-on Redis demand (the pool-sizing invariant). It reviews
   accumulated state and emits a small number of evidence-tiered, fully-briefed
-  strategic proposals: per-model net-ROI governance (the evidence-backed #341 —
-  only at/above a `_MIN_MODEL_TRADES` noise floor) and sustained-low-grade
-  structural rethinks. It shares the daily-cap + dedup guardrails and latches
-  each observation so it never spams. Flags: `SYSTEM_ARCHITECT_ENABLED`,
-  `SYSTEM_ARCHITECT_INTERVAL_SECONDS` (`api/config.py`).
+  strategic proposals from a set of deterministic observers: per-model net-ROI
+  governance (the evidence-backed #341 — only at/above a `_MIN_MODEL_TRADES`
+  noise floor), sustained-low-grade structural rethinks, and **self-extension**
+  (when a recurring, costly mistake cluster has no dedicated automated response,
+  it files a briefed `CODE_CHANGE` proposing the system add a NEW observer /
+  proposal type for it — the loop proposing to extend its own proposal taxonomy,
+  pointing Claude Code at `system_architect.py`; safe because runtime code is
+  never self-modified — the new observer lands via a reviewed PR). It shares the
+  daily-cap + dedup guardrails and latches each observation so it never spams.
+  Flags: `SYSTEM_ARCHITECT_ENABLED`, `SYSTEM_ARCHITECT_INTERVAL_SECONDS`
+  (`api/config.py`).
 
 **Still operational, not code:** real PR/issue creation needs `GITHUB_TOKEN` in
 the Render env; without it `GitOpsPublisher` runs dry and the proposal records
