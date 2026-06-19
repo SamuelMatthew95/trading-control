@@ -117,6 +117,42 @@ async def test_no_structural_proposal_when_grades_are_healthy():
 
 
 # ---------------------------------------------------------------------------
+# Self-extension — the loop proposing a proposal type we didn't think of
+# ---------------------------------------------------------------------------
+
+
+async def test_emits_self_extension_proposal_for_a_recurring_costly_mistake():
+    bus = _make_bus()
+    evals = [{"mistakes": ["late_entry"], "pnl": -2.0} for _ in range(5)]
+    architect = SystemArchitect(bus, None, grade_agent=_FakeGrade(evals=evals))
+
+    await architect.run_once()
+
+    proposals = _proposals_published(bus)
+    selfext = [p for p in proposals if "late_entry" in p["content"]["description"]]
+    assert selfext, "expected a self-extension proposal for the recurring mistake"
+    proposal = selfext[0]
+    assert proposal["proposal_type"] == "code_change"
+    assert "extending the proposal taxonomy" in proposal["content"]["description"]
+    # The brief points Claude Code at where to add the new observer.
+    assert "system_architect.py" in proposal["content"]["brief"]
+
+
+async def test_no_self_extension_for_a_one_off_mistake():
+    """A single occurrence of a mistake is ordinary variance — not worth automating."""
+    bus = _make_bus()
+    evals = [{"mistakes": ["late_entry"], "pnl": -2.0}] + [
+        {"mistakes": [], "pnl": 1.0} for _ in range(9)
+    ]
+    architect = SystemArchitect(bus, None, grade_agent=_FakeGrade(evals=evals))
+
+    await architect.run_once()
+
+    proposals = _proposals_published(bus)
+    assert not any("late_entry" in p["content"]["description"] for p in proposals)
+
+
+# ---------------------------------------------------------------------------
 # Anti-spam + flag
 # ---------------------------------------------------------------------------
 
