@@ -1,0 +1,43 @@
+# Single source of truth for Python tooling config (ruff + pytest).
+# Runtime/test dependencies live in requirements.txt (used by CI and Docker).
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+# PLC0415 = imports must be at the top of the file. Inline imports are only
+# permitted to break a circular import or to lazy-load an optional dependency;
+# those sites must carry an explicit `# noqa: PLC0415`.
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "RET", "PLC0415"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests legitimately import inside test bodies (module-under-test setup,
+# monkeypatch ordering) — PLC0415 is enforced only on application code.
+"tests/*" = ["S101", "PLC0415"]
+
+[tool.pytest.ini_options]
+markers = [
+    "vector: tests requiring pgvector extension or vector embeddings",
+    "integration: tests requiring database infrastructure",
+    "unit: pure unit tests with no external dependencies",
+    "slow: tests that take longer to run",
+]
+
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+
+addopts = "-v --tb=short --strict-markers"
+
+testpaths = ["tests"]
+
+python_files = ["test_*.py", "*_test.py"]
+
+python_classes = ["Test*"]
+
+python_functions = ["test_*"]
+
+asyncio_mode = "auto"
