@@ -271,7 +271,7 @@ Hit this in `RedisStore.push_notification` / `push_decision`.
 
 ### 13 — Inline Imports (ruff `PLC0415`)
 
-`ruff.toml` selects `PLC0415` — every `import` must live at the top of the
+`pyproject.toml` (`[tool.ruff.lint]`) selects `PLC0415` — every `import` must live at the top of the
 module. An inline import inside a function is allowed ONLY to (a) break a
 circular import or (b) lazy-load an optional dependency, and each such site
 MUST carry `# noqa: PLC0415`. Everything else (stdlib, `sqlalchemy`,
