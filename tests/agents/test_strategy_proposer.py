@@ -9,7 +9,7 @@ from api.events.dlq import DLQManager
 from api.services.agent_state import AgentStateRegistry
 from api.services.agents.pipeline_agents import StrategyProposer
 
-# Async tests run via pytest.ini `asyncio_mode = auto`; no global asyncio mark
+# Async tests run via pyproject.toml `asyncio_mode = auto`; no global asyncio mark
 # here so the sync `_build_proposal` unit tests below aren't mis-marked.
 
 
