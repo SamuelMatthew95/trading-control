@@ -4,9 +4,11 @@
  * Most proposals carry `content` as a plain string. Challenger-promotion
  * proposals (and any future structured proposal) carry it as an OBJECT —
  * `{ strategy, shadow_edge, confidence, reason }` — which `String(obj)` turns
- * into the useless "[object Object]". Prefer the object's `reason`, then a
- * `strategy`-derived summary, before falling back to a JSON dump so nothing is
- * silently dropped on the floor.
+ * into the useless "[object Object]". Prefer the object's `reason`/`description`,
+ * then a `strategy`-derived summary; an EMPTY object (the memory-mode
+ * `content: {}` shape) becomes '' so the UI can fall back to
+ * strategy_name / proposal_type; otherwise fall back to a JSON dump so nothing
+ * is silently dropped on the floor.
  */
 export function coerceProposalContent(raw: unknown): string {
   if (raw == null) return ''
@@ -22,6 +24,9 @@ export function coerceProposalContent(raw: unknown): string {
     }
     const strategy = obj.strategy
     if (typeof strategy === 'string' && strategy.trim()) return `Challenger: ${strategy}`
+    // An empty object (the memory-mode `content: {}` shape) renders as '' so the
+    // UI falls back to strategy_name / proposal_type instead of a bare "{}".
+    if (Object.keys(obj).length === 0) return ''
     try {
       return JSON.stringify(raw)
     } catch {
