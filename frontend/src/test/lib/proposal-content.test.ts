@@ -40,6 +40,12 @@ describe('coerceProposalContent', () => {
     expect(coerceProposalContent({ foo: 'bar' })).toBe('{"foo":"bar"}')
   })
 
+  it('renders an empty object as "" so the UI falls back to strategy_name/proposal_type', () => {
+    // Regression: the memory-mode `content: {}` shape must NOT render a bare "{}"
+    // as the candidate-change title (the REST/WS/snapshot paths all coerce here).
+    expect(coerceProposalContent({})).toBe('')
+  })
+
   it('treats null/undefined as empty string', () => {
     expect(coerceProposalContent(null)).toBe('')
     expect(coerceProposalContent(undefined)).toBe('')
