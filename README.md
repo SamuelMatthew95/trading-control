@@ -187,8 +187,7 @@ trading-control/
 ├── Dockerfile                  # Multi-stage production image
 ├── docker-compose.yml          # Local prod-like stack (+ .dev override)
 ├── requirements.txt            # Runtime + test dependencies
-├── ruff.toml                   # Lint and formatting config
-├── pytest.ini                  # Pytest defaults
+├── pyproject.toml              # Ruff + pytest configuration
 └── render.yaml                 # Render deployment config
 ```
 
