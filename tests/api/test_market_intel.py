@@ -21,7 +21,7 @@ from api.services.market_intel import (
     fetch_order_book_depth,
 )
 
-# asyncio runs in auto mode (pytest.ini); async tests need no explicit marker.
+# asyncio runs in auto mode (pyproject.toml); async tests need no explicit marker.
 
 
 # --- pure helpers (the real math, no mocking) -------------------------------
