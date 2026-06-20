@@ -6,6 +6,83 @@ and the dashboard Proposal Queue (ingestion, approve/reject, empty state).
 
 ---
 
+## Thin, evidence-less auto-proposals (issue #341) → Claude-Code-ready briefs + evidence tiering + a System Architect pass
+
+**Symptom:** The learning loop filed proposals a human/Claude could not act on.
+Issue #341 is the canonical case: an auto-proposal recommended *disabling
+`gemini:gemini-2.5-flash-lite` in the risk-off macro regime* based on **one
+trade** (PnL −4.05), with **no backtest verdict** and **no mechanism** ("hard
+disable? down-weight? fallback?"). The triage agent correctly rejected it
+("insufficient evidence … held for more data"). The filed issue body was a
+one-line description plus a raw JSON dump of the proposal content — "proposals
+are bullshit, not helpful links".
+
+**Root cause (three gaps):**
+1. **No evidence framing.** The reflection LLM could emit a high-confidence
+   hypothesis off a single trade, and `StrategyProposer` filed the resulting
+   `code_change` / `regime_adjustment` issue regardless of sample size. (The
+   reflection payload carries `trades_analyzed`, but nothing read it.)
+2. **Thin issue body.** `ProposalApplier._file_feature_issue` wrote a
+   description + `trace_id` + a `json.dumps(content)` blob — no affected files,
+   no mechanism options, no acceptance criteria, no project invariants.
+3. **No macro view.** The per-trade reflection loop never stepped back to look
+   at the system as a whole (e.g. a model that is net-negative across *enough*
+   trades), so the legitimate, evidence-backed version of #341 was never
+   produced.
+
+**Fix:**
+- **Evidence is tiered, never gated** (`api/services/proposal_brief.py`,
+  `classify_evidence`): `preliminary` / `emerging` / `solid`. A hard minimum
+  would just empty the queue (this paper loop closes a handful of trades a day),
+  so nothing is dropped — a thin-sample proposal is **surfaced as a watch item**
+  ("monitor; do NOT ship a behavioural change on this alone; here is the
+  evidence that would make it actionable"), exactly the #341 triage verdict,
+  baked into the proposal. `PROPOSAL_SOLID_EVIDENCE_TRADES` is a *labelling*
+  reference, not a gate.
+- **Claude-Code-ready brief** (`build_implementation_brief`): problem, measured
+  evidence (with the backtest block + per-model rows), affected repo subsystems,
+  **mechanism options** (the triage's "decide the mechanism" ask — for a model:
+  disable / down-weight / fallback), acceptance criteria, the project's hard
+  invariants, and a ready-to-paste Claude Code prompt. `StrategyProposer`
+  attaches it to every design/issue proposal (`_attach_brief`, AFTER the dedup
+  check so the volatile text never pollutes the fingerprint), and
+  `ProposalApplier._file_feature_issue` makes it the GitHub **issue body**
+  (synthesising one when a proposal arrives without it).
+- **Sharper reflection prompt** (`prompts.py`): the LLM is told to weight
+  confidence by sample size and to NOT propose disabling a model/tool/agent off
+  one or two trades — the #341 root cause at the source.
+- **System Architect** (`api/services/agents/system_architect.py`): a
+  deterministic (no-LLM, no token cost, no rate-limit fragility) periodic pass
+  wired in `api/startup.py` as a background loop — NOT a stream consumer, so it
+  adds no always-on Redis demand (the pool-sizing invariant). It reviews
+  accumulated state and emits a small number of evidence-tiered, fully-briefed
+  strategic proposals from a set of deterministic observers: per-model net-ROI
+  governance (the evidence-backed #341 — only at/above a `_MIN_MODEL_TRADES`
+  noise floor), sustained-low-grade structural rethinks, and **self-extension**
+  (when a recurring, costly mistake cluster has no dedicated automated response,
+  it files a briefed `CODE_CHANGE` proposing the system add a NEW observer /
+  proposal type for it — the loop proposing to extend its own proposal taxonomy,
+  pointing Claude Code at `system_architect.py`; safe because runtime code is
+  never self-modified — the new observer lands via a reviewed PR). It shares the
+  daily-cap + dedup guardrails and latches each observation so it never spams.
+  Flags: `SYSTEM_ARCHITECT_ENABLED`, `SYSTEM_ARCHITECT_INTERVAL_SECONDS`
+  (`api/config.py`).
+
+**Still operational, not code:** real PR/issue creation needs `GITHUB_TOKEN` in
+the Render env; without it `GitOpsPublisher` runs dry and the proposal records
+"GitOps not configured" instead of a link (the brief is still built + recorded).
+
+**Regression tests:**
+`tests/core/test_proposal_brief.py` (tiering + the #341 watch-item brief),
+`tests/agents/test_strategy_proposer.py::test_design_proposal_carries_brief_and_evidence`,
+`::test_preliminary_design_proposal_brief_is_a_watch_item`,
+`::test_parameter_proposal_stays_lean_without_a_brief`,
+`tests/agents/test_proposal_applier.py::test_feature_issue_body_uses_prebuilt_brief`,
+`::test_feature_issue_builds_brief_when_absent`,
+`tests/agents/test_system_architect.py`
+
+---
+
 ## Auto-proposals #334 / #338 / #339 — implementing the learning-loop's "code_change" issues
 
 **Context:** The learning loop files vague `code_change` / `regime_adjustment`

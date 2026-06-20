@@ -285,6 +285,8 @@ class FieldName(StrEnum):
     ALERT_LEVEL = "alert_level"
     ALERT_TYPE = "alert_type"
     ALL_HYPOTHESES = "all_hypotheses"
+    ACCEPTANCE_CRITERIA = "acceptance_criteria"
+    AFFECTED_AREA = "affected_area"
     ANOMALY_DETECTED = "anomaly_detected"
     ANTHROPIC = "anthropic"
     API_VERSION = "api_version"
@@ -331,6 +333,7 @@ class FieldName(StrEnum):
     BENCHMARK = "benchmark"
     BID = "bid"
     BRANCH = "branch"
+    BRIEF = "brief"
     BLOCKED_TOOLS = "blocked_tools"
     BLOCKS = "blocks"
     BLOCKED_REASON = "blocked_reason"
@@ -470,6 +473,8 @@ class FieldName(StrEnum):
     EVENT_COUNT = "event_count"
     EVENT_ID = "event_id"
     EVENT_TYPE = "event_type"
+    EVIDENCE = "evidence"
+    EVIDENCE_SUFFICIENT = "evidence_sufficient"
     EXCHANGE = "exchange"
     EXECUTED = "executed"
     EXECUTED_AT = "executed_at"
@@ -545,6 +550,7 @@ class FieldName(StrEnum):
     HEARTBEAT_AGE = "heartbeat_age"
     HEARTBEAT_COUNT = "heartbeat_count"
     HEARTBEAT_STATUS = "heartbeat_status"
+    HELD_REASON = "held_reason"
     HISTORY = "history"
     HOLDING_PERIOD_MINUTES = "holding_period_minutes"
     HOLDS = "holds"
@@ -682,6 +688,7 @@ class FieldName(StrEnum):
     METADATA = "metadata"
     METADATA_ = "metadata_"
     METRICS = "metrics"
+    MECHANISM_OPTIONS = "mechanism_options"
     METRIC_NAME = "metric_name"
     METRIC_UNIT = "metric_unit"
     METRIC_VALUE = "metric_value"
@@ -886,6 +893,7 @@ class FieldName(StrEnum):
     RUNTIME_STORE = "runtime_store"
     RUN_ID = "run_id"
     RUN_TYPE = "run_type"
+    SAMPLE_SIZE = "sample_size"
     SATURATED = "saturated"
     SCHEMA_VERSION = "schema_version"
     SCOPE = "scope"
@@ -1317,6 +1325,9 @@ SOURCE_DB_HELPERS: Final[str] = "db_helpers"
 SOURCE_SUPERVISOR: Final[str] = "agent_supervisor"
 SOURCE_PROPOSAL_APPLIER: Final[str] = "proposal_applier"
 SOURCE_RISK_GUARDIAN: Final[str] = "risk_guardian"
+# Periodic high-level synthesis pass (not a pipeline agent) that reviews
+# accumulated system state and emits evidence-gated strategic proposals.
+SOURCE_SYSTEM_ARCHITECT: Final[str] = "system_architect"
 
 # Redis heartbeat key for any agent: REDIS_AGENT_STATUS_KEY.format(name=AGENT_SIGNAL)
 REDIS_AGENT_STATUS_KEY: Final[str] = "agent:status:{name}"
@@ -1481,6 +1492,16 @@ REDIS_KEY_LLM_CALL_DELAY_MS: Final[str] = "llm:call_delay_ms"
 REDIS_KEY_PROPOSALS_DAILY_COUNT: Final[str] = "proposals:count:{date}"
 REDIS_KEY_PROPOSALS_DEDUP: Final[str] = "proposals:dedup:{date}"
 PROPOSAL_GUARDRAIL_TTL_SECONDS: Final[int] = 172_800  # 48h — survives the day, self-cleans
+# Sample size at/above which a proposal's evidence is labelled "solid" (with a
+# backtest verdict attached). This is a LABELLING reference, NOT a hard gate:
+# proposals are NEVER blocked below it. A low-volume paper system closes only a
+# handful of trades a day, so a hard minimum would simply empty the queue. The
+# evidence-tier classifier (api/services/proposal_brief.py) instead frames a
+# small-sample proposal as a "preliminary watch item — monitor, do NOT ship a
+# behavioural change on this alone" and spells out the evidence that WOULD make
+# it actionable — directly fixing the n=1 "disable model X in risk-off" failure
+# mode (issue #341) without starving the loop. Mirrors AGENT_PNL_MIN_TRADES.
+PROPOSAL_SOLID_EVIDENCE_TRADES: Final[int] = 20
 REDIS_KEY_KILL_SWITCH: Final[str] = "kill_switch:active"
 REDIS_KEY_KILL_SWITCH_UPDATED_AT: Final[str] = "kill_switch:updated_at"
 REDIS_KEY_IC_WEIGHTS: Final[str] = "alpha:ic_weights"

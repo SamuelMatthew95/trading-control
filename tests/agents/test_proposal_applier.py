@@ -1082,3 +1082,66 @@ async def test_repromotion_refreshes_advisory_without_version_bump(monkeypatch):
         assert await store.list_history(REASONING_NODE) == []
     finally:
         set_prompt_store(None)
+
+
+# ---------------------------------------------------------------------------
+# Feature-issue body is a complete, Claude-Code-ready brief (not a thin dump)
+# ---------------------------------------------------------------------------
+
+
+async def test_feature_issue_body_uses_prebuilt_brief(monkeypatch):
+    """When the proposal carries a brief, the GitHub issue body IS that brief
+    (plus a trace footer) — the handoff Claude Code can act on."""
+    from api.constants import FieldName, ProposalType
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    captured: dict[str, str] = {}
+
+    async def _fake_issue(self, title, body, labels=None):
+        captured["title"] = title
+        captured["body"] = body
+        return {FieldName.STATUS: "opened", FieldName.PR_URL: "https://gh/issues/9"}
+
+    monkeypatch.setattr(
+        "api.services.gitops_publisher.GitOpsPublisher.open_feature_issue", _fake_issue
+    )
+    applier = _make_applier(_FakeRedis())
+    proposal = {
+        FieldName.PROPOSAL_TYPE: ProposalType.CODE_CHANGE,
+        FieldName.CONTENT: {
+            FieldName.DESCRIPTION: "add an order-book imbalance tool",
+            FieldName.BRIEF: "<<PREBUILT-BRIEF-MARKER>>",
+        },
+        FieldName.TRACE_ID: "t-brief-body",
+    }
+    await applier.process("proposals", "1-0", proposal)
+    assert "<<PREBUILT-BRIEF-MARKER>>" in captured["body"]
+    assert "t-brief-body" in captured["body"]
+
+
+async def test_feature_issue_builds_brief_when_absent(monkeypatch):
+    """A proposal with no pre-built brief still gets a full Claude-Code-ready brief
+    synthesized in the issue body — a feature issue is never a thin description."""
+    from api.constants import FieldName, ProposalType
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    captured: dict[str, str] = {}
+
+    async def _fake_issue(self, title, body, labels=None):
+        captured["body"] = body
+        return {FieldName.STATUS: "opened", FieldName.PR_URL: "https://gh/issues/10"}
+
+    monkeypatch.setattr(
+        "api.services.gitops_publisher.GitOpsPublisher.open_feature_issue", _fake_issue
+    )
+    applier = _make_applier(_FakeRedis())
+    proposal = {
+        FieldName.PROPOSAL_TYPE: ProposalType.REGIME_ADJUSTMENT,
+        FieldName.CONTENT: {FieldName.DESCRIPTION: "tighten risk-off entries"},
+        FieldName.TRACE_ID: "t-built",
+    }
+    await applier.process("proposals", "1-0", proposal)
+    assert "Ready-to-paste Claude Code prompt" in captured["body"]
+    assert "Acceptance criteria" in captured["body"]

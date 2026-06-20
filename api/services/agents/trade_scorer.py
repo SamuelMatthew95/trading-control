@@ -560,7 +560,7 @@ def compute_learning_metrics(evaluations: list[dict[str, Any]]) -> dict[str, Any
             FieldName.AVG_SCORE: 0.0,
             FieldName.SCORE_TREND: "insufficient_data",
             FieldName.CONSISTENCY: 0.0,
-            "sample_size": 0,
+            FieldName.SAMPLE_SIZE: 0,
             "metric_status": "insufficient_data",
             "min_required_sample_size": _MIN_RELIABLE_TRADES,
         }
@@ -639,7 +639,7 @@ def compute_learning_metrics(evaluations: list[dict[str, Any]]) -> dict[str, Any
         FieldName.AVG_SCORE: round(avg_score, 4),
         FieldName.SCORE_TREND: score_trend,
         FieldName.CONSISTENCY: round(consistency, 4),
-        "sample_size": total,
+        FieldName.SAMPLE_SIZE: total,
         "metric_status": metric_status,
         "min_required_sample_size": _MIN_RELIABLE_TRADES,
     }

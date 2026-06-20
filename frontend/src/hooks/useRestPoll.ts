@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useDashboardStore, type ProposalStatus, type ProposalType } from '@/stores/useDashboardStore'
 import { api, API_ENDPOINTS } from '@/lib/apiClient'
 import { pricesFreshnessMs } from '@/lib/formatters'
+import { coerceProposalContent } from '@/lib/proposal-content'
 
 const POLL_SLOW_MS = 30_000
 const POLL_FAST_MS = 15_000
@@ -18,17 +19,11 @@ const POLL_FAST_MS = 15_000
 const PRICE_WATCHDOG_MS = 8_000
 const PRICE_STALE_REFETCH_MS = 20_000
 
-// Backend proposals carry `content` as either a string or an object (often an
-// empty `{}` in memory mode). Stringify only non-empty objects so the proposal
-// label can fall back to strategy_name / proposal_type instead of rendering a
-// bare "{}" as the candidate-change title.
+// Backend proposals carry `content` as either a string or an object. Coerce via
+// the single shared helper (prefers reason/description, never dumps the large
+// `brief` markdown) so the REST, WebSocket and snapshot paths render identically.
 function proposalContentToString(content: unknown): string {
-  if (content == null) return ''
-  if (typeof content === 'string') return content
-  if (typeof content === 'object') {
-    return Object.keys(content as Record<string, unknown>).length > 0 ? JSON.stringify(content) : ''
-  }
-  return String(content)
+  return coerceProposalContent(content)
 }
 
 export interface ApiHealth {
