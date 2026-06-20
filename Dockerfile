@@ -74,7 +74,7 @@ COPY --chown=trading:trading api/ api/
 COPY --chown=trading:trading backtest/ backtest/
 COPY --chown=trading:trading cognitive/ cognitive/
 COPY --chown=trading:trading config/ config/
-COPY --chown=trading:trading pytest.ini ruff.toml ./
+COPY --chown=trading:trading pyproject.toml ./
 
 USER trading
 
