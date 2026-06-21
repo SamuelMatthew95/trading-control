@@ -143,21 +143,6 @@ class Settings(BaseSettings):
     NO_TRADE_WINDOW_START_ET: str = "09:30"
     NO_TRADE_WINDOW_END_ET: str = "10:00"
 
-    # Regime directional weighting (proposal #346 — regime_adjustment, PRELIMINARY).
-    # The risk-ON mirror of the risk-off long-gate tightening in
-    # api/services/regime_risk.py: when enabled, an explicit risk-on (bullish)
-    # macro regime LOWERS the deterministic policy's BUY score cut by
-    # RISK_ON_BUY_THRESHOLD_DELTA so a confirmed bullish tape admits marginal longs
-    # sooner. Strictly entry-side — it eases only the buy_threshold; the SELL cut,
-    # the reported score, and every RiskGuardian exit are untouched, so it can
-    # never suppress a de-risking sell. A no-op in risk-off / neutral / unknown /
-    # missing regimes. OFF by default — the triggering evidence is a single trade
-    # (n=1) with no backtest verdict, which does not clear the project's
-    # "proposals are backtest-backed" bar; this readies the mechanism so it can be
-    # opted in ONLY once ≥20 trades + a ReplayHarness verdict confirm the effect
-    # holds in the named regime. See docs/troubleshooting/decision-policy.md.
-    REGIME_DIRECTIONAL_WEIGHTING_ENABLED: bool = False
-
     # Grade system
     GRADE_LOOKBACK_N: int = 20
     GRADE_WEIGHT_ACCURACY: float = 0.35
