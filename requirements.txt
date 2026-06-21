@@ -6,6 +6,12 @@
 aiohttp==3.14.1
 aiosqlite>=0.19.0
 alpaca-py
+# Security floor for a transitive dep of alpaca-py (its data-stream msgpack
+# codec): msgpack <1.2.1 has a HIGH out-of-bounds read on Unpacker reuse
+# (GHSA-6v7p-g79w-8964) that the container image scan (Trivy) fails CI on. Pin
+# the floor so the image installs the patched build; drop once alpaca-py's own
+# floor moves past it.
+msgpack>=1.2.1
 asyncpg==0.29.0
 fastapi==0.136.3
 fastmcp>=3.2.0,<4
