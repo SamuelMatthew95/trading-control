@@ -1813,6 +1813,16 @@ RISK_OFF_SIZE_MULTIPLIER: Final[float] = 0.5
 # bar. Shorts and non-risk-off/unknown/missing regimes keep the default floor.
 # See api/services/regime_risk.py.
 RISK_OFF_MIN_CONFIDENCE: Final[float] = 0.35
+# Regime directional weighting (proposal #346): additive long lean applied to the
+# deterministic policy's blended score in an explicit risk-on (bullish) macro
+# regime — the profit-side complement to the RISK_OFF_* tightening above. Gated
+# behind the default-OFF REGIME_DIRECTIONAL_WEIGHTING_ENABLED flag, so it is a
+# strict no-op until an operator opts in. Kept small and bounded in (0, 0.5) so a
+# lean can never dominate the genuine momentum / sentiment / macro signal, and the
+# score is re-clamped into [-1, 1] after it is applied. Fires ONLY in risk-on;
+# risk-off / neutral / unknown / missing regimes add nothing. See
+# api/services/regime_risk.py::directional_bias.
+RISK_ON_DIRECTIONAL_BIAS: Final[float] = 0.10
 # How often (seconds) RiskGuardian scans open positions
 RISK_CHECK_INTERVAL_SECONDS: Final[int] = 30
 # Trailing-stop profit ratchet. Without it a +9% winner that reverses rides all
