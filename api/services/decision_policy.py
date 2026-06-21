@@ -29,7 +29,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from api.config import settings
 from api.constants import AgentAction, FieldName, MacroRegime
 from api.services import regime_risk
 
@@ -154,17 +153,13 @@ def decide_policy(
 
     regime = regime_risk.regime_of(context.get(FieldName.MACRO_REGIME))
 
-    # Regime directional weighting (proposal #346, default OFF): the risk-ON mirror
-    # of the risk-off long-gate raise below. In an explicit risk-on regime the BUY
-    # cut a new long must clear is EASED (lowered) so a confirmed bullish tape
-    # admits marginal longs sooner. Resolved through regime_risk so it eases ONLY
-    # in risk-on with the flag on, and ONLY the buy cut — the SELL cut
-    # (params.sell_threshold) is untouched, so easing can never suppress a sell.
-    buy_cut = regime_risk.buy_threshold(
-        regime,
-        params.buy_threshold,
-        enabled=settings.REGIME_DIRECTIONAL_WEIGHTING_ENABLED,
-    )
+    # Regime directional weighting (proposal #346): the risk-ON mirror of the
+    # risk-off long-gate raise below. In an explicit risk-on regime the BUY cut a
+    # new long must clear is EASED (lowered) so a confirmed bullish tape admits
+    # marginal longs sooner. Resolved through regime_risk so it eases ONLY in
+    # risk-on, and ONLY the buy cut — the SELL cut (params.sell_threshold) is
+    # untouched, so easing can never suppress a sell.
+    buy_cut = regime_risk.buy_threshold(regime, params.buy_threshold)
 
     # Every contributing term is surfaced so the decision is auditable, not opaque.
     risk_factors = [
