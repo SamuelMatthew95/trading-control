@@ -1813,6 +1813,23 @@ RISK_OFF_SIZE_MULTIPLIER: Final[float] = 0.5
 # bar. Shorts and non-risk-off/unknown/missing regimes keep the default floor.
 # See api/services/regime_risk.py.
 RISK_OFF_MIN_CONFIDENCE: Final[float] = 0.35
+# Regime directional weighting (proposal #346): the risk-ON complement to the
+# RISK_OFF_* long-entry tightening above. Where a risk-off regime RAISES the bar a
+# new long must clear (RISK_OFF_MIN_CONFIDENCE / RISK_OFF_EXECUTION_DECISION_THRESHOLD),
+# an explicit risk-on (bullish) regime LOWERS the deterministic policy's BUY score
+# cut by this delta. With the seed weights a risk-on regime already adds +0.20 to
+# the score, so a flat-momentum signal already buys; this easing only newly admits
+# signals with mildly negative secondary evidence (news / order-book) that the
+# regime tailwind tips over the line — and ONLY when the signal's own momentum is
+# not bearish (regime_risk.buy_threshold guards on momentum >= 0). Strictly
+# entry-side: it eases ONLY the buy_threshold — the SELL cut, the reported score,
+# and every RiskGuardian exit are untouched, so it can never suppress a de-risking
+# sell. A no-op in risk-off / neutral / unknown / missing regimes. Resolved as
+# max(0.0, buy_threshold - this) so the eased floor can never go negative (which
+# would buy on any positive score). Kept deliberately small (well under the default
+# buy_threshold 0.15) because the triggering evidence was a single trade with no
+# backtest. See api/services/regime_risk.py::buy_threshold.
+RISK_ON_BUY_THRESHOLD_DELTA: Final[float] = 0.05
 # How often (seconds) RiskGuardian scans open positions
 RISK_CHECK_INTERVAL_SECONDS: Final[int] = 30
 # Trailing-stop profit ratchet. Without it a +9% winner that reverses rides all

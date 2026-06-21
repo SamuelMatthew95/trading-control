@@ -178,3 +178,76 @@ def test_directional_bias_cannot_force_a_trade_below_min_confidence():
 
 def test_default_params_constant_is_a_policy_params():
     assert isinstance(DEFAULT_POLICY_PARAMS, PolicyParams)
+
+
+# ---------------------------------------------------------------------------
+# Regime directional weighting (proposal #346 — regime_adjustment)
+#
+# The mechanism EASES (lowers) the BUY score cut in an explicit risk-on (bullish)
+# macro regime — the mirror of the risk-off long-gate raises. It is strictly
+# entry-side: only the buy cut moves; the SELL cut, the reported score, and every
+# RiskGuardian exit are untouched. These tests lock in that the easing is
+# risk-on-only, never bypasses conviction, never weakens the risk-off gate, and
+# NEVER suppresses a sell.
+# ---------------------------------------------------------------------------
+
+
+# A weak-but-confident long in a risk-on regime: flat momentum (so the momentum
+# guard permits the easing), and a bearish sentiment (-0.5) offsets the +0.20
+# risk-on macro term so the blended score (0.20·1.0 + 0.20·-0.5 = 0.10) sits BELOW
+# the default 0.15 buy_threshold. Easing the cut by RISK_ON_BUY_THRESHOLD_DELTA
+# (to 0.10) is exactly enough to admit it — isolating the mechanism under test
+# from the rest of the decision.
+_RISK_ON_MARGINAL = {FieldName.COMPOSITE_SCORE: 0.5}
+
+
+def test_regime_weighting_admits_marginal_long_in_risk_on():
+    """In a risk-on regime the marginal long clears the eased BUY cut and BUYs —
+    and the eased cut is surfaced for auditability."""
+    out = decide_policy(_RISK_ON_MARGINAL, _ctx(regime=MacroRegime.RISK_ON, sentiment=-0.5))
+    assert out[FieldName.ACTION] == AgentAction.BUY
+    assert any("risk_on_buy_cut" in f for f in out[FieldName.RISK_FACTORS])
+
+
+def test_regime_weighting_is_a_no_op_outside_risk_on():
+    """The easing fires ONLY in risk-on: in a neutral or risk-off regime the same
+    marginal long is NOT admitted as a BUY (the looser gate never applies) and no
+    eased cut is surfaced, so a non-bullish (or lost) regime keeps the default cut.
+    (The risk-off case nets to a SELL on the bearish macro + sentiment; the point
+    is that the eased BUY gate is absent — the action is never BUY.)"""
+    for regime in (MacroRegime.NEUTRAL, MacroRegime.RISK_OFF):
+        out = decide_policy(_RISK_ON_MARGINAL, _ctx(regime=regime, sentiment=-0.5))
+        assert out[FieldName.ACTION] != AgentAction.BUY
+        assert all("risk_on_buy_cut" not in f for f in out[FieldName.RISK_FACTORS])
+
+
+def test_regime_weighting_never_suppresses_a_sell_in_risk_on():
+    """THE constitution-critical invariant: easing the BUY cut must never block a
+    de-risking SELL. A marginal bearish signal whose score sits just past the sell
+    cut (-0.18) would be suppressed by a *symmetric* score lean (-0.18 + 0.10 =
+    -0.08 → HOLD); because the easing moves ONLY the buy cut, the SELL still fires."""
+    # momentum -0.5 + macro +0.2 (risk-on) + sentiment 0.6·0.2=+0.12 → score -0.18,
+    # just past the -0.15 sell cut. Confidence 0.6 clears min_confidence.
+    data = {FieldName.DIRECTION: "bearish", FieldName.COMPOSITE_SCORE: 0.6}
+    out = decide_policy(data, _ctx(regime=MacroRegime.RISK_ON, sentiment=0.6))
+    assert out[FieldName.ACTION] == AgentAction.SELL
+
+
+def test_regime_weighting_never_bypasses_min_confidence():
+    """The eased cut only lowers the BUY bar — it must never let a low-conviction
+    signal trade, so the conviction floor still rejects it."""
+    data = {FieldName.COMPOSITE_SCORE: 0.05}  # below min_confidence (0.20)
+    out = decide_policy(data, _ctx(regime=MacroRegime.RISK_ON))
+    assert out[FieldName.ACTION] == AgentAction.HOLD
+    assert "insufficient conviction" in out[FieldName.REASONING]
+
+
+def test_regime_weighting_does_not_loosen_risk_off_long_gate():
+    """Capital-preservation invariant: the bullish easing must NOT weaken the
+    risk-off entry tightening. A marginal long in a risk-off regime is still
+    rejected, because the easing never fires outside risk-on."""
+    # confidence 0.30: above default floor (0.20), below RISK_OFF floor (0.35).
+    data = {FieldName.DIRECTION: "bullish", FieldName.COMPOSITE_SCORE: 0.30}
+    out = decide_policy(data, _ctx(regime=MacroRegime.RISK_OFF))
+    assert out[FieldName.ACTION] == AgentAction.HOLD
+    assert "risk-off" in out[FieldName.REASONING]

@@ -145,9 +145,22 @@ def decide_policy(
         + params.w_macro * macro
         + params.w_imbalance * imbalance
     )
-    # Apply the directional lean (default 0.0 = no-op) and clamp back into the
-    # feature range so a large bias can never push the score outside [-1, 1].
+    # Apply the control-plane directional lean (proposal #338; default 0.0 = no-op)
+    # and clamp back into the feature range so a large bias can never push the
+    # score outside [-1, 1]. The reported score is the genuine blended signal — the
+    # regime weighting below moves the BUY *cut*, never the score itself.
     score = round(_clamp(blended + params.directional_bias, -1.0, 1.0), 4)
+
+    regime = regime_risk.regime_of(context.get(FieldName.MACRO_REGIME))
+
+    # Regime directional weighting (proposal #346): the risk-ON mirror of the
+    # risk-off long-gate raise below. In an explicit risk-on regime the BUY cut a
+    # new long must clear is EASED (lowered) — but only when this signal's own
+    # momentum is not bearish, so the regime tailwind can never pull a falling
+    # signal long. Resolved through regime_risk so it eases ONLY in risk-on, ONLY
+    # for non-bearish momentum, and ONLY the buy cut — the SELL cut
+    # (params.sell_threshold) is untouched, so easing can never suppress a sell.
+    buy_cut = regime_risk.buy_threshold(regime, params.buy_threshold, momentum)
 
     # Every contributing term is surfaced so the decision is auditable, not opaque.
     risk_factors = [
@@ -160,13 +173,15 @@ def decide_policy(
     ]
     if params.directional_bias:
         risk_factors.append(f"directional_bias {params.directional_bias:+.2f}")
+    if buy_cut != params.buy_threshold:
+        risk_factors.append(f"risk_on_buy_cut {buy_cut:+.2f}")
 
     # A risk-off (bearish) regime raises the conviction bar a NEW long must clear
     # to open — marginal longs are rejected (HOLD), not chased into a falling
     # market. Resolved through regime_risk so it can only ever tighten; shorts and
     # every other regime keep params.min_confidence.
     long_floor = regime_risk.min_confidence(
-        regime_risk.regime_of(context.get(FieldName.MACRO_REGIME)),
+        regime,
         params.min_confidence,
         is_long=True,
     )
@@ -174,23 +189,21 @@ def decide_policy(
     if confidence < params.min_confidence:
         action = AgentAction.HOLD
         why = f"confidence {confidence:.2f} < {params.min_confidence:.2f} — insufficient conviction"
-    elif score >= params.buy_threshold and confidence < long_floor:
+    elif score >= buy_cut and confidence < long_floor:
         action = AgentAction.HOLD
         why = (
             f"risk-off regime: long confidence {confidence:.2f} < {long_floor:.2f} "
             f"— marginal long rejected in a bearish market"
         )
-    elif score >= params.buy_threshold:
+    elif score >= buy_cut:
         action = AgentAction.BUY
-        why = f"score {score:+.3f} ≥ buy_threshold {params.buy_threshold:+.2f}"
+        why = f"score {score:+.3f} ≥ buy_threshold {buy_cut:+.2f}"
     elif score <= -params.sell_threshold:
         action = AgentAction.SELL
         why = f"score {score:+.3f} ≤ -sell_threshold {-params.sell_threshold:+.2f}"
     else:
         action = AgentAction.HOLD
-        why = (
-            f"score {score:+.3f} inside [-{params.sell_threshold:.2f}, {params.buy_threshold:.2f}]"
-        )
+        why = f"score {score:+.3f} inside [-{params.sell_threshold:.2f}, {buy_cut:.2f}]"
 
     # Size scales with conviction so weak edges trade smaller; clamped to a floor.
     size_pct = round(_clamp(params.base_size_pct * confidence, 0.005, params.base_size_pct), 4)

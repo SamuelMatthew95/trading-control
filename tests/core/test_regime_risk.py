@@ -17,6 +17,7 @@ from api.constants import (
     RISK_OFF_SIZE_MULTIPLIER,
     RISK_OFF_STOP_LOSS_PCT,
     RISK_OFF_TAKE_PROFIT_PCT,
+    RISK_ON_BUY_THRESHOLD_DELTA,
     STOP_LOSS_PCT,
     TAKE_PROFIT_PCT,
     MacroRegime,
@@ -145,3 +146,67 @@ def test_fail_safe_unknown_regime_never_tightens():
         regime_risk.execution_threshold("garbage", EXECUTION_DECISION_THRESHOLD, is_long=True)
         == EXECUTION_DECISION_THRESHOLD
     )
+
+
+# ---------------------------------------------------------------------------
+# Regime directional weighting (proposal #346 — risk-on BUY-cut easing)
+# ---------------------------------------------------------------------------
+
+
+def test_is_risk_on():
+    assert regime_risk.is_risk_on(MacroRegime.RISK_ON) is True
+    assert regime_risk.is_risk_on(MacroRegime.RISK_OFF) is False
+    assert regime_risk.is_risk_on(MacroRegime.NEUTRAL) is False
+    assert regime_risk.is_risk_on(None) is False
+
+
+def test_buy_threshold_eases_only_in_risk_on():
+    """The BUY cut is LOWERED ONLY in an explicit risk-on regime; every other
+    regime (risk-off / neutral / unknown / missing) keeps the default, so a lost
+    regime read can never ease the entry bar."""
+    default = 0.15
+    assert regime_risk.buy_threshold(MacroRegime.RISK_ON, default) == (
+        default - RISK_ON_BUY_THRESHOLD_DELTA
+    )
+    assert regime_risk.buy_threshold(MacroRegime.RISK_OFF, default) == default
+    assert regime_risk.buy_threshold(MacroRegime.NEUTRAL, default) == default
+    assert regime_risk.buy_threshold(None, default) == default
+    assert regime_risk.buy_threshold("garbage", default) == default
+
+
+def test_buy_threshold_never_eases_a_bearish_momentum_long():
+    """The regime tailwind must NEVER pull a falling-momentum signal long: even in
+    risk-on, a bearish (momentum < 0) signal keeps the default cut. This is the
+    explicit invariant — not an artifact of the seed weights — so it survives a
+    future re-weighting of the score blend."""
+    default = 0.15
+    assert regime_risk.buy_threshold(MacroRegime.RISK_ON, default, momentum=-1.0) == default
+    # Flat or positive momentum in risk-on DOES ease.
+    assert regime_risk.buy_threshold(MacroRegime.RISK_ON, default, momentum=0.0) == (
+        default - RISK_ON_BUY_THRESHOLD_DELTA
+    )
+    assert regime_risk.buy_threshold(MacroRegime.RISK_ON, default, momentum=1.0) == (
+        default - RISK_ON_BUY_THRESHOLD_DELTA
+    )
+
+
+def test_buy_threshold_eased_cut_is_lower_than_default():
+    """The risk-on cut must be strictly EASIER to clear than the default — the
+    mirror of the risk-off long-gate raises, which are strictly harder."""
+    default = 0.15
+    assert regime_risk.buy_threshold(MacroRegime.RISK_ON, default) < default
+
+
+def test_buy_threshold_is_floored_at_zero():
+    """An oversized delta can never make the cut negative (which would buy on any
+    positive score) — the floor protects against a future constant edit."""
+    tiny_default = RISK_ON_BUY_THRESHOLD_DELTA / 2
+    assert regime_risk.buy_threshold(MacroRegime.RISK_ON, tiny_default) == 0.0
+
+
+def test_risk_on_buy_threshold_delta_is_small_and_bounded():
+    """The delta must stay below the default buy_threshold so the eased cut stays
+    positive, and small enough not to dominate the gate — guards constant edits."""
+    from api.services.decision_policy import DEFAULT_POLICY_PARAMS
+
+    assert 0.0 < RISK_ON_BUY_THRESHOLD_DELTA < DEFAULT_POLICY_PARAMS.buy_threshold
