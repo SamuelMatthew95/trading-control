@@ -1813,16 +1813,19 @@ RISK_OFF_SIZE_MULTIPLIER: Final[float] = 0.5
 # bar. Shorts and non-risk-off/unknown/missing regimes keep the default floor.
 # See api/services/regime_risk.py.
 RISK_OFF_MIN_CONFIDENCE: Final[float] = 0.35
-# Regime directional weighting (proposal #346): additive long lean applied to the
-# deterministic policy's blended score in an explicit risk-on (bullish) macro
-# regime — the profit-side complement to the RISK_OFF_* tightening above. Gated
-# behind the default-OFF REGIME_DIRECTIONAL_WEIGHTING_ENABLED flag, so it is a
-# strict no-op until an operator opts in. Kept small and bounded in (0, 0.5) so a
-# lean can never dominate the genuine momentum / sentiment / macro signal, and the
-# score is re-clamped into [-1, 1] after it is applied. Fires ONLY in risk-on;
-# risk-off / neutral / unknown / missing regimes add nothing. See
-# api/services/regime_risk.py::directional_bias.
-RISK_ON_DIRECTIONAL_BIAS: Final[float] = 0.10
+# Regime directional weighting (proposal #346): the risk-ON complement to the
+# RISK_OFF_* long-entry tightening above. Where a risk-off regime RAISES the bar a
+# new long must clear (RISK_OFF_MIN_CONFIDENCE / RISK_OFF_EXECUTION_DECISION_THRESHOLD),
+# an explicit risk-on (bullish) regime LOWERS the deterministic policy's BUY score
+# cut by this delta so a confirmed bullish tape lets marginal longs in sooner.
+# Strictly entry-side: it eases ONLY the buy_threshold — the SELL cut, the reported
+# score, and every RiskGuardian exit are untouched, so it can never suppress a
+# de-risking sell. Gated behind the default-OFF REGIME_DIRECTIONAL_WEIGHTING_ENABLED
+# flag (no-op until opted in) and resolved as max(0.0, buy_threshold - this) so the
+# eased floor can never go negative (which would buy on any positive score). Must
+# stay < the default buy_threshold (0.15) so the floor stays positive. See
+# api/services/regime_risk.py::buy_threshold.
+RISK_ON_BUY_THRESHOLD_DELTA: Final[float] = 0.10
 # How often (seconds) RiskGuardian scans open positions
 RISK_CHECK_INTERVAL_SECONDS: Final[int] = 30
 # Trailing-stop profit ratchet. Without it a +9% winner that reverses rides all
