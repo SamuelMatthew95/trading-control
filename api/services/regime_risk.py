@@ -32,6 +32,7 @@ from api.constants import (
     RISK_OFF_SIZE_MULTIPLIER,
     RISK_OFF_STOP_LOSS_PCT,
     RISK_OFF_TAKE_PROFIT_PCT,
+    RISK_ON_DIRECTIONAL_BIAS,
     STOP_LOSS_PCT,
     TAKE_PROFIT_PCT,
     FieldName,
@@ -56,6 +57,33 @@ def regime_of(macro: Any) -> str | None:
 def is_risk_off(regime: str | None) -> bool:
     """True only when the macro regime is explicitly risk-off (bearish)."""
     return regime == MacroRegime.RISK_OFF
+
+
+def is_risk_on(regime: str | None) -> bool:
+    """True only when the macro regime is explicitly risk-on (bullish)."""
+    return regime == MacroRegime.RISK_ON
+
+
+def directional_bias(regime: str | None, default: float, *, enabled: bool) -> float:
+    """Additive long lean for a NEW entry in a confirmed risk-on (bullish) regime.
+
+    The profit-side complement to the risk-off tightening above. Every other
+    function in this module can only ever TIGHTEN risk in a bearish regime; this
+    one OPENS UP slightly in an explicit bullish regime, so it is gated behind a
+    caller-supplied ``enabled`` flag (``REGIME_DIRECTIONAL_WEIGHTING_ENABLED``,
+    default OFF) and adds the lean ONLY when both the flag is on AND the regime is
+    explicitly risk-on. Every other input — risk-off / neutral / unknown / missing
+    regime, or the flag off — returns ``default`` unchanged.
+
+    Fail-safe by construction: a lost or malformed regime read (``None``) can never
+    inject a long bias, and the risk-off tightening path is never touched, so the
+    capital-preservation posture is preserved. The lean is intentionally additive
+    (not a multiplier) so the caller can clamp the result back into the feature
+    range and a large default lean can never be amplified.
+    """
+    if enabled and is_risk_on(regime):
+        return default + RISK_ON_DIRECTIONAL_BIAS
+    return default
 
 
 def stop_loss_pct(regime: str | None, *, is_long: bool) -> float:
