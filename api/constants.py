@@ -1820,10 +1820,10 @@ RISK_OFF_MIN_CONFIDENCE: Final[float] = 0.35
 # cut by this delta so a confirmed bullish tape lets marginal longs in sooner.
 # Strictly entry-side: it eases ONLY the buy_threshold — the SELL cut, the reported
 # score, and every RiskGuardian exit are untouched, so it can never suppress a
-# de-risking sell. Gated behind the default-OFF REGIME_DIRECTIONAL_WEIGHTING_ENABLED
-# flag (no-op until opted in) and resolved as max(0.0, buy_threshold - this) so the
-# eased floor can never go negative (which would buy on any positive score). Must
-# stay < the default buy_threshold (0.15) so the floor stays positive. See
+# de-risking sell. A no-op in risk-off / neutral / unknown / missing regimes.
+# Resolved as max(0.0, buy_threshold - this) so the eased floor can never go
+# negative (which would buy on any positive score). Must stay < the default
+# buy_threshold (0.15) so the floor stays positive. See
 # api/services/regime_risk.py::buy_threshold.
 RISK_ON_BUY_THRESHOLD_DELTA: Final[float] = 0.10
 # How often (seconds) RiskGuardian scans open positions
