@@ -22,10 +22,9 @@ RISK_OFF signal narrows it.
 
 The one deliberate exception is :func:`buy_threshold`: the risk-ON complement to
 the long-entry tightening. It EASES (lowers) the long-entry score cut in an
-explicit risk-on regime, but only behind a caller-supplied default-OFF flag and
-only on the entry side — it never touches the SELL cut, a stop, or any exit, so
-it cannot weaken capital preservation. It is the mirror of the risk-off
-long-gate raises, not a loosening of any risk limit.
+explicit risk-on regime — but only on the entry side: it never touches the SELL
+cut, a stop, or any exit, so it cannot weaken capital preservation. It is the
+mirror of the risk-off long-gate raises, not a loosening of any risk limit.
 """
 
 from __future__ import annotations
@@ -72,17 +71,15 @@ def is_risk_on(regime: str | None) -> bool:
     return regime == MacroRegime.RISK_ON
 
 
-def buy_threshold(regime: str | None, default: float, *, enabled: bool) -> float:
+def buy_threshold(regime: str | None, default: float) -> float:
     """Score cut a NEW long entry must clear — EASED in a confirmed risk-on regime.
 
     The exact mirror of the risk-off long-gate raises (``min_confidence`` /
     ``execution_threshold``): where a bearish regime RAISES the bar a new long must
     clear, an explicit bullish regime LOWERS the deterministic policy's BUY cut by
     ``RISK_ON_BUY_THRESHOLD_DELTA`` so a confirmed bullish tape admits marginal
-    longs sooner. Gated behind the caller-supplied ``enabled`` flag
-    (``REGIME_DIRECTIONAL_WEIGHTING_ENABLED``, default OFF): the cut is eased ONLY
-    when the flag is on AND the regime is explicitly risk-on. Every other input —
-    risk-off / neutral / unknown / missing regime, or the flag off — returns
+    longs sooner. The cut is eased ONLY when the regime is explicitly risk-on;
+    every other input — risk-off / neutral / unknown / missing regime — returns
     ``default`` unchanged.
 
     Strictly entry-side and fail-safe by construction:
@@ -94,7 +91,7 @@ def buy_threshold(regime: str | None, default: float, *, enabled: bool) -> float
     - Floored at 0.0 so an oversized delta can never make the cut negative (which
       would buy on any positive score).
     """
-    if enabled and is_risk_on(regime):
+    if is_risk_on(regime):
         return max(0.0, default - RISK_ON_BUY_THRESHOLD_DELTA)
     return default
 
