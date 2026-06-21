@@ -155,11 +155,12 @@ def decide_policy(
 
     # Regime directional weighting (proposal #346): the risk-ON mirror of the
     # risk-off long-gate raise below. In an explicit risk-on regime the BUY cut a
-    # new long must clear is EASED (lowered) so a confirmed bullish tape admits
-    # marginal longs sooner. Resolved through regime_risk so it eases ONLY in
-    # risk-on, and ONLY the buy cut — the SELL cut (params.sell_threshold) is
-    # untouched, so easing can never suppress a sell.
-    buy_cut = regime_risk.buy_threshold(regime, params.buy_threshold)
+    # new long must clear is EASED (lowered) — but only when this signal's own
+    # momentum is not bearish, so the regime tailwind can never pull a falling
+    # signal long. Resolved through regime_risk so it eases ONLY in risk-on, ONLY
+    # for non-bearish momentum, and ONLY the buy cut — the SELL cut
+    # (params.sell_threshold) is untouched, so easing can never suppress a sell.
+    buy_cut = regime_risk.buy_threshold(regime, params.buy_threshold, momentum)
 
     # Every contributing term is surfaced so the decision is auditable, not opaque.
     risk_factors = [
