@@ -144,17 +144,18 @@ class Settings(BaseSettings):
     NO_TRADE_WINDOW_END_ET: str = "10:00"
 
     # Regime directional weighting (proposal #346 — regime_adjustment, PRELIMINARY).
-    # The complement to the risk-off tightening in api/services/regime_risk.py:
-    # when enabled, the deterministic policy leans the blended score toward BUY by
-    # RISK_ON_DIRECTIONAL_BIAS in an explicit risk-on (bullish) macro regime, so a
-    # confirmed bullish tape nudges marginal entries long. Strictly entry-side: it
-    # NEVER fires in risk-off / neutral / unknown / missing regimes (the safety
-    # tightening path is untouched) and never blocks an exit. OFF by default — the
-    # triggering evidence is a single trade (n=1) with no backtest verdict, which
-    # does not clear the project's "proposals are backtest-backed" bar; this readies
-    # the mechanism so it can be opted in ONLY once ≥20 trades + a ReplayHarness
-    # verdict confirm the effect holds in the named regime. See
-    # docs/troubleshooting/decision-policy.md.
+    # The risk-ON mirror of the risk-off long-gate tightening in
+    # api/services/regime_risk.py: when enabled, an explicit risk-on (bullish)
+    # macro regime LOWERS the deterministic policy's BUY score cut by
+    # RISK_ON_BUY_THRESHOLD_DELTA so a confirmed bullish tape admits marginal longs
+    # sooner. Strictly entry-side — it eases only the buy_threshold; the SELL cut,
+    # the reported score, and every RiskGuardian exit are untouched, so it can
+    # never suppress a de-risking sell. A no-op in risk-off / neutral / unknown /
+    # missing regimes. OFF by default — the triggering evidence is a single trade
+    # (n=1) with no backtest verdict, which does not clear the project's
+    # "proposals are backtest-backed" bar; this readies the mechanism so it can be
+    # opted in ONLY once ≥20 trades + a ReplayHarness verdict confirm the effect
+    # holds in the named regime. See docs/troubleshooting/decision-policy.md.
     REGIME_DIRECTIONAL_WEIGHTING_ENABLED: bool = False
 
     # Grade system
