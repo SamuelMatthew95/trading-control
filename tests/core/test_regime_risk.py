@@ -174,6 +174,22 @@ def test_buy_threshold_eases_only_in_risk_on():
     assert regime_risk.buy_threshold("garbage", default) == default
 
 
+def test_buy_threshold_never_eases_a_bearish_momentum_long():
+    """The regime tailwind must NEVER pull a falling-momentum signal long: even in
+    risk-on, a bearish (momentum < 0) signal keeps the default cut. This is the
+    explicit invariant — not an artifact of the seed weights — so it survives a
+    future re-weighting of the score blend."""
+    default = 0.15
+    assert regime_risk.buy_threshold(MacroRegime.RISK_ON, default, momentum=-1.0) == default
+    # Flat or positive momentum in risk-on DOES ease.
+    assert regime_risk.buy_threshold(MacroRegime.RISK_ON, default, momentum=0.0) == (
+        default - RISK_ON_BUY_THRESHOLD_DELTA
+    )
+    assert regime_risk.buy_threshold(MacroRegime.RISK_ON, default, momentum=1.0) == (
+        default - RISK_ON_BUY_THRESHOLD_DELTA
+    )
+
+
 def test_buy_threshold_eased_cut_is_lower_than_default():
     """The risk-on cut must be strictly EASIER to clear than the default — the
     mirror of the risk-off long-gate raises, which are strictly harder."""
