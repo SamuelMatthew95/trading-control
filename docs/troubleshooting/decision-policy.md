@@ -23,15 +23,34 @@ confirmed bullish tape admits marginal longs (score 0.05–0.15) that would
 otherwise HOLD.
 
 - New constant `RISK_ON_BUY_THRESHOLD_DELTA` (`api/constants.py`).
-- New `regime_risk.is_risk_on()` + `regime_risk.buy_threshold(regime, default)` —
-  eases the cut ONLY in an explicit risk-on regime; risk-off / neutral / unknown /
-  missing regimes return the default unchanged, so a lost regime read can never
-  ease the bar.
+- New `regime_risk.is_risk_on()` + `regime_risk.buy_threshold(regime, default,
+  momentum)` — eases the cut ONLY when the regime is explicitly risk-on AND the
+  signal's own momentum is not bearish (`momentum >= 0`); risk-off / neutral /
+  unknown / missing regimes (and any bearish-momentum signal) return the default
+  unchanged, so a lost regime read can never ease the bar.
 - `decide_policy()` uses the eased cut for the BUY branch only and surfaces
   `risk_on_buy_cut` in `risk_factors` for audit.
 
 This is applied behaviour (not behind a flag): in a risk-on regime the eased cut
-is always in effect.
+is in effect for non-bearish-momentum signals.
+
+**What it actually admits (do not over-read the rationale).** With the seed
+weights a risk-on regime already adds `w_macro·(+1) = +0.20` to the score, so a
+flat-momentum signal already clears the default 0.15 cut and buys *without* any
+easing. Working out the band the eased cut (0.10) *newly* admits — score ∈
+[0.10, 0.15) — the momentum term (weight 0.50) dominates: a `momentum = +1`
+signal already scores ≥ 0.20 (easing irrelevant) and a `momentum = -1` signal
+scores ≤ 0.0 (never clears even the eased cut). So the only newly-admitted set is
+**flat-momentum signals with mildly negative secondary evidence (news /
+order-book) that the risk-on tailwind tips over the line**. It is NOT "buy a
+bearish tape". The `momentum >= 0` guard makes "never ease a falling-momentum
+long" an explicit invariant rather than an artifact that a future re-weighting of
+the score blend could silently break.
+
+**Sizing — `RISK_ON_BUY_THRESHOLD_DELTA = 0.05`.** Deliberately small (one-third
+of the 0.15 base) because the triggering evidence was a single trade with no
+backtest; it is the first lever to dial toward 0 (which disables the easing
+entirely) if risk-on win rate / PnL degrade.
 
 **Design note — why a BUY-cut easing, not a score lean.** The first pass added the
 delta to the blended *score*, which shifts the buy AND sell cuts symmetrically — a
@@ -61,4 +80,5 @@ floored at 0.0 so it can never buy on any positive score.
 `tests/core/test_decision_policy.py::test_regime_weighting_never_suppresses_a_sell_in_risk_on`,
 `tests/core/test_decision_policy.py::test_regime_weighting_admits_marginal_long_in_risk_on`,
 `tests/core/test_decision_policy.py::test_regime_weighting_does_not_loosen_risk_off_long_gate`,
-`tests/core/test_regime_risk.py::test_buy_threshold_eases_only_in_risk_on`
+`tests/core/test_regime_risk.py::test_buy_threshold_eases_only_in_risk_on`,
+`tests/core/test_regime_risk.py::test_buy_threshold_never_eases_a_bearish_momentum_long`
