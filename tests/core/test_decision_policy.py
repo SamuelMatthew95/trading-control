@@ -183,54 +183,52 @@ def test_default_params_constant_is_a_policy_params():
 # ---------------------------------------------------------------------------
 # Regime directional weighting (proposal #346 — regime_adjustment, PRELIMINARY)
 #
-# The mechanism leans the blended score toward BUY in an explicit risk-on
-# (bullish) macro regime, gated behind the default-OFF
-# REGIME_DIRECTIONAL_WEIGHTING_ENABLED flag. The evidence (n=1, no backtest) does
-# NOT justify turning it on — these tests lock in that the DEFAULT is neutral and
-# that, IF opted in, the lean is strictly risk-on / entry-side and never weakens
-# the risk-off tightening path.
+# The mechanism EASES (lowers) the BUY score cut in an explicit risk-on (bullish)
+# macro regime — the mirror of the risk-off long-gate raises — gated behind the
+# default-OFF REGIME_DIRECTIONAL_WEIGHTING_ENABLED flag. It is strictly entry-side:
+# only the buy cut moves; the SELL cut, the reported score, and every RiskGuardian
+# exit are untouched. The evidence (n=1, no backtest) does NOT justify turning it
+# on — these tests lock in that the DEFAULT is neutral and that, IF opted in, the
+# easing is risk-on-only, never bypasses conviction, never weakens the risk-off
+# gate, and NEVER suppresses a sell.
 # ---------------------------------------------------------------------------
 
 
-# A weak-but-confident signal in a risk-on regime: momentum is flat, and a
-# bearish sentiment (-0.5) offsets the +0.20 risk-on macro term so the blended
-# score (0.20·1.0 + 0.20·-0.5 = 0.10) sits BELOW the 0.15 buy threshold → HOLD by
-# default. The +0.10 risk-on lean is exactly enough to tip it to BUY — so the lean
-# is the only thing that changes the decision, isolating the mechanism under test.
+# A weak-but-confident long in a risk-on regime: flat momentum, and a bearish
+# sentiment (-0.5) offsets the +0.20 risk-on macro term so the blended score
+# (0.20·1.0 + 0.20·-0.5 = 0.10) sits BELOW the 0.15 buy_threshold → HOLD by
+# default. Easing the cut by 0.10 (to 0.05) is exactly enough to admit it — so the
+# regime easing is the only thing that changes the decision, isolating the
+# mechanism under test.
 _RISK_ON_MARGINAL = {FieldName.COMPOSITE_SCORE: 0.5}
 
 
 def test_regime_weighting_default_off_does_not_change_behaviour():
-    """With the flag at its default (OFF), the risk-on lean is never added — the
+    """With the flag at its default (OFF), the BUY cut is never eased — the
     marginal long HOLDs exactly as it did before the mechanism existed."""
     from api.config import settings
 
     assert settings.REGIME_DIRECTIONAL_WEIGHTING_ENABLED is False
     out = decide_policy(_RISK_ON_MARGINAL, _ctx(regime=MacroRegime.RISK_ON, sentiment=-0.5))
     assert out[FieldName.ACTION] == AgentAction.HOLD
-    assert all("directional_bias" not in f for f in out[FieldName.RISK_FACTORS])
+    assert all("risk_on_buy_cut" not in f for f in out[FieldName.RISK_FACTORS])
 
 
-def test_regime_weighting_enabled_tilts_marginal_long_to_buy_in_risk_on(monkeypatch):
-    """Opted in, the exact marginal long that HOLDs by default is nudged past the
-    buy threshold by the risk-on lean — and the lean is surfaced for auditability."""
+def test_regime_weighting_enabled_admits_marginal_long_in_risk_on(monkeypatch):
+    """Opted in, the exact marginal long that HOLDs by default clears the eased
+    BUY cut and BUYs — and the eased cut is surfaced for auditability."""
     from api.config import settings
-    from api.constants import RISK_ON_DIRECTIONAL_BIAS
 
     monkeypatch.setattr(settings, "REGIME_DIRECTIONAL_WEIGHTING_ENABLED", True)
     out = decide_policy(_RISK_ON_MARGINAL, _ctx(regime=MacroRegime.RISK_ON, sentiment=-0.5))
     assert out[FieldName.ACTION] == AgentAction.BUY
-    assert any(
-        f"directional_bias +{RISK_ON_DIRECTIONAL_BIAS:.2f}" in f
-        for f in out[FieldName.RISK_FACTORS]
-    )
+    assert any("risk_on_buy_cut" in f for f in out[FieldName.RISK_FACTORS])
 
 
 def test_regime_weighting_enabled_is_a_no_op_outside_risk_on(monkeypatch):
-    """Even opted in, the lean fires ONLY in risk-on: in a neutral or risk-off
-    regime the decision is identical to the flag-OFF baseline and no lean is
-    surfaced, so the mechanism can never inject a long bias into a non-bullish
-    (or lost) regime."""
+    """Even opted in, the easing fires ONLY in risk-on: in a neutral or risk-off
+    regime the decision is identical to the flag-OFF baseline and no eased cut is
+    surfaced, so a non-bullish (or lost) regime can never get the looser gate."""
     from api.config import settings
 
     data = {FieldName.DIRECTION: "bullish", FieldName.COMPOSITE_SCORE: 0.6}
@@ -241,12 +239,32 @@ def test_regime_weighting_enabled_is_a_no_op_outside_risk_on(monkeypatch):
         monkeypatch.setattr(settings, "REGIME_DIRECTIONAL_WEIGHTING_ENABLED", True)
         enabled = decide_policy(data, ctx)
         assert enabled[FieldName.ACTION] == baseline[FieldName.ACTION]
-        assert all("directional_bias" not in f for f in enabled[FieldName.RISK_FACTORS])
+        assert all("risk_on_buy_cut" not in f for f in enabled[FieldName.RISK_FACTORS])
+
+
+def test_regime_weighting_enabled_never_suppresses_a_sell_in_risk_on(monkeypatch):
+    """THE constitution-critical invariant: easing the BUY cut must never block a
+    de-risking SELL. A marginal bearish signal whose score sits just past the sell
+    cut (-0.18) would be suppressed by a *symmetric* score lean (-0.18 + 0.10 =
+    -0.08 → HOLD); because the easing moves ONLY the buy cut, the SELL still fires
+    — identically to the flag-OFF baseline."""
+    from api.config import settings
+
+    # momentum -0.5 + macro +0.2 (risk-on) + sentiment 0.6·0.2=+0.12 → score -0.18,
+    # just past the -0.15 sell cut. Confidence 0.6 clears min_confidence.
+    data = {FieldName.DIRECTION: "bearish", FieldName.COMPOSITE_SCORE: 0.6}
+    ctx = _ctx(regime=MacroRegime.RISK_ON, sentiment=0.6)
+    monkeypatch.setattr(settings, "REGIME_DIRECTIONAL_WEIGHTING_ENABLED", False)
+    baseline = decide_policy(data, ctx)
+    monkeypatch.setattr(settings, "REGIME_DIRECTIONAL_WEIGHTING_ENABLED", True)
+    enabled = decide_policy(data, ctx)
+    assert baseline[FieldName.ACTION] == AgentAction.SELL
+    assert enabled[FieldName.ACTION] == AgentAction.SELL  # easing did NOT suppress the sell
 
 
 def test_regime_weighting_never_bypasses_min_confidence(monkeypatch):
-    """The risk-on lean only tilts the score cut — it must never let a
-    low-conviction signal trade, so the conviction floor still rejects it."""
+    """The eased cut only lowers the BUY bar — it must never let a low-conviction
+    signal trade, so the conviction floor still rejects it."""
     from api.config import settings
 
     monkeypatch.setattr(settings, "REGIME_DIRECTIONAL_WEIGHTING_ENABLED", True)
@@ -257,9 +275,9 @@ def test_regime_weighting_never_bypasses_min_confidence(monkeypatch):
 
 
 def test_regime_weighting_does_not_loosen_risk_off_long_gate(monkeypatch):
-    """Capital-preservation invariant: enabling the bullish lean must NOT weaken
+    """Capital-preservation invariant: enabling the bullish easing must NOT weaken
     the risk-off entry tightening. A marginal long in a risk-off regime is still
-    rejected, because the lean never fires outside risk-on."""
+    rejected, because the easing never fires outside risk-on."""
     from api.config import settings
 
     monkeypatch.setattr(settings, "REGIME_DIRECTIONAL_WEIGHTING_ENABLED", True)
