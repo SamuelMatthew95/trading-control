@@ -29,6 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from api.config import settings
 from api.constants import AgentAction, FieldName, MacroRegime
 from api.services import regime_risk
 
@@ -145,9 +146,21 @@ def decide_policy(
         + params.w_macro * macro
         + params.w_imbalance * imbalance
     )
+    # Resolve the effective directional lean. Starts from the control-plane's
+    # params.directional_bias (default 0.0 = no-op) and, ONLY when the default-OFF
+    # REGIME_DIRECTIONAL_WEIGHTING_ENABLED flag is on AND the macro regime is
+    # explicitly risk-on (bullish), adds RISK_ON_DIRECTIONAL_BIAS — the profit-side
+    # complement to the risk-off tightening below. regime_risk owns the gate so a
+    # risk-off / neutral / unknown / missing regime can never inject a long bias.
+    regime = regime_risk.regime_of(context.get(FieldName.MACRO_REGIME))
+    effective_bias = regime_risk.directional_bias(
+        regime,
+        params.directional_bias,
+        enabled=settings.REGIME_DIRECTIONAL_WEIGHTING_ENABLED,
+    )
     # Apply the directional lean (default 0.0 = no-op) and clamp back into the
     # feature range so a large bias can never push the score outside [-1, 1].
-    score = round(_clamp(blended + params.directional_bias, -1.0, 1.0), 4)
+    score = round(_clamp(blended + effective_bias, -1.0, 1.0), 4)
 
     # Every contributing term is surfaced so the decision is auditable, not opaque.
     risk_factors = [
@@ -158,15 +171,15 @@ def decide_policy(
         f"score {score:+.3f}",
         f"confidence {confidence:.2f}",
     ]
-    if params.directional_bias:
-        risk_factors.append(f"directional_bias {params.directional_bias:+.2f}")
+    if effective_bias:
+        risk_factors.append(f"directional_bias {effective_bias:+.2f}")
 
     # A risk-off (bearish) regime raises the conviction bar a NEW long must clear
     # to open — marginal longs are rejected (HOLD), not chased into a falling
     # market. Resolved through regime_risk so it can only ever tighten; shorts and
     # every other regime keep params.min_confidence.
     long_floor = regime_risk.min_confidence(
-        regime_risk.regime_of(context.get(FieldName.MACRO_REGIME)),
+        regime,
         params.min_confidence,
         is_long=True,
     )
