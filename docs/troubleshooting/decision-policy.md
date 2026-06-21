@@ -6,57 +6,59 @@ regime-conditional weighting (`api/services/regime_risk.py`).
 
 ---
 
-## Regime directional weighting shipped OFF on preliminary (n=1) evidence — proposal #346
+## Regime directional weighting — risk-on BUY-cut easing (proposal #346)
 
 **Symptom:** The learning loop filed a `regime_adjustment` proposal — *"The lack
 of recent grades or IC changes available is due to the need for more data and
 market activity to generate meaningful insights"* — pointing at
 `decision_policy.py` (regime → directional weighting) and asking for a behavioural
-change. Its own evidence block was a single trade (`sample_size: 1`, win rate
-"100%", `backtest: null`, `evidence_sufficient: false`) in a bullish regime, with
-the recommendation "continue with current strategy".
+change in the bullish regime.
 
-**Root cause:** Not a defect. The proposal is a low-signal watch-item: one
-observation cannot distinguish a real regime effect from ordinary trade variance,
-and it does not clear the project's "proposals are backtest-backed" bar
-(`CLAUDE.md`). Acting on it as written ("first confirm the pattern holds over more
-trades… close it if it does not hold") would be premature.
+**Change:** The deterministic policy now applies a **risk-on directional
+weighting** — the mirror of the existing risk-off long-gate tightening. Where a
+risk-off (bearish) regime RAISES the bar a new long must clear (`min_confidence`,
+`execution_threshold`), an explicit risk-on (bullish) regime LOWERS the policy's
+BUY score cut by `RISK_ON_BUY_THRESHOLD_DELTA` (0.10, floored at 0.0), so a
+confirmed bullish tape admits marginal longs (score 0.05–0.15) that would
+otherwise HOLD.
 
-**Fix:** Built the mechanism but left it inert, so default behaviour is unchanged
-and it can be opted into only once the evidence firms up.
-- New default-OFF flag `REGIME_DIRECTIONAL_WEIGHTING_ENABLED` (`api/config.py`).
-- New bounded constant `RISK_ON_BUY_THRESHOLD_DELTA = 0.10` (`api/constants.py`).
-- New `regime_risk.is_risk_on()` + `regime_risk.buy_threshold(regime, default, *,
-  enabled)` — the **exact mirror of the risk-off long-gate raises**. Where a
-  bearish regime RAISES the bar a new long must clear (`min_confidence` /
-  `execution_threshold`), a confirmed bullish regime LOWERS the BUY score cut by
-  the delta (floored at 0.0). It eases ONLY when the flag is on AND the regime is
-  explicitly risk-on; risk-off / neutral / unknown / missing regimes return the
-  default unchanged, so a lost regime read can never ease the bar.
-- `decide_policy()` resolves the eased cut through that helper and uses it for the
-  BUY branch only. The reported `score` and the SELL cut (`params.sell_threshold`)
-  are untouched; the eased cut is surfaced in `risk_factors` for audit.
+- New constant `RISK_ON_BUY_THRESHOLD_DELTA` (`api/constants.py`).
+- New `regime_risk.is_risk_on()` + `regime_risk.buy_threshold(regime, default)` —
+  eases the cut ONLY in an explicit risk-on regime; risk-off / neutral / unknown /
+  missing regimes return the default unchanged, so a lost regime read can never
+  ease the bar.
+- `decide_policy()` uses the eased cut for the BUY branch only and surfaces
+  `risk_on_buy_cut` in `risk_factors` for audit.
+
+This is applied behaviour (not behind a flag): in a risk-on regime the eased cut
+is always in effect.
 
 **Design note — why a BUY-cut easing, not a score lean.** The first pass added the
 delta to the blended *score*, which shifts the buy AND sell cuts symmetrically — a
 marginal bearish signal (score −0.18) would be pulled to −0.08 → HOLD, i.e. a
-risk-on regime could *suppress a de-risking SELL*. That brushes against the
-constitution's "exits are never blocked by an entry-side gate". Moving the easing
-to the BUY threshold only makes it provably entry-side: the SELL cut, the reported
-score, and every RiskGuardian exit (stop / take-profit / trailing / daily-loss)
-are untouched, so easing can never block a sell. This also keeps `regime_risk`
-honest — it is the mirror of the existing risk-off long-gate raises, not a new
-risk loosening (the module docstring carves out this single, entry-side, flag-
-gated exception explicitly).
+risk-on regime could *suppress a de-risking SELL*. That violates the constitution's
+"exits are never blocked by an entry-side gate". Moving the easing to the BUY
+threshold only makes it provably entry-side: the SELL cut (`params.sell_threshold`),
+the reported `score`, and every RiskGuardian exit (stop / take-profit / trailing /
+daily-loss) are untouched, so easing can never block a sell. This also keeps
+`regime_risk` honest — it is the mirror of the existing risk-off long-gate raises,
+not a loosening of any risk limit (the module docstring carves out this single,
+entry-side exception explicitly).
 
-Invariants preserved: default-neutral (flag OFF → byte-for-byte the old decision);
-strictly entry-side (never suppresses a sell or any exit); never bypasses the
-`min_confidence` floor; never weakens the risk-off entry gate. To enable it later,
-the bar is ≥20 trades in the named regime WITH a `ReplayHarness` verdict (win rate
-/ PnL / Sharpe / FPR) attached.
+**Invariants preserved:** strictly entry-side (never suppresses a sell or any
+exit); fires only in an explicit risk-on regime (a no-op everywhere else, and a
+lost regime read keeps the default cut); never bypasses the `min_confidence`
+conviction floor; never weakens the risk-off entry tightening; the eased cut is
+floored at 0.0 so it can never buy on any positive score.
+
+> **Provenance note:** the triggering proposal's evidence was a single trade
+> (`sample_size: 1`, `backtest: null`, `evidence_sufficient: false`). The change
+> was applied by operator direction rather than a backtest verdict. If win rate /
+> PnL degrade in risk-on regimes, the first lever is `RISK_ON_BUY_THRESHOLD_DELTA`
+> (lower it toward 0 to shrink the easing; 0 disables it entirely).
 
 **Regression test:**
-`tests/core/test_decision_policy.py::test_regime_weighting_enabled_never_suppresses_a_sell_in_risk_on`,
-`tests/core/test_decision_policy.py::test_regime_weighting_default_off_does_not_change_behaviour`,
+`tests/core/test_decision_policy.py::test_regime_weighting_never_suppresses_a_sell_in_risk_on`,
+`tests/core/test_decision_policy.py::test_regime_weighting_admits_marginal_long_in_risk_on`,
 `tests/core/test_decision_policy.py::test_regime_weighting_does_not_loosen_risk_off_long_gate`,
-`tests/core/test_regime_risk.py::test_buy_threshold_eases_only_in_risk_on_when_enabled`
+`tests/core/test_regime_risk.py::test_buy_threshold_eases_only_in_risk_on`
