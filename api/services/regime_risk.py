@@ -14,10 +14,18 @@ regime-conditional risk parameter is resolved here. Consumers read the macro
 regime where they already have it (the reasoning context, or the RiskGuardian
 cache read) and ask this module for the effective parameter.
 
-**Fail-safe invariant:** the posture only ever TIGHTENS risk in an explicit
-risk-off regime and is a no-op for every other input. An unknown / risk-on /
-neutral / missing / stale regime always yields the DEFAULT parameter, so a lost
-regime read can never loosen risk — only the explicit RISK_OFF signal narrows it.
+**Fail-safe invariant:** every risk parameter here only ever TIGHTENS in an
+explicit risk-off regime and is a no-op for every other input. An unknown /
+risk-on / neutral / missing / stale regime always yields the DEFAULT parameter,
+so a lost regime read can never loosen a RISK parameter — only the explicit
+RISK_OFF signal narrows it.
+
+The one deliberate exception is :func:`buy_threshold`: the risk-ON complement to
+the long-entry tightening. It EASES (lowers) the long-entry score cut in an
+explicit risk-on regime, but only behind a caller-supplied default-OFF flag and
+only on the entry side — it never touches the SELL cut, a stop, or any exit, so
+it cannot weaken capital preservation. It is the mirror of the risk-off
+long-gate raises, not a loosening of any risk limit.
 """
 
 from __future__ import annotations
@@ -32,7 +40,7 @@ from api.constants import (
     RISK_OFF_SIZE_MULTIPLIER,
     RISK_OFF_STOP_LOSS_PCT,
     RISK_OFF_TAKE_PROFIT_PCT,
-    RISK_ON_DIRECTIONAL_BIAS,
+    RISK_ON_BUY_THRESHOLD_DELTA,
     STOP_LOSS_PCT,
     TAKE_PROFIT_PCT,
     FieldName,
@@ -64,25 +72,30 @@ def is_risk_on(regime: str | None) -> bool:
     return regime == MacroRegime.RISK_ON
 
 
-def directional_bias(regime: str | None, default: float, *, enabled: bool) -> float:
-    """Additive long lean for a NEW entry in a confirmed risk-on (bullish) regime.
+def buy_threshold(regime: str | None, default: float, *, enabled: bool) -> float:
+    """Score cut a NEW long entry must clear — EASED in a confirmed risk-on regime.
 
-    The profit-side complement to the risk-off tightening above. Every other
-    function in this module can only ever TIGHTEN risk in a bearish regime; this
-    one OPENS UP slightly in an explicit bullish regime, so it is gated behind a
-    caller-supplied ``enabled`` flag (``REGIME_DIRECTIONAL_WEIGHTING_ENABLED``,
-    default OFF) and adds the lean ONLY when both the flag is on AND the regime is
-    explicitly risk-on. Every other input — risk-off / neutral / unknown / missing
-    regime, or the flag off — returns ``default`` unchanged.
+    The exact mirror of the risk-off long-gate raises (``min_confidence`` /
+    ``execution_threshold``): where a bearish regime RAISES the bar a new long must
+    clear, an explicit bullish regime LOWERS the deterministic policy's BUY cut by
+    ``RISK_ON_BUY_THRESHOLD_DELTA`` so a confirmed bullish tape admits marginal
+    longs sooner. Gated behind the caller-supplied ``enabled`` flag
+    (``REGIME_DIRECTIONAL_WEIGHTING_ENABLED``, default OFF): the cut is eased ONLY
+    when the flag is on AND the regime is explicitly risk-on. Every other input —
+    risk-off / neutral / unknown / missing regime, or the flag off — returns
+    ``default`` unchanged.
 
-    Fail-safe by construction: a lost or malformed regime read (``None``) can never
-    inject a long bias, and the risk-off tightening path is never touched, so the
-    capital-preservation posture is preserved. The lean is intentionally additive
-    (not a multiplier) so the caller can clamp the result back into the feature
-    range and a large default lean can never be amplified.
+    Strictly entry-side and fail-safe by construction:
+    - It only ever moves the BUY cut. The caller leaves the SELL cut and the
+      reported score untouched, so easing this can never suppress a de-risking
+      sell or any RiskGuardian exit — the capital-preservation path is intact.
+    - A lost or malformed regime read (``None``) returns ``default``, so a missing
+      regime can never ease the bar.
+    - Floored at 0.0 so an oversized delta can never make the cut negative (which
+      would buy on any positive score).
     """
     if enabled and is_risk_on(regime):
-        return default + RISK_ON_DIRECTIONAL_BIAS
+        return max(0.0, default - RISK_ON_BUY_THRESHOLD_DELTA)
     return default
 
 
