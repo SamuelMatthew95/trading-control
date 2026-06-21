@@ -17,6 +17,7 @@ from api.constants import (
     RISK_OFF_SIZE_MULTIPLIER,
     RISK_OFF_STOP_LOSS_PCT,
     RISK_OFF_TAKE_PROFIT_PCT,
+    RISK_ON_DIRECTIONAL_BIAS,
     STOP_LOSS_PCT,
     TAKE_PROFIT_PCT,
     MacroRegime,
@@ -145,3 +146,54 @@ def test_fail_safe_unknown_regime_never_tightens():
         regime_risk.execution_threshold("garbage", EXECUTION_DECISION_THRESHOLD, is_long=True)
         == EXECUTION_DECISION_THRESHOLD
     )
+
+
+# ---------------------------------------------------------------------------
+# Regime directional weighting (proposal #346 — risk-on long lean, default OFF)
+# ---------------------------------------------------------------------------
+
+
+def test_is_risk_on():
+    assert regime_risk.is_risk_on(MacroRegime.RISK_ON) is True
+    assert regime_risk.is_risk_on(MacroRegime.RISK_OFF) is False
+    assert regime_risk.is_risk_on(MacroRegime.NEUTRAL) is False
+    assert regime_risk.is_risk_on(None) is False
+
+
+def test_directional_bias_disabled_is_always_a_no_op():
+    """With the flag OFF the lean is never added — not even in a risk-on regime,
+    so default behaviour is unchanged until an operator opts in."""
+    default = 0.0
+    assert regime_risk.directional_bias(MacroRegime.RISK_ON, default, enabled=False) == default
+    assert regime_risk.directional_bias(MacroRegime.RISK_OFF, default, enabled=False) == default
+    assert regime_risk.directional_bias(None, default, enabled=False) == default
+
+
+def test_directional_bias_adds_long_lean_only_in_risk_on_when_enabled():
+    """Enabled, the lean is added ONLY in an explicit risk-on regime; every other
+    regime (risk-off / neutral / unknown / missing) returns the default unchanged
+    so the safety tightening path can never be loosened by a lost regime read."""
+    default = 0.0
+    assert (
+        regime_risk.directional_bias(MacroRegime.RISK_ON, default, enabled=True)
+        == default + RISK_ON_DIRECTIONAL_BIAS
+    )
+    assert regime_risk.directional_bias(MacroRegime.RISK_OFF, default, enabled=True) == default
+    assert regime_risk.directional_bias(MacroRegime.NEUTRAL, default, enabled=True) == default
+    assert regime_risk.directional_bias(None, default, enabled=True) == default
+    assert regime_risk.directional_bias("garbage", default, enabled=True) == default
+
+
+def test_directional_bias_is_additive_on_top_of_a_control_plane_lean():
+    """The risk-on lean stacks on the caller's existing bias rather than replacing
+    it, so an operator-set lean is preserved and only nudged further long."""
+    existing = 0.05
+    assert regime_risk.directional_bias(MacroRegime.RISK_ON, existing, enabled=True) == (
+        existing + RISK_ON_DIRECTIONAL_BIAS
+    )
+
+
+def test_risk_on_directional_bias_is_small_and_bounded():
+    """The lean must stay small enough that it can never dominate the genuine
+    momentum/sentiment/macro signal — guards future constant edits."""
+    assert 0.0 < RISK_ON_DIRECTIONAL_BIAS < 0.5
