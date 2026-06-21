@@ -192,11 +192,12 @@ def test_default_params_constant_is_a_policy_params():
 # ---------------------------------------------------------------------------
 
 
-# A weak-but-confident long in a risk-on regime: flat momentum, and a bearish
-# sentiment (-0.5) offsets the +0.20 risk-on macro term so the blended score
-# (0.20·1.0 + 0.20·-0.5 = 0.10) sits BELOW the default 0.15 buy_threshold. Easing
-# the cut by 0.10 (to 0.05) is exactly enough to admit it — isolating the
-# mechanism under test from the rest of the decision.
+# A weak-but-confident long in a risk-on regime: flat momentum (so the momentum
+# guard permits the easing), and a bearish sentiment (-0.5) offsets the +0.20
+# risk-on macro term so the blended score (0.20·1.0 + 0.20·-0.5 = 0.10) sits BELOW
+# the default 0.15 buy_threshold. Easing the cut by RISK_ON_BUY_THRESHOLD_DELTA
+# (to 0.10) is exactly enough to admit it — isolating the mechanism under test
+# from the rest of the decision.
 _RISK_ON_MARGINAL = {FieldName.COMPOSITE_SCORE: 0.5}
 
 
