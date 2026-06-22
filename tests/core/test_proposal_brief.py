@@ -15,6 +15,7 @@ from api.services.proposal_brief import (
     TIER_SOLID,
     build_implementation_brief,
     classify_evidence,
+    evidence_blocks_issue,
     evidence_from_reflection,
     evidence_is_solid,
 )
@@ -47,6 +48,27 @@ def test_evidence_is_solid_helper():
         {FieldName.SAMPLE_SIZE: 50, FieldName.BACKTEST: {FieldName.WIN_RATE: 0.6}}
     )
     assert not evidence_is_solid({FieldName.SAMPLE_SIZE: 2, FieldName.BACKTEST: None})
+
+
+def test_evidence_blocks_issue_gates_only_present_insufficient_evidence():
+    """The issue-filing gate: block ONLY when an evidence block is present and
+    explicitly insufficient. Absent/empty evidence (structural proposals) and
+    solid evidence both pass through to a GitHub issue."""
+    # Absent / empty → never blocks (structural architect proposals still file).
+    assert not evidence_blocks_issue({})
+    assert not evidence_blocks_issue(None)  # type: ignore[arg-type]
+    # Explicit evidence_sufficient flag is honoured (the recurring-noise shape).
+    assert evidence_blocks_issue(
+        {FieldName.SAMPLE_SIZE: 5, FieldName.BACKTEST: None, FieldName.EVIDENCE_SUFFICIENT: False}
+    )
+    assert not evidence_blocks_issue(
+        {FieldName.SAMPLE_SIZE: 40, FieldName.EVIDENCE_SUFFICIENT: True}
+    )
+    # No explicit flag → fall back to the solid bar.
+    assert evidence_blocks_issue({FieldName.SAMPLE_SIZE: 2, FieldName.BACKTEST: None})
+    assert not evidence_blocks_issue(
+        {FieldName.SAMPLE_SIZE: 50, FieldName.BACKTEST: {FieldName.WIN_RATE: 0.6}}
+    )
 
 
 # ---------------------------------------------------------------------------
