@@ -64,11 +64,17 @@ from api.services.challenger_store import get_challenger_store
 from api.services.gitops_publisher import GitOpsPublisher
 from api.services.param_evolution import validate_param_change
 from api.services.prompt_store import get_prompt_store
-from api.services.proposal_brief import build_implementation_brief
+from api.services.proposal_brief import build_implementation_brief, evidence_blocks_issue
 from api.services.redis_store import get_redis_store
 from api.services.strategy_registry import InvalidTransitionError, get_strategy_registry
 from api.services.tool_registry import get_tool_registry
 from backtest.strategies import STRATEGIES
+
+# Terminal status for a feature proposal that was recorded but deliberately NOT
+# escalated to a GitHub issue because its evidence is insufficient (see
+# settings.PROPOSAL_ISSUE_REQUIRE_SUFFICIENT_EVIDENCE). Sits alongside the
+# GitOpsPublisher statuses ("opened" / "dry_run") in the applied-summary dict.
+ISSUE_STATUS_WATCH_ITEM = "watch_item"
 
 
 class ProposalApplier(MultiStreamAgent):
@@ -358,6 +364,33 @@ class ProposalApplier(MultiStreamAgent):
         description = str(
             content.get(FieldName.DESCRIPTION) or content.get(FieldName.REASON) or ""
         ).strip()
+
+        # Evidence gate: the learning loop routinely emits proposals whose own
+        # evidence block is flagged ``evidence_sufficient: false`` (n=1..5, no
+        # backtest). Filing each as a GitHub issue was recurring, unactionable
+        # triage load. Record it as a watch-item (the proposal still lands in the
+        # stream + dashboard via the agent_log below) but do NOT open an issue
+        # until a backtest-backed sample firms up. Structural proposals with no
+        # evidence block are unaffected — they are filed as before.
+        evidence = content.get(FieldName.EVIDENCE) or {}
+        if settings.PROPOSAL_ISSUE_REQUIRE_SUFFICIENT_EVIDENCE and evidence_blocks_issue(evidence):
+            log_structured(
+                "info",
+                "proposal_issue_gated_insufficient_evidence",
+                proposal_type=proposal_type,
+                trace_id=trace_id,
+                sample_size=evidence.get(FieldName.SAMPLE_SIZE),
+            )
+            return {
+                FieldName.MESSAGE: (
+                    f"GitHub issue NOT opened for {proposal_type} — evidence insufficient "
+                    "(recorded as watch-item; escalates once a backtest-backed sample firms up)"
+                ),
+                FieldName.PROPOSAL_TYPE: proposal_type,
+                FieldName.STATUS: ISSUE_STATUS_WATCH_ITEM,
+                FieldName.PR_URL: None,
+            }
+
         title = f"[auto] {proposal_type}: {description[:80] or 'learning-loop proposal'}"
         # The issue body IS a complete, Claude-Code-ready implementation brief.
         # Producers (StrategyProposer) attach one; for any proposal without a

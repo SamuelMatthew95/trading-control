@@ -197,6 +197,20 @@ class Settings(BaseSettings):
     GITHUB_AUTOPR_ENABLED: bool = True
     GITHUB_AUTOPR_BASE_BRANCH: str = "main"
 
+    # Gate auto-filed feature issues (CODE_CHANGE / REGIME_ADJUSTMENT / NEW_AGENT)
+    # on evidence sufficiency. The learning loop fires a handful of trades a day,
+    # so it routinely emits proposals whose OWN evidence block is flagged
+    # ``evidence_sufficient: false`` (n=1..5, no backtest). Filing each as a GitHub
+    # issue created recurring, unactionable human-triage load (issues #322/#324/
+    # #334/#341/#345/#346/#349 were all closed not-planned for exactly this).
+    # When True, an insufficient-evidence proposal is still recorded as a
+    # watch-item (proposal stream + dashboard, the loop is never starved) but is
+    # NOT escalated to a GitHub issue until a backtest-backed sample firms up.
+    # Proposals carrying no evidence block (structural architect work) are
+    # unaffected — they are filed as before. Set False to restore filing every
+    # proposal as an issue.
+    PROPOSAL_ISSUE_REQUIRE_SUFFICIENT_EVIDENCE: bool = True
+
     # LLM provider routing
     LLM_PROVIDER: str = "gemini"
     # When True (default), fall back to a cloud provider if LM Studio is
