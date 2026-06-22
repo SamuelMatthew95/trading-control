@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from api.config import settings as _grade_settings
 from api.constants import (
     STREAM_AGENT_GRADES,
     STREAM_NOTIFICATIONS,
@@ -180,9 +181,10 @@ async def test_accumulates_confidence_from_executions(grade_agent):
 
 @pytest.mark.asyncio
 @patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
-async def test_no_grade_before_trigger(grade_agent, mock_bus):
+async def test_no_grade_before_trigger(grade_agent, mock_bus, monkeypatch):
     """Fewer than GRADE_EVERY_N_FILLS fills should not trigger _compute_and_publish_grade."""
-    # Default GRADE_EVERY_N_FILLS = 5; send 4 fills — should not trigger
+    # Pin the trigger to 5 so the test exercises the mechanism, not the default.
+    monkeypatch.setattr(_grade_settings, "GRADE_EVERY_N_FILLS", 5)
     for i in range(4):
         await grade_agent.process("trade_performance", f"id-{i}", {"pnl": float(i)})
 
@@ -195,8 +197,9 @@ async def test_no_grade_before_trigger(grade_agent, mock_bus):
 
 @pytest.mark.asyncio
 @patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
-async def test_grade_triggers_at_n_fills(grade_agent):
+async def test_grade_triggers_at_n_fills(grade_agent, monkeypatch):
     """Exactly GRADE_EVERY_N_FILLS fills should call _compute_and_publish_grade once."""
+    monkeypatch.setattr(_grade_settings, "GRADE_EVERY_N_FILLS", 5)
     with patch.object(
         grade_agent, "_compute_and_publish_grade", new_callable=AsyncMock
     ) as mock_compute:
@@ -204,6 +207,60 @@ async def test_grade_triggers_at_n_fills(grade_agent):
             await grade_agent.process("trade_performance", f"id-{i}", {"pnl": float(i)})
 
         mock_compute.assert_called_once()
+
+
+@pytest.mark.asyncio
+@patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
+async def test_closed_trade_graded_on_its_own_evaluation(grade_agent):
+    """Every closed trade's deterministic grade lands on its own trade-feed row
+    immediately — independent of the every-N-fills agent-grade cycle. Regression
+    for: closed trades rendering "NR" because the per-trade grade was only
+    persisted to trade_evaluations, never onto the row the Learning page reads."""
+    from api.constants import FieldName
+    from api.runtime_state import get_runtime_store
+
+    store = get_runtime_store()
+    # The fill path creates the row; seed it the same way (memory mode).
+    store.upsert_trade_fill(
+        {
+            FieldName.EXECUTION_TRACE_ID: "exec-1",
+            FieldName.SYMBOL: "BTC/USD",
+            FieldName.SIDE: "sell",
+        }
+    )
+
+    close = {
+        FieldName.EXECUTION_TRACE_ID: "exec-1",
+        FieldName.SYMBOL: "BTC/USD",
+        FieldName.SIDE: "sell",
+        FieldName.PNL: 25.0,
+        FieldName.PNL_PERCENT: 1.5,
+    }
+    await grade_agent.process("trade_performance", "id-1", close)
+
+    row = next(r for r in store.trade_feed if r.get(FieldName.EXECUTION_TRACE_ID) == "exec-1")
+    assert row.get(FieldName.GRADE), "closed trade should carry its own grade"
+    assert row.get(FieldName.GRADE_SCORE) is not None
+    assert row.get(FieldName.GRADED_AT)
+    # No duplicate row was appended — the grade merged into the existing one.
+    assert sum(1 for r in store.trade_feed if r.get(FieldName.EXECUTION_TRACE_ID) == "exec-1") == 1
+
+
+@pytest.mark.asyncio
+@patch("api.services.agents.grade_agent.AsyncSessionFactory", _MockSessionFactory())
+async def test_open_leg_is_not_graded(grade_agent):
+    """An event with no realized PnL (open leg) must not be graded on the row."""
+    from api.constants import FieldName
+
+    await grade_agent._grade_trade_row(
+        {FieldName.EXECUTION_TRACE_ID: "exec-open", FieldName.PNL: None},
+        {FieldName.GRADE: "A", FieldName.OVERALL_SCORE: 0.95},
+    )
+    from api.runtime_state import get_runtime_store
+
+    assert all(
+        r.get(FieldName.EXECUTION_TRACE_ID) != "exec-open" for r in get_runtime_store().trade_feed
+    )
 
 
 # ---------------------------------------------------------------------------
