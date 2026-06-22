@@ -6,6 +6,46 @@ and the dashboard Proposal Queue (ingestion, approve/reject, empty state).
 
 ---
 
+## Recurring `[auto]` GitHub issues filed on insufficient evidence
+
+**Symptom:** A steady stream of `[auto] regime_adjustment:` / `[auto] code_change:`
+GitHub issues, each built on `n=1..5` trades with `backtest: null` and the
+proposal's own `evidence_sufficient: false` flag set. They are individually
+unactionable (the issue's own acceptance criteria say "DO NOT change behaviour
+yet" / "a backtest verdict is required before a behavioural change") and were
+closed not-planned one after another — #322, #324, #334, #341, #345, #346, #349.
+The triage cost recurred every time the learning loop fired.
+
+**Root cause:** `ProposalApplier._file_feature_issue` opened a GitHub issue for
+every CODE_CHANGE / REGIME_ADJUSTMENT / NEW_AGENT proposal with **no gate on
+evidence sufficiency** — even when the proposal's own evidence block was flagged
+`evidence_sufficient: false`. The brief module deliberately tiers (never gates)
+evidence so the queue isn't starved, but that "never gate" contract was being
+applied at the *GitHub-issue escalation* boundary too, where it doesn't belong:
+a watch-item belongs in the dashboard proposal queue, not as a human-triage
+GitHub issue.
+
+**Fix:** Gate the issue-filing boundary only (`_file_feature_issue`,
+`api/services/agents/proposal_applier.py`). When
+`settings.PROPOSAL_ISSUE_REQUIRE_SUFFICIENT_EVIDENCE` is True (default) and the
+proposal carries a present-but-insufficient evidence block
+(`proposal_brief.evidence_blocks_issue`), the handler records the proposal as a
+watch-item (status `watch_item`) via the normal `agent_logs` audit row — so it
+still lands in the stream/dashboard and the loop is never starved — but does NOT
+open a GitHub issue. The proposal escalates to an issue only once a
+backtest-backed sample firms up (`evidence_sufficient: true`, or sample ≥
+`PROPOSAL_SOLID_EVIDENCE_TRADES` with a non-null backtest). Proposals with no
+evidence block (structural architect work) are unaffected. Set the flag False to
+restore filing every proposal as an issue.
+
+**Regression test:**
+`tests/agents/test_proposal_applier.py::test_insufficient_evidence_proposal_not_filed_as_issue`,
+`::test_sufficient_evidence_proposal_is_filed_as_issue`,
+`::test_evidence_gate_disabled_files_every_proposal`,
+`tests/core/test_proposal_brief.py::test_evidence_blocks_issue_gates_only_present_insufficient_evidence`
+
+---
+
 ## Closed trades never showed a grade, and the grade-gated proposal producers never fired
 
 **Symptom:** The Learning page's "Graded Trade Outcomes" table showed every
