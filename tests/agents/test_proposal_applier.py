@@ -1145,3 +1145,119 @@ async def test_feature_issue_builds_brief_when_absent(monkeypatch):
     await applier.process("proposals", "1-0", proposal)
     assert "Ready-to-paste Claude Code prompt" in captured["body"]
     assert "Acceptance criteria" in captured["body"]
+
+
+# ---------------------------------------------------------------------------
+# Evidence gate — insufficient-evidence proposals are recorded as watch-items,
+# NOT escalated to GitHub issues (regression for the recurring [auto] issue
+# spam: #322/#324/#334/#341/#345/#346/#349, all closed not-planned).
+# ---------------------------------------------------------------------------
+
+
+def _insufficient_evidence_proposal():
+    """A regime_adjustment proposal shaped exactly like the recurring noise:
+    its own evidence block flags ``evidence_sufficient: false`` with no backtest."""
+    from api.constants import FieldName, ProposalType
+
+    return {
+        FieldName.PROPOSAL_TYPE: ProposalType.REGIME_ADJUSTMENT,
+        FieldName.CONTENT: {
+            FieldName.DESCRIPTION: "SOL/USD predicted better than BTC/USD",
+            FieldName.EVIDENCE: {
+                FieldName.SAMPLE_SIZE: 5,
+                FieldName.WIN_RATE: "0.8",
+                FieldName.BACKTEST: None,
+                FieldName.EVIDENCE_SUFFICIENT: False,
+            },
+        },
+        FieldName.TRACE_ID: "t-gated",
+    }
+
+
+async def test_insufficient_evidence_proposal_not_filed_as_issue(monkeypatch):
+    """An ``evidence_sufficient: false`` proposal must NOT open a GitHub issue —
+    it is recorded as a watch-item instead (the loop is never starved)."""
+    from api.constants import FieldName, ProposalType
+    from api.services.agents.proposal_applier import ISSUE_STATUS_WATCH_ITEM
+
+    log_mock = AsyncMock()
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", log_mock)
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    issue_calls: list[str] = []
+
+    async def _fake_issue(self, title, body, labels=None):
+        issue_calls.append(title)
+        return {FieldName.STATUS: "opened", FieldName.PR_URL: "https://gh/issues/99"}
+
+    monkeypatch.setattr(
+        "api.services.gitops_publisher.GitOpsPublisher.open_feature_issue", _fake_issue
+    )
+
+    applier = _make_applier(_FakeRedis())
+    await applier.process("proposals", "1-0", _insufficient_evidence_proposal())
+
+    # No GitHub issue was opened ...
+    assert issue_calls == []
+    # ... but the proposal was still recorded (dashboard/audit), tagged watch-item.
+    assert log_mock.await_count == 1
+    log_payload = log_mock.await_args.args[2]
+    summary = log_payload[FieldName.CONTENT]
+    assert summary[FieldName.STATUS] == ISSUE_STATUS_WATCH_ITEM
+    assert summary[FieldName.PROPOSAL_TYPE] == ProposalType.REGIME_ADJUSTMENT
+
+
+async def test_sufficient_evidence_proposal_is_filed_as_issue(monkeypatch):
+    """The mirror case: a solid, backtest-backed proposal DOES open an issue."""
+    from api.constants import FieldName, ProposalType
+
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    issue_calls: list[str] = []
+
+    async def _fake_issue(self, title, body, labels=None):
+        issue_calls.append(title)
+        return {FieldName.STATUS: "opened", FieldName.PR_URL: "https://gh/issues/100"}
+
+    monkeypatch.setattr(
+        "api.services.gitops_publisher.GitOpsPublisher.open_feature_issue", _fake_issue
+    )
+
+    applier = _make_applier(_FakeRedis())
+    proposal = {
+        FieldName.PROPOSAL_TYPE: ProposalType.REGIME_ADJUSTMENT,
+        FieldName.CONTENT: {
+            FieldName.DESCRIPTION: "down-weight model X in risk-off",
+            FieldName.EVIDENCE: {
+                FieldName.SAMPLE_SIZE: 40,
+                FieldName.BACKTEST: {FieldName.WIN_RATE: "0.6"},
+                FieldName.EVIDENCE_SUFFICIENT: True,
+            },
+        },
+        FieldName.TRACE_ID: "t-solid",
+    }
+    await applier.process("proposals", "1-0", proposal)
+    assert len(issue_calls) == 1
+
+
+async def test_evidence_gate_disabled_files_every_proposal(monkeypatch):
+    """With the gate off, even an insufficient-evidence proposal is filed
+    (restores the pre-gate behaviour for operators who want every proposal)."""
+    from api.config import settings
+    from api.constants import FieldName
+
+    monkeypatch.setattr(settings, "PROPOSAL_ISSUE_REQUIRE_SUFFICIENT_EVIDENCE", False)
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_agent_log", AsyncMock())
+    monkeypatch.setattr("api.services.agents.proposal_applier.write_heartbeat", AsyncMock())
+    issue_calls: list[str] = []
+
+    async def _fake_issue(self, title, body, labels=None):
+        issue_calls.append(title)
+        return {FieldName.STATUS: "opened", FieldName.PR_URL: "https://gh/issues/101"}
+
+    monkeypatch.setattr(
+        "api.services.gitops_publisher.GitOpsPublisher.open_feature_issue", _fake_issue
+    )
+
+    applier = _make_applier(_FakeRedis())
+    await applier.process("proposals", "1-0", _insufficient_evidence_proposal())
+    assert len(issue_calls) == 1
