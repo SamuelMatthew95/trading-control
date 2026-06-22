@@ -202,6 +202,33 @@ def evidence_is_solid(evidence: dict[str, Any]) -> bool:
     )
 
 
+def evidence_blocks_issue(evidence: dict[str, Any]) -> bool:
+    """True when an evidence block is PRESENT and explicitly INSUFFICIENT.
+
+    The issue-filing gate (``ProposalApplier._file_feature_issue``) uses this to
+    decide whether a proposal escalates to a GitHub issue or is recorded as a
+    watch-item only. Semantics, by design:
+
+    - **Absent / empty evidence → False** (do NOT block). Structural proposals
+      (architect CODE_CHANGE / NEW_AGENT) carry no evidence framing and must
+      still be filed as before — the gate targets the noisy learning-loop
+      proposals, not human-design work.
+    - **Evidence present with an explicit ``evidence_sufficient`` flag** → honour
+      it (the generator's own determination; the irony of the recurring noise was
+      that it filed issues it had itself flagged ``evidence_sufficient: false``).
+    - **Evidence present without the flag** → fall back to the ``solid`` bar.
+
+    This never DROPS a proposal — the loop's "tiered, never gated" contract holds;
+    it only withholds the GitHub-issue escalation.
+    """
+    if not isinstance(evidence, dict) or not evidence:
+        return False
+    sufficient = evidence.get(FieldName.EVIDENCE_SUFFICIENT)
+    if sufficient is not None:
+        return not bool(sufficient)
+    return not evidence_is_solid(evidence)
+
+
 def evidence_from_reflection(reflection: dict[str, Any]) -> dict[str, Any]:
     """Assemble the evidence block a brief reads from a reflection payload.
 
