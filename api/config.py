@@ -62,7 +62,16 @@ class Settings(BaseSettings):
 
     # Agent trigger thresholds
     SIGNAL_EVERY_N_TICKS: int = 10
-    GRADE_EVERY_N_FILLS: int = 5
+    # Run the agent-grade cycle after every closed trade. GradeAgent grading is
+    # fully deterministic (no LLM, no token cost), so per-fill cadence is cheap.
+    # At the old default of 5 the cycle never reached its trigger on this paper
+    # system (a handful of closed trades a day), so the dashboard's grade history
+    # stayed empty, closed trades were never back-filled with a grade, and the
+    # grade-cycle-gated proposal producers (tool governance, SystemArchitect's
+    # grade-trajectory observer) never fired — the same starvation already fixed
+    # for REFLECT_EVERY_N_FILLS (10→1). Destructive grade actions stay protected
+    # by the separate GRADE_ACTION_MIN_FILLS statistical-significance gate.
+    GRADE_EVERY_N_FILLS: int = 1
     IC_UPDATE_EVERY_N_FILLS: int = 10
     # Reflect every N closed trades. Set to 1 so learning is INCREMENTAL: the
     # ReflectionAgent reflects after each closed trade, carrying the previous
