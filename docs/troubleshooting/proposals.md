@@ -6,6 +6,55 @@ and the dashboard Proposal Queue (ingestion, approve/reject, empty state).
 
 ---
 
+## Closed trades never showed a grade, and the grade-gated proposal producers never fired
+
+**Symptom:** The Learning page's "Graded Trade Outcomes" table showed every
+closed trade as "NR" (not rated), the grade-history / `learning_events` panel
+was empty, and the Proposals queue stayed empty — even with closed trades on the
+books. Live telemetry confirmed it: `get_agent_grades` returned `total: 0` and
+every `trade_feed` row had `grade: null`, despite a realized round-trip close.
+
+**Root cause (two stacked gaps):**
+1. **Per-trade grade computed but never surfaced.** `GradeAgent._score_and_persist_trade`
+   runs `score_trade(data)` on EVERY closed trade — a full deterministic grade
+   (A–F + `overall_score`) — but only persisted it to `trade_evaluations`. The
+   "Graded Trade Outcomes" table reads `grade`/`grade_score` off the trade row
+   itself. The only thing that wrote a grade onto the row was
+   `_backfill_grade_to_*`, which runs *exclusively* inside the every-N-fills
+   agent-grade cycle.
+2. **The agent-grade cycle almost never fired.** It was gated on
+   `self._fills % GRADE_EVERY_N_FILLS == 0` with `GRADE_EVERY_N_FILLS=5`. This
+   paper system closes a handful of trades a day, so `_fills` rarely reached a
+   multiple of 5 — exactly the starvation already fixed for
+   `REFLECT_EVERY_N_FILLS` (10→1). The cycle also drives the grade-cadence-gated
+   proposal producers (GradeAgent `_emit_tool_governance`, SystemArchitect's
+   grade-trajectory observer), so those never fired either.
+
+**Fix:**
+- `GradeAgent._grade_trade_row()` writes each closed trade's OWN per-trade
+  evaluation grade onto its trade-feed (memory `upsert_trade_fill`) / lifecycle
+  (DB `upsert_trade_lifecycle`) row the moment it closes, keyed on
+  execution_trace_id/order_id so it merges in place. Decoupled from the
+  agent-grade cadence; gated on realized PnL so the open leg isn't graded.
+- `GRADE_EVERY_N_FILLS` 5 → 1 (`api/config.py`). GradeAgent grading is fully
+  deterministic (no LLM, no token cost), so per-fill cadence is cheap and now
+  matches REFLECT_EVERY_N_FILLS. Destructive grade actions remain protected by
+  the separate `GRADE_ACTION_MIN_FILLS` statistical-significance gate.
+
+**Still operational, not code:** the LLM-driven proposal chain
+(reflection → StrategyProposer) stays dark while the configured provider fails
+every call (`fallback:reject_signal` on the decisions stream means a
+missing/invalid provider key). That is a deployment-secret issue, not code — the
+deterministic producers above no longer depend on it.
+
+**Regression tests:**
+`tests/agents/test_grade_agent.py::test_closed_trade_graded_on_its_own_evaluation`,
+`::test_open_leg_is_not_graded`,
+`::test_no_grade_before_trigger`, `::test_grade_triggers_at_n_fills` (pin the
+trigger explicitly so they test the mechanism, not the default).
+
+---
+
 ## Thin, evidence-less auto-proposals (issue #341) → Claude-Code-ready briefs + evidence tiering + a System Architect pass
 
 **Symptom:** The learning loop filed proposals a human/Claude could not act on.

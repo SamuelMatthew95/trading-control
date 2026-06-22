@@ -175,6 +175,7 @@ class GradeAgent(MultiStreamAgent):
 
     async def _score_and_persist_trade(self, data: dict[str, Any]) -> None:
         """Score one completed trade deterministically and persist the evaluation."""
+        evaluation: dict[str, Any] | None = None
         try:
             evaluation = score_trade(data)
             self._eval_buffer.append(evaluation)
@@ -188,6 +189,16 @@ class GradeAgent(MultiStreamAgent):
             )
         except Exception:
             log_structured("warning", "trade_score_failed", exc_info=True)
+
+        # Surface THIS trade's own deterministic grade onto its feed/lifecycle
+        # row right now, decoupled from the every-N-fills agent-grade cadence.
+        # score_trade() already grades every closed round-trip, but that grade
+        # only reached trade_evaluations — the Learning page's "Graded Trade
+        # Outcomes" table reads grade/grade_score off the trade row itself, so a
+        # low-volume paper system that rarely hits an agent-grade cycle rendered
+        # every closed trade "NR". Grade the row by its OWN evaluation here.
+        if evaluation is not None:
+            await self._grade_trade_row(data, evaluation)
 
         # Tool grading — attribute this trade's realized PnL back to the tools
         # that informed the decision behind it, closing the loop from outcome to
@@ -481,6 +492,63 @@ class GradeAgent(MultiStreamAgent):
             )
         except Exception:
             log_structured("warning", "grade_memory_update_failed", exc_info=True)
+
+    async def _grade_trade_row(self, data: dict[str, Any], evaluation: dict[str, Any]) -> None:
+        """Write a closed trade's OWN deterministic grade onto its trade row.
+
+        Keyed on the trade's execution_trace_id / order_id so the merge lands on
+        the existing row (memory ``upsert_trade_fill`` / DB ``upsert_trade_lifecycle``)
+        rather than appending a duplicate. Only closed round-trips (realized PnL
+        present) are graded — the opening leg is graded when the round-trip closes.
+        Best-effort: a write hiccup is a quiet no-op, never blocking grading.
+        """
+        if data.get(FieldName.PNL) is None:
+            return  # open leg — graded on the round-trip close
+        execution_trace_id = data.get(FieldName.EXECUTION_TRACE_ID) or data.get(FieldName.TRACE_ID)
+        order_id = data.get(FieldName.ORDER_ID)
+        if not execution_trace_id and not order_id:
+            return
+        grade = str(evaluation.get(FieldName.GRADE) or "")
+        if not grade:
+            return
+        grade_score = round(float(evaluation.get(FieldName.OVERALL_SCORE) or 0.0) * 100, 1)
+        tags = evaluation.get(FieldName.MISTAKES) or evaluation.get(FieldName.STRENGTHS) or []
+        detail = str(tags[0]).replace("_", " ") if tags else ""
+        grade_label = f"Grade {grade}" + (f" · {detail}" if detail else "")
+        graded_at = datetime.now(timezone.utc).isoformat()
+
+        if not is_db_available():
+            try:
+                get_runtime_store().upsert_trade_fill(
+                    {
+                        FieldName.EXECUTION_TRACE_ID: execution_trace_id,
+                        FieldName.ORDER_ID: order_id,
+                        FieldName.GRADE: grade,
+                        FieldName.GRADE_SCORE: grade_score,
+                        FieldName.GRADE_LABEL: grade_label,
+                        FieldName.GRADED_AT: graded_at,
+                        FieldName.STATUS: "graded",
+                    }
+                )
+            except Exception:
+                log_structured("warning", "trade_grade_memory_update_failed", exc_info=True)
+            return
+        try:
+            from api.services.agents.db_helpers import upsert_trade_lifecycle  # noqa: PLC0415
+
+            await upsert_trade_lifecycle(
+                execution_trace_id=str(execution_trace_id or order_id),
+                symbol=str(data.get(FieldName.SYMBOL) or ""),
+                side=str(data.get(FieldName.SIDE) or OrderSide.BUY),
+                order_id=str(order_id) if order_id else None,
+                grade=grade,
+                grade_score=grade_score,
+                grade_label=grade_label,
+                status="graded",
+                graded_at=graded_at,
+            )
+        except Exception:
+            log_structured("warning", "trade_grade_lifecycle_update_failed", exc_info=True)
 
     def _self_correction(self, score: float, dimension_vector: dict[str, Any]) -> dict[str, Any]:
         """Build the self-correction diagnostic, then fold this cycle into history.
