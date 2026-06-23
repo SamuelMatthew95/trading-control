@@ -1,3 +1,7 @@
+'use client'
+
+import { useState } from 'react'
+
 import type { AgentInstance, AgentLog, AgentHeartbeat } from '@/stores/useDashboardStore'
 import type { ApiHealth } from '@/hooks/useRestPoll'
 import { cn } from '@/lib/utils'
@@ -5,6 +9,7 @@ import { cardClass, sectionTitleClass, mutedClass } from '@/lib/dashboard-styles
 import { apiHealthBadgeClass } from '@/lib/dashboard-helpers'
 import { TONE_DOT } from '@/lib/design/sentiment'
 import { formatAgeFromMs } from '@/lib/formatters'
+import { Button } from '@/components/ui/button'
 import { NO_DATA, UI_COPY } from '@/constants/copy'
 import type { WiringFreshness } from './shared'
 
@@ -22,7 +27,11 @@ export interface SystemDiagnosticsProps {
   apiHealth: ApiHealth
 }
 
-/** Data-wiring health — where the dashboard numbers come from. For debugging. */
+/**
+ * Data-wiring health — where the dashboard numbers come from. For debugging,
+ * so it stays collapsed by default; the DB-connection badge is the one signal
+ * worth a glance without expanding.
+ */
 export function SystemDiagnostics({
   isInMemoryMode,
   agentStatuses,
@@ -31,6 +40,7 @@ export function SystemDiagnostics({
   wiringFreshness,
   apiHealth,
 }: SystemDiagnosticsProps) {
+  const [expanded, setExpanded] = useState(false)
   const apiRows = [
     { label: 'dashboard/state', value: apiHealth.dashboardState },
     { label: 'agent-instances', value: apiHealth.agentInstances },
@@ -38,8 +48,20 @@ export function SystemDiagnostics({
   ]
   return (
     <div className={cardClass}>
-      <p className={sectionTitleClass}>{UI_COPY.agentsPage.diagnosticsTitle}</p>
-      <p className={cn(mutedClass, 'mb-2')}>{UI_COPY.agentsPage.diagnosticsSubtitle}</p>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className={sectionTitleClass}>{UI_COPY.agentsPage.diagnosticsTitle}</p>
+          <p className={cn(mutedClass, 'mb-2')}>{UI_COPY.agentsPage.diagnosticsSubtitle}</p>
+        </div>
+        <Button
+          variant="outline"
+          size="xs"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+        >
+          {expanded ? UI_COPY.agentsPage.diagnosticsHideDetails : UI_COPY.agentsPage.diagnosticsShowDetails}
+        </Button>
+      </div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <span
           className={cn(
@@ -53,36 +75,41 @@ export function SystemDiagnostics({
           {isInMemoryMode ? UI_COPY.agentsPage.dbMemory : UI_COPY.agentsPage.dbConnected}
         </span>
       </div>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <p className={mutedClass}>
-          {UI_COPY.agentsPage.wiringHeartbeats}{' '}
-          <span className="font-mono text-foreground/80">{agentStatuses.length}</span>
-          <span className="ml-2 text-2xs">{formatWiringAge(wiringFreshness.heartbeatAgeMs)}</span>
-        </p>
-        <p className={mutedClass}>
-          {UI_COPY.agentsPage.wiringLifecycle}{' '}
-          <span className="font-mono text-foreground/80">{agentInstances.length}</span>
-          <span className="ml-2 text-2xs">{formatWiringAge(wiringFreshness.instanceAgeMs)}</span>
-        </p>
-        <p className={mutedClass}>
-          {UI_COPY.agentsPage.wiringLogs}{' '}
-          <span className="font-mono text-foreground/80">{agentLogs.length}</span>
-          <span className="ml-2 text-2xs">{formatWiringAge(wiringFreshness.logAgeMs)}</span>
-        </p>
-      </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        {apiRows.map((apiRow) => (
-          <span
-            key={apiRow.label}
-            className={cn(
-              'rounded px-2 py-0.5 text-3xs font-semibold uppercase tracking-caps',
-              apiHealthBadgeClass(apiRow.value),
-            )}
-          >
-            {apiRow.label}: {apiRow.value}
-          </span>
-        ))}
-      </div>
+
+      {expanded && (
+        <>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <p className={mutedClass}>
+              {UI_COPY.agentsPage.wiringHeartbeats}{' '}
+              <span className="font-mono text-foreground/80">{agentStatuses.length}</span>
+              <span className="ml-2 text-2xs">{formatWiringAge(wiringFreshness.heartbeatAgeMs)}</span>
+            </p>
+            <p className={mutedClass}>
+              {UI_COPY.agentsPage.wiringLifecycle}{' '}
+              <span className="font-mono text-foreground/80">{agentInstances.length}</span>
+              <span className="ml-2 text-2xs">{formatWiringAge(wiringFreshness.instanceAgeMs)}</span>
+            </p>
+            <p className={mutedClass}>
+              {UI_COPY.agentsPage.wiringLogs}{' '}
+              <span className="font-mono text-foreground/80">{agentLogs.length}</span>
+              <span className="ml-2 text-2xs">{formatWiringAge(wiringFreshness.logAgeMs)}</span>
+            </p>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {apiRows.map((apiRow) => (
+              <span
+                key={apiRow.label}
+                className={cn(
+                  'rounded px-2 py-0.5 text-3xs font-semibold uppercase tracking-caps',
+                  apiHealthBadgeClass(apiRow.value),
+                )}
+              >
+                {apiRow.label}: {apiRow.value}
+              </span>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }

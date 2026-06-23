@@ -157,7 +157,9 @@ export function AgentsDashboard(props: AgentsDashboardProps) {
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 xl:items-start">
           <LLMHealthPanel />
           <ToolGovernancePanel />
-          <PromptEvolutionPanel />
+          <div className="xl:col-span-2">
+            <PromptEvolutionPanel />
+          </div>
         </div>
       </section>
 

@@ -298,7 +298,7 @@ export function LLMHealthPanel() {
       </div>
 
       {/* Recent call history */}
-      {data.recent_results.length > 0 && (
+      {data.recent_results && data.recent_results.length > 0 && (
         <div>
           <p className={`mb-1.5 ${LABEL}`}>
             {COPY.lastCallsPrefix} {data.recent_results.length} {COPY.lastCalls}

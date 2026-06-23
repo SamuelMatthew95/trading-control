@@ -799,6 +799,8 @@ export const UI_COPY = {
     groupDiagnostics: 'Diagnostics',
     diagnosticsTitle: 'System Diagnostics',
     diagnosticsSubtitle: 'Data-wiring health — where these numbers come from. For debugging.',
+    diagnosticsShowDetails: 'Show details',
+    diagnosticsHideDetails: 'Hide details',
     dbMemory: 'DB: In-Memory Fallback',
     dbConnected: 'DB: Connected',
     noRecentTimestamp: 'No recent timestamp',

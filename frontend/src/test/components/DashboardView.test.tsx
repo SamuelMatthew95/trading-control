@@ -185,7 +185,8 @@ describe('DashboardView — agents', () => {
     expect(screen.getByText(/Agent Pipeline/i)).toBeInTheDocument()
     expect(screen.getByText(/Agents Online/i)).toBeInTheDocument()
     expect(screen.getByText(/System Diagnostics/i)).toBeInTheDocument()
-    expect(screen.getByText(/Heartbeats \(in-memory\/Redis\)/i)).toBeInTheDocument()
+    // Diagnostics detail (heartbeat/lifecycle/log counts) is collapsed by
+    // default behind a toggle — covered by SystemDiagnostics.test.tsx.
     // The scorecards are the single per-agent view — the redundant Agent Status
     // table ("Live · Hybrid" rows) was removed.
     expect(screen.getByText('Agent Scorecards')).toBeInTheDocument()
