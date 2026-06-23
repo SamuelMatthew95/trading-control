@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 
 import { SystemDiagnostics } from '@/components/dashboard/agents/SystemDiagnostics'
 import type { AgentLog, AgentStatus } from '@/stores/useDashboardStore'
@@ -40,6 +40,7 @@ describe('SystemDiagnostics', () => {
       />,
     )
     expect(screen.getByText('DB: Connected')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Show details'))
     expect(container.textContent).toContain('dashboard/state: ok')
     expect(container.textContent).toContain('history/events: error')
   })
