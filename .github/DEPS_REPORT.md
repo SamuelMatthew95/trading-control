@@ -1,6 +1,97 @@
-# Dependency Audit Report
+# Dependency Audit — 2026-09-05
 
-> Auto-generated every 2 days by the [Dependency Audit](../actions/workflows/auto-pr-deps.yml) workflow.
-> This file is updated automatically — do not edit manually.
+> Auto-generated every 2 days. Review and update packages manually.
 
-No audit has run yet. Trigger the workflow manually from the Actions tab, or wait for the next scheduled run.
+## 🐍 Python (`requirements.txt`)
+
+**22 outdated package(s):**
+
+```
+Package                  Current    Latest
+--------------------------------------------------
+aiohttp        3.14.1  3.14.3  wheel
+asyncpg        0.29.0  0.31.0  wheel
+fakeredis      2.34.1  2.37.1  wheel
+fastapi        0.136.3 0.141.1 wheel
+fastmcp        3.4.7   4.0.3   wheel
+fastmcp-slim   3.4.7   4.0.3   wheel
+google-genai   2.8.0   2.22.0  wheel
+gunicorn       23.0.0  26.2.0  wheel
+mcp            1.29.1  2.1.1   wheel
+mypy           1.7.1   2.3.1   wheel
+pydantic       2.11.7  2.13.5  wheel
+pydantic_core  2.33.2  2.48.0  wheel
+pytest         9.0.3   9.1.1   wheel
+pytest-asyncio 1.3.0   1.4.0   wheel
+python-dotenv  1.2.2   1.2.3   wheel
+redis          5.2.1   8.1.0   wheel
+ruff           0.15.13 0.16.6  wheel
+schedule       1.2.0   1.2.2   wheel
+setuptools     79.0.1  84.0.0  wheel
+structlog      23.2.0  26.1.0  wheel
+uvicorn        0.38.0  0.52.4  wheel
+websockets     15.0.1  17.1    wheel
+```
+
+## ⚛️ Frontend (`frontend/package.json`)
+
+**Outdated package(s):**
+
+```
+┌───────────────────────────────────┬──────────┬─────────┐
+│ Package                           │ Current  │ Latest  │
+├───────────────────────────────────┼──────────┼─────────┤
+│ @testing-library/user-event (dev) │ 14.6.1   │ 14.6.7  │
+├───────────────────────────────────┼──────────┼─────────┤
+│ postcss                           │ 8.5.8    │ 8.5.28  │
+├───────────────────────────────────┼──────────┼─────────┤
+│ zustand                           │ 5.0.12   │ 5.0.15  │
+├───────────────────────────────────┼──────────┼─────────┤
+│ autoprefixer                      │ 10.4.27  │ 10.5.5  │
+├───────────────────────────────────┼──────────┼─────────┤
+│ prettier (dev)                    │ 3.8.1    │ 3.9.6   │
+├───────────────────────────────────┼──────────┼─────────┤
+│ tailwind-merge                    │ 3.5.0    │ 3.6.0   │
+├───────────────────────────────────┼──────────┼─────────┤
+│ @testing-library/jest-dom (dev)   │ 6.9.1    │ 7.0.1   │
+├───────────────────────────────────┼──────────┼─────────┤
+│ @testing-library/react (dev)      │ 13.4.0   │ 16.3.3  │
+├───────────────────────────────────┼──────────┼─────────┤
+│ @types/node                       │ 20.19.37 │ 26.4.1  │
+├───────────────────────────────────┼──────────┼─────────┤
+│ @types/react                      │ 18.3.28  │ 19.2.18 │
+├───────────────────────────────────┼──────────┼─────────┤
+│ @types/react-dom                  │ 18.3.7   │ 19.2.7  │
+├───────────────────────────────────┼──────────┼─────────┤
+│ @vitejs/plugin-react (dev)        │ 5.2.0    │ 6.1.1   │
+├───────────────────────────────────┼──────────┼─────────┤
+│ @vitest/coverage-v8 (dev)         │ 3.2.4    │ 5.0.0   │
+├───────────────────────────────────┼──────────┼─────────┤
+│ eslint (dev)                      │ 8.57.1   │ 10.10.0 │
+├───────────────────────────────────┼──────────┼─────────┤
+│ eslint-config-next (dev)          │ 14.2.35  │ 16.3.4  │
+├───────────────────────────────────┼──────────┼─────────┤
+│ jsdom (dev)                       │ 26.1.0   │ 30.0.1  │
+├───────────────────────────────────┼──────────┼─────────┤
+│ next                              │ 14.2.35  │ 16.3.4  │
+├───────────────────────────────────┼──────────┼─────────┤
+│ react                             │ 18.3.1   │ 19.2.8  │
+├───────────────────────────────────┼──────────┼─────────┤
+│ react-dom                         │ 18.3.1   │ 19.2.8  │
+├───────────────────────────────────┼──────────┼─────────┤
+│ recharts                          │ 2.15.4   │ 3.10.1  │
+├───────────────────────────────────┼──────────┼─────────┤
+│ tailwindcss                       │ 3.4.19   │ 4.3.3   │
+├───────────────────────────────────┼──────────┼─────────┤
+│ typescript                        │ 5.9.3    │ 7.0.2   │
+├───────────────────────────────────┼──────────┼─────────┤
+│ vitest (dev)                      │ 3.2.4    │ 5.0.0   │
+├───────────────────────────────────┼──────────┼─────────┤
+│ lucide-react                      │ 0.294.0  │ 1.41.0  │
+├───────────────────────────────────┼──────────┼─────────┤
+│ next-themes                       │ 0.3.0    │ 0.4.6   │
+└───────────────────────────────────┴──────────┴─────────┘
+```
+
+---
+_To update: edit `requirements.txt` or `frontend/package.json` with the new versions and open a PR._
